@@ -252,17 +252,28 @@ class PowerGenerationDatabase:
             if "timestamp_ms" in df.columns:
                 # Handle both string datetime and existing timestamp formats
                 def convert_to_timestamp_ms(ts):
-                    if isinstance(ts, str):
-                        # Parse datetime string and convert to milliseconds
+                    if isinstance(ts, pd.Timestamp):
+                        # Convert pandas Timestamp directly to milliseconds
+                        return int(ts.timestamp() * 1000)
+                    elif isinstance(ts, str):
                         try:
-                            dt = pd.to_datetime(ts)
+                            # Parse datetime string and convert to milliseconds
+                            dt = pd.to_datetime(ts, errors="coerce")
+                            if pd.isnull(dt):
+                                raise ValueError(f"Invalid datetime format: {ts}")
                             return int(dt.timestamp() * 1000)
-                        except:
-                            return ts
+                        except Exception as e:
+                            print(f"⚠️ Skipping invalid timestamp: {ts} ({e})")
+                            return None  # Return None for invalid timestamps
+                    elif pd.notnull(ts):
+                        return int(ts)  # Assume it's already a valid timestamp
                     else:
-                        return ts
+                        return None  # Handle NaN or None values
 
                 df["timestamp_ms"] = df["timestamp_ms"].apply(convert_to_timestamp_ms)
+
+                # Drop rows with invalid timestamps
+                df = df.dropna(subset=["timestamp_ms"]).reset_index(drop=True)
 
             # Ensure column order matches table schema
             expected_columns = [
