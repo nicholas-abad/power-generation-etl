@@ -175,3 +175,52 @@ Create an Airflow connection:
 	•	Materialized views for heavy aggregations
 	•	Source-level data quality checks
 	•	Alerting on failed or delayed pipelines
+
+---
+
+## Project Tickets
+
+1. **Design SQL schema for EIA data**  
+   Define tables and fields for US electricity generation data. This ensures data is organized for efficient storage and querying.
+
+2. **Design SQL schema for NPP (India) data**  
+   Create a schema for India's power generation dataset. Necessary for integrating and analyzing Indian data alongside other sources.
+
+3. **Design SQL schema for ENTSOE (Europe) data**  
+   Structure tables for European electricity data. Enables consistent storage and cross-region analysis.
+
+4. **Set up local PostgreSQL database and create tables**  
+   Install and configure a local database for development. Allows you to test ETL scripts and schema before cloud deployment.
+
+5. **Refactor EIA ETL notebook into Python module**  
+   Convert notebook code to reusable Python scripts. Improves maintainability and enables automation.
+
+6. **Refactor NPP ETL notebook into Python module**  
+   Modularize India ETL code for consistency and easier updates.
+
+7. **Refactor ENTSOE ETL notebook into Python module**  
+   Standardize ETL process for European data, facilitating integration.
+
+8. **Write data loading scripts for each dataset**  
+   Automate loading cleaned data into the database. Ensures repeatable and error-free ingestion.
+
+9. **Test data ingestion into local database**  
+   Validate that data loads correctly and schema supports queries. Prevents issues before cloud migration.
+
+10. **Document schema and ETL process in README**  
+    Provide clear instructions and schema details. Helps collaborators understand and use the project.
+
+11. **Set up cloud PostgreSQL database (Neon or similar)**  
+    Prepare a cloud database for production use. Enables remote access and dashboard integration.
+
+12. **Update ETL scripts to load data into cloud database**  
+    Modify scripts to use cloud connection strings. Ensures seamless transition from local to cloud.
+
+13. **Create sample queries for dashboard integration**  
+    Develop example SQL queries for dashboard use. Demonstrates how to access and visualize data.
+
+14. **Set up automated ETL workflow (GitHub Actions or cron)**  
+    Schedule regular data updates. Keeps database and dashboard current with minimal manual effort.
+
+15. **Add error handling and logging to ETL scripts**  
+    Implement robust error checks and logs. Improves reliability and simplifies debugging.

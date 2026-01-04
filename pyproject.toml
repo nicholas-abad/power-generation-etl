@@ -5,12 +5,16 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "apache-airflow>=3.1.5",
     "iprogress>=0.4",
     "ipykernel>=7.1.0",
     "jupyter>=1.1.1",
     "loguru>=0.7.3",
     "notebook>=7.5.0",
     "pandas>=2.3.3",
+    "psycopg2-binary>=2.9.11",
+    "python-dotenv>=1.0.0",
     "ruff>=0.14.8",
+    "sqlalchemy>=2.0.25",
     "tqdm>=4.67.1",
 ]
