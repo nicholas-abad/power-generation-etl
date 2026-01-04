@@ -7,9 +7,12 @@ Handles ingestion for NPP, ENTSO-E, and EIA generation data into PostgreSQL.
 import json
 import os
 import uuid
+from datetime import datetime
+from io import StringIO
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
+import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
@@ -245,6 +248,22 @@ class PowerGenerationDatabase:
             df["extraction_run_id"] = extraction_run_id
             df["created_at_ms"] = int(datetime.now().timestamp() * 1000)
 
+            # Convert datetime strings to Unix timestamps in milliseconds
+            if "timestamp_ms" in df.columns:
+                # Handle both string datetime and existing timestamp formats
+                def convert_to_timestamp_ms(ts):
+                    if isinstance(ts, str):
+                        # Parse datetime string and convert to milliseconds
+                        try:
+                            dt = pd.to_datetime(ts)
+                            return int(dt.timestamp() * 1000)
+                        except:
+                            return ts
+                    else:
+                        return ts
+
+                df["timestamp_ms"] = df["timestamp_ms"].apply(convert_to_timestamp_ms)
+
             # Ensure column order matches table schema
             expected_columns = [
                 "extraction_run_id",
@@ -262,9 +281,9 @@ class PowerGenerationDatabase:
             df = df[expected_columns]
 
             # Use PostgreSQL COPY for fast bulk insert
-            with self.engine.raw_connection() as conn:
+            conn = self.engine.raw_connection()
+            try:
                 cursor = conn.cursor()
-
                 # Create a StringIO object from the DataFrame
                 output = StringIO()
                 df.to_csv(output, sep="\t", header=False, index=False)
@@ -277,7 +296,8 @@ class PowerGenerationDatabase:
 
                 conn.commit()
                 print(f"✅ Inserted {len(df)} ENTSO-E records")
-
+            finally:
+                conn.close()
             return True
 
         except Exception as e:

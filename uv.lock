@@ -2858,7 +2858,9 @@ dependencies = [
     { name = "notebook" },
     { name = "pandas" },
     { name = "psycopg2-binary" },
+    { name = "python-dotenv" },
     { name = "ruff" },
+    { name = "sqlalchemy" },
     { name = "tqdm" },
 ]
 
@@ -2872,7 +2874,9 @@ requires-dist = [
     { name = "notebook", specifier = ">=7.5.0" },
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "ruff", specifier = ">=0.14.8" },
+    { name = "sqlalchemy", specifier = ">=2.0.25" },
     { name = "tqdm", specifier = ">=4.67.1" },
 ]
 

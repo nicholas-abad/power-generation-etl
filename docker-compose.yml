@@ -3,17 +3,15 @@ version: '3.8'
 services:
   postgres:
     image: postgres:15
-    container_name: npp_postgres
+    container_name: power_generation_postgres
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: npp_database
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: power_generation
     ports:
-      - "8000:5432"
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    tmpfs:
-      - /var/lib/postgresql/data
 
 volumes:
   postgres_data:

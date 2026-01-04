@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS entsoe_generation_data (
     created_at_ms BIGINT NOT NULL,
     
     -- Location and technology identifiers
-    country_code VARCHAR(10) NOT NULL,
+    country_code VARCHAR(32) NOT NULL,
     psr_type VARCHAR(50) NOT NULL,        -- Power System Resource type (fuel/technology)
     plant_name TEXT NOT NULL,
     fuel_type VARCHAR(100) NOT NULL,      -- Parsed from plant data
