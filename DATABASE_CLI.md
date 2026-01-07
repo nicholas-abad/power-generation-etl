@@ -14,15 +14,15 @@ The `database_management.py` CLI provides a unified interface for:
 
 ```bash
 # 1. Set up database (creates all tables)
-python src/database_management.py setup all
+uv run src/database_management.py setup all
 
 # 2. Load data from each source
-python src/database_management.py load-data entsoe ./data/entsoe_data.jsonl
-python src/database_management.py load-data npp ./data/npp_data.jsonl --metadata ./data/metadata.json
-python src/database_management.py load-data eia ./data/eia_data_etl.jsonl
+uv run src/database_management.py load-data entsoe ./data/entsoe_data.jsonl
+uv run src/database_management.py load-data npp ./data/npp_data.jsonl --metadata ./data/metadata.json
+uv run src/database_management.py load-data eia ./data/eia_data_etl.jsonl
 
 # 3. View statistics
-python src/database_management.py stats
+uv run src/database_management.py stats
 ```
 
 ## Configuration
@@ -55,12 +55,12 @@ Create database tables for one or all data sources.
 
 ```bash
 # Create all tables
-python src/database_management.py setup all
+uv run src/database_management.py setup all
 
 # Create specific table
-python src/database_management.py setup npp
-python src/database_management.py setup entsoe
-python src/database_management.py setup eia
+uv run src/database_management.py setup npp
+uv run src/database_management.py setup entsoe
+uv run src/database_management.py setup eia
 ```
 
 **Tables created:**
@@ -75,7 +75,7 @@ Load JSONL data into the database.
 #### ENTSOE Data
 
 ```bash
-python src/database_management.py load-data entsoe ./data/entsoe_monthly_2020_01.jsonl
+uv run src/database_management.py load-data entsoe ./data/entsoe_monthly_2020_01.jsonl
 ```
 
 **Expected format:**
@@ -101,7 +101,7 @@ python src/database_management.py load-data entsoe ./data/entsoe_monthly_2020_01
 #### India NPP Data
 
 ```bash
-python src/database_management.py load-data npp \
+uv run src/database_management.py load-data npp \
   ./data/npp_generation_20250101_20250107.jsonl \
   --metadata ./data/scrape_metadata_<uuid>.json
 ```
@@ -142,7 +142,7 @@ python src/database_management.py load-data npp \
 #### EIA USA Data
 
 ```bash
-python src/database_management.py load-data eia ./data/eia_generator_data_2022_2022_etl.jsonl
+uv run src/database_management.py load-data eia ./data/eia_generator_data_2022_2022_etl.jsonl
 ```
 
 **Expected ETL-compatible format:**
@@ -175,7 +175,7 @@ The CLI also supports legacy format (without `extraction_run_id` and `created_at
 Display record counts for all tables.
 
 ```bash
-python src/database_management.py stats
+uv run src/database_management.py stats
 ```
 
 **Example output:**
@@ -194,10 +194,10 @@ Update existing table schemas (e.g., after schema changes).
 
 ```bash
 # Update ENTSOE schema
-python src/database_management.py update-schema entsoe
+uv run src/database_management.py update-schema entsoe
 
 # Update all schemas
-python src/database_management.py update-schema all
+uv run src/database_management.py update-schema all
 ```
 
 ## Data Source File Locations
@@ -237,7 +237,7 @@ eia_usa_generation/
 
 ```bash
 for file in entsoe-power-generation/data/plant_production/raw_data/entsoe_monthly_*.jsonl; do
-  python src/database_management.py load-data entsoe "$file"
+  uv run src/database_management.py load-data entsoe "$file"
 done
 ```
 
@@ -248,14 +248,14 @@ done
 DATA_FILE="./india-generation-npp/data/npp_generation_20190101_20251228.jsonl"
 METADATA_FILE="./india-generation-npp/data/scrape_metadata_<uuid>.json"
 
-python src/database_management.py load-data npp "$DATA_FILE" --metadata "$METADATA_FILE"
+uv run src/database_management.py load-data npp "$DATA_FILE" --metadata "$METADATA_FILE"
 ```
 
 ### Load EIA ETL-compatible files
 
 ```bash
 for file in eia_usa_generation/output/*_etl.jsonl; do
-  python src/database_management.py load-data eia "$file"
+  uv run src/database_management.py load-data eia "$file"
 done
 ```
 
@@ -291,7 +291,7 @@ done
 ```
 
 **Solutions:**
-1. Run `setup` command to ensure tables exist: `python src/database_management.py setup all`
+1. Run `setup` command to ensure tables exist: `uv run src/database_management.py setup all`
 2. Check JSONL file format matches expected schema
 3. For EIA data, ensure using `*_etl.jsonl` files (not legacy format)
 
@@ -354,7 +354,7 @@ volumes:
 Start database:
 ```bash
 docker-compose up -d
-python src/database_management.py setup all
+uv run src/database_management.py setup all
 ```
 
 ## Integration with Data Sources
@@ -369,7 +369,7 @@ This CLI is designed to work with the following repositories:
 
 After loading data:
 
-1. **Verify data:** `python src/database_management.py stats`
+1. **Verify data:** `uv run src/database_management.py stats`
 2. **Query data:** Use SQL client or pandas
 3. **Build dashboards:** Connect Streamlit or other viz tools
 4. **Set up Airflow:** Automate data loading with DAGs

@@ -132,15 +132,15 @@ docker run -d \
   postgres:15
 
 # 3. Set up database tables
-python src/database_management.py setup all
+uv run src/database_management.py setup all
 
 # 4. Load data from each source
-python src/database_management.py load-data entsoe ./path/to/entsoe_data.jsonl
-python src/database_management.py load-data npp ./path/to/npp_data.jsonl --metadata ./path/to/metadata.json
-python src/database_management.py load-data eia ./path/to/eia_data_etl.jsonl
+uv run src/database_management.py load-data entsoe ./path/to/entsoe_data.jsonl
+uv run src/database_management.py load-data npp ./path/to/npp_data.jsonl --metadata ./path/to/metadata.json
+uv run src/database_management.py load-data eia ./path/to/eia_data_etl.jsonl
 
 # 5. View statistics
-python src/database_management.py stats
+uv run src/database_management.py stats
 ```
 
 **See [DATABASE_CLI.md](./DATABASE_CLI.md) for complete CLI documentation.**
