@@ -233,9 +233,6 @@ class PowerGenerationDatabase:
         self, jsonl_file_path: str, extraction_run_id: str = None
     ) -> bool:
         """Insert ENTSO-E data from JSONL file."""
-        if extraction_run_id is None:
-            extraction_run_id = str(uuid.uuid4())
-
         try:
             # Read JSONL file into DataFrame
             df = pd.read_json(jsonl_file_path, lines=True)
@@ -244,9 +241,14 @@ class PowerGenerationDatabase:
                 print(f"⚠️ No ENTSO-E data found in {jsonl_file_path}")
                 return True
 
-            # Add extraction run ID and current timestamp
-            df["extraction_run_id"] = extraction_run_id
-            df["created_at_ms"] = int(datetime.now().timestamp() * 1000)
+            # Add extraction run ID and current timestamp only if not already present
+            if "extraction_run_id" not in df.columns:
+                if extraction_run_id is None:
+                    extraction_run_id = str(uuid.uuid4())
+                df["extraction_run_id"] = extraction_run_id
+
+            if "created_at_ms" not in df.columns:
+                df["created_at_ms"] = int(datetime.now().timestamp() * 1000)
 
             # Convert datetime strings to Unix timestamps in milliseconds
             if "timestamp_ms" in df.columns:
@@ -318,10 +320,11 @@ class PowerGenerationDatabase:
     def insert_eia_jsonl_data(
         self, jsonl_file_path: str, extraction_run_id: str = None
     ) -> bool:
-        """Insert EIA data from JSONL file."""
-        if extraction_run_id is None:
-            extraction_run_id = str(uuid.uuid4())
+        """Insert EIA data from JSONL file.
 
+        Supports both legacy format (without metadata) and ETL-compatible format
+        (with extraction_run_id and created_at_ms already included).
+        """
         try:
             # Read JSONL data
             with open(jsonl_file_path, "r") as f:
@@ -331,10 +334,21 @@ class PowerGenerationDatabase:
                 print("⚠️ No EIA data found in JSONL file")
                 return True
 
-            # Add extraction metadata
-            for record in data:
-                record["extraction_run_id"] = extraction_run_id
-                record["created_at_ms"] = int(datetime.now().timestamp() * 1000)
+            # Check if metadata fields already exist in the data
+            has_extraction_run_id = "extraction_run_id" in data[0]
+            has_created_at_ms = "created_at_ms" in data[0]
+
+            # Add extraction metadata only if not already present
+            if not has_extraction_run_id or not has_created_at_ms:
+                if extraction_run_id is None:
+                    extraction_run_id = str(uuid.uuid4())
+                created_at_ms = int(datetime.now().timestamp() * 1000)
+
+                for record in data:
+                    if not has_extraction_run_id:
+                        record["extraction_run_id"] = extraction_run_id
+                    if not has_created_at_ms:
+                        record["created_at_ms"] = created_at_ms
 
             # Bulk insert using pandas
             df = pd.DataFrame(data)
