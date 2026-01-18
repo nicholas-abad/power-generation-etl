@@ -4,6 +4,20 @@ data/
 # Do not ignore README.md or other documentation files
 !data/README.md
 
+# Data files - too large for version control
+*.jsonl
+*.csv
+*.parquet
+*.feather
+*.h5
+*.hdf5
+output/
+outputs/
+backups/
+*.backup
+*_backup.*
+/tmp/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

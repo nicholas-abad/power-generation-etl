@@ -83,7 +83,7 @@ def update_schema(table_type: str = "entsoe"):
         return False
 
 
-def load_data(data_source: str, jsonl_file: str, metadata_file: str = None):
+def load_data(data_source: str, jsonl_file: str):
     """Load data from JSONL file into database."""
     print(f"📥 Loading {data_source} data from {jsonl_file}")
 
@@ -99,7 +99,7 @@ def load_data(data_source: str, jsonl_file: str, metadata_file: str = None):
 
     success = False
     if data_source == "npp":
-        success = db.insert_npp_jsonl_data(jsonl_file, metadata_file)
+        success = db.insert_npp_jsonl_data(jsonl_file)
     elif data_source == "entsoe":
         success = db.insert_entsoe_jsonl_data(jsonl_file)
     elif data_source == "eia":
@@ -145,7 +145,7 @@ def main():
 Examples:
   python database_management.py setup all
   python database_management.py setup npp
-  python database_management.py load-data npp ./data/npp_data.jsonl --metadata ./data/metadata.json
+  python database_management.py load-data npp ./data/npp_data.jsonl
   python database_management.py load-data entsoe ./data/entsoe_data.jsonl
   python database_management.py stats
         """,
@@ -185,7 +185,6 @@ Examples:
         "data_source", choices=["npp", "entsoe", "eia"], help="Type of data source"
     )
     load_parser.add_argument("jsonl_file", help="Path to JSONL file")
-    load_parser.add_argument("--metadata", help="Path to metadata file (for NPP data)")
 
     # Stats command
     subparsers.add_parser("stats", help="Show database statistics")
@@ -204,7 +203,7 @@ Examples:
     elif args.command == "update-schema":
         success = update_schema(args.table_type)
     elif args.command == "load-data":
-        success = load_data(args.data_source, args.jsonl_file, args.metadata)
+        success = load_data(args.data_source, args.jsonl_file)
     elif args.command == "stats":
         success = show_database_stats()
 

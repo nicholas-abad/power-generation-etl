@@ -155,9 +155,15 @@ class PowerGenerationDatabase:
         return success
 
     def insert_npp_jsonl_data(
-        self, jsonl_file_path: str, metadata_file_path: str = None
+        self, jsonl_file_path: str, extraction_run_id: str = None
     ) -> bool:
-        """Insert NPP data from JSONL file."""
+        """Insert NPP data from JSONL file.
+
+        Harmonized format matching EIA/ENTSOE schema:
+        - extraction_run_id (UUID)
+        - created_at_ms (BIGINT milliseconds)
+        - timestamp_ms (BIGINT milliseconds)
+        """
         try:
             # Read JSONL data
             with open(jsonl_file_path, "r") as f:
@@ -167,66 +173,41 @@ class PowerGenerationDatabase:
                 print("⚠️ No NPP data found in JSONL file")
                 return True
 
-            # Handle metadata if provided
-            scrape_id = str(uuid.uuid4())
-            if metadata_file_path and os.path.exists(metadata_file_path):
-                with open(metadata_file_path, "r") as f:
-                    metadata = json.load(f)
-                scrape_id = metadata.get("scrape_id", scrape_id)
+            # Generate extraction metadata (matches EIA/ENTSOE pattern)
+            if extraction_run_id is None:
+                extraction_run_id = str(uuid.uuid4())
+            created_at_ms = int(datetime.now().timestamp() * 1000)
 
-                # Insert metadata
-                self._insert_npp_metadata(metadata)
+            # Transform data to match harmonized schema
+            for record in data:
+                # Add extraction metadata
+                record["extraction_run_id"] = extraction_run_id
+                record["created_at_ms"] = created_at_ms
 
-            # Insert generation data
-            with self.engine.raw_connection() as conn:
-                cursor = conn.cursor()
+                # Convert date (Unix seconds) to timestamp_ms (milliseconds)
+                if "date" in record:
+                    timestamp_seconds = record.pop("date")  # Remove old field
+                    record["timestamp_ms"] = int(timestamp_seconds * 1000)
 
-                # Add scrape_id to each record
-                for record in data:
-                    record["scrape_id"] = scrape_id
+                # Remove old scrape_id field if present
+                record.pop("scrape_id", None)
 
-                # Bulk insert
-                if data:
-                    columns = list(data[0].keys())
-                    values = [[record[col] for col in columns] for record in data]
+            # Bulk insert using pandas (matches EIA pattern)
+            df = pd.DataFrame(data)
+            df.to_sql(
+                "npp_generation",
+                self.engine,
+                if_exists="append",
+                index=False,
+                method="multi",
+                chunksize=1000,
+            )
 
-                    placeholders = ", ".join(["%s"] * len(columns))
-                    query = f"INSERT INTO npp_generation ({', '.join(columns)}) VALUES ({placeholders})"
-
-                    cursor.executemany(query, values)
-                    conn.commit()
-
-                print(f"✅ Inserted {len(data)} NPP records")
-                return True
+            print(f"✅ Inserted {len(data)} NPP records")
+            return True
 
         except Exception as e:
             print(f"❌ Failed to insert NPP data: {e}")
-            return False
-
-    def _insert_npp_metadata(self, metadata: dict) -> bool:
-        """Insert NPP scrape metadata."""
-        try:
-            with self.engine.raw_connection() as conn:
-                cursor = conn.cursor()
-
-                # Prepare metadata values
-                columns = list(metadata.keys())
-                values = []
-                for col in columns:
-                    value = metadata[col]
-                    if isinstance(value, (dict, list)):
-                        values.append(json.dumps(value))
-                    else:
-                        values.append(value)
-
-                placeholders = ", ".join(["%s"] * len(columns))
-                query = f"INSERT INTO scrape_metadata ({', '.join(columns)}) VALUES ({placeholders}) ON CONFLICT (scrape_id) DO NOTHING"
-                cursor.execute(query, values)
-                conn.commit()
-
-            return True
-        except Exception as e:
-            print(f"❌ Failed to insert NPP metadata: {e}")
             return False
 
     def insert_entsoe_jsonl_data(
