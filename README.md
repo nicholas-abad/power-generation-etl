@@ -74,8 +74,13 @@ power-generation-etl/
 │   ├── eia_monthly.py
 │   ├── npp_monthly.py
 │   └── entsoe_monthly.py
-├── scripts/              # Helper scripts (optional)
-├── sql/                  # SQL helpers / schema (optional)
+├── schema/               # SQL schema definitions
+├── src/                  # Core Python modules
+│   ├── database.py       # Database operations with validation
+│   ├── database_management.py  # CLI tool
+│   └── validator.py      # Data validation module
+├── tests/                # Unit tests
+│   └── test_validator.py # Validation tests
 ├── README.md
 └── pyproject.toml
 ```
@@ -86,15 +91,19 @@ power-generation-etl/
 Each Airflow DAG follows the same high-level pattern:
 
 1. **Compute time window**
-   - Derive the data window from Airflow’s `logical_date`
+   - Derive the data window from Airflow's `logical_date`
 2. **Extract**
    - Fetch raw data from the upstream source
 3. **Transform**
    - Normalize into a canonical schema
-4. **Load**
-   - UPSERT into PostgreSQL (idempotent)
-5. **Record metadata**
-   - Track successful runs and row counts
+4. **Validate**
+   - Validate records against schema, type, and range rules
+   - Detect and skip duplicates within each file
+   - Generate validation reports
+5. **Load**
+   - UPSERT only valid records into PostgreSQL (idempotent)
+6. **Record metadata**
+   - Track successful runs, row counts, and validation statistics
 
 Each source runs independently and can be retried or backfilled safely.
 
@@ -134,12 +143,16 @@ docker run -d \
 # 3. Set up database tables
 uv run src/database_management.py setup all
 
-# 4. Load data from each source
+# 4. Load data from each source (with automatic validation)
 uv run src/database_management.py load-data entsoe ./path/to/entsoe_data.jsonl
 uv run src/database_management.py load-data npp ./path/to/npp_data.jsonl
 uv run src/database_management.py load-data eia ./path/to/eia_data_etl.jsonl
 
-# 5. View statistics
+# 5. Load data with validation report
+uv run src/database_management.py load-data npp ./path/to/npp_data.jsonl \
+  --validation-report validation_report.json
+
+# 6. View statistics
 uv run src/database_management.py stats
 ```
 
@@ -221,6 +234,66 @@ All three data sources use a **consistent metadata format**:
 - Schema: `extraction_run_id`, `created_at_ms`, `timestamp_ms`, generator details
 
 ⸻
+
+## Data Validation
+
+The ETL layer includes comprehensive data validation that runs automatically during data loading:
+
+### Validation Features
+
+- **Schema validation** - Ensures all required fields are present
+- **Type validation** - Verifies correct data types (string, int, float)
+- **Range validation** - Checks values are within acceptable ranges (e.g., non-negative generation)
+- **UUID validation** - Validates extraction_run_id format
+- **Timestamp validation** - Ensures timestamps are positive and not in the future
+- **Duplicate detection** - Detects and skips duplicate records within each file
+
+### Validation Behavior
+
+By default, invalid records are **skipped** and valid records are inserted. This allows partial data loads to succeed while tracking issues.
+
+```bash
+# Load with validation (default behavior - skip invalid records)
+uv run src/database_management.py load-data npp data.jsonl
+
+# Save detailed validation report
+uv run src/database_management.py load-data npp data.jsonl \
+  --validation-report report.json
+
+# Strict mode - fail on any validation errors
+uv run src/database_management.py load-data npp data.jsonl --strict
+```
+
+### Validation Report
+
+When using `--validation-report`, a JSON file is generated with:
+- Total, valid, invalid, and duplicate record counts
+- Errors grouped by type
+- Sample error details (first 10 errors)
+
+Example report:
+```json
+{
+  "timestamp": "2026-01-20T12:00:00",
+  "source_file": "npp_data.jsonl",
+  "total_records": 100,
+  "valid_records": 95,
+  "invalid_records": 3,
+  "duplicate_records": 2,
+  "errors_by_type": {"extraction_run_id": 1, "plant": 2},
+  "sample_errors": [...]
+}
+```
+
+### Validation Rules by Source
+
+| Source | Duplicate Key |
+|--------|--------------|
+| **NPP** | `(timestamp_ms, plant_and_unit)` |
+| **EIA** | `(timestamp_ms, plant_code, generator_id)` |
+| **ENTSOE** | `(timestamp_ms, country_code, psr_type, plant_name)` |
+
+---
 
 ## Design Principles
 	•	Idempotency first — every task can be safely rerun

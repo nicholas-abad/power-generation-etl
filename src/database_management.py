@@ -83,8 +83,20 @@ def update_schema(table_type: str = "entsoe"):
         return False
 
 
-def load_data(data_source: str, jsonl_file: str):
-    """Load data from JSONL file into database."""
+def load_data(
+    data_source: str,
+    jsonl_file: str,
+    validation_report: str = None,
+    strict: bool = False,
+):
+    """Load data from JSONL file into database with validation.
+
+    Args:
+        data_source: Type of data source (npp, entsoe, eia)
+        jsonl_file: Path to JSONL file
+        validation_report: Optional path to save validation report
+        strict: If True, fail on any validation errors
+    """
     print(f"📥 Loading {data_source} data from {jsonl_file}")
 
     if not Path(jsonl_file).exists():
@@ -98,14 +110,29 @@ def load_data(data_source: str, jsonl_file: str):
         return False
 
     success = False
+    report = None
+
     if data_source == "npp":
-        success = db.insert_npp_jsonl_data(jsonl_file)
+        success, report = db.insert_npp_jsonl_data(
+            jsonl_file, validation_report_path=validation_report
+        )
     elif data_source == "entsoe":
-        success = db.insert_entsoe_jsonl_data(jsonl_file)
+        success, report = db.insert_entsoe_jsonl_data(
+            jsonl_file, validation_report_path=validation_report
+        )
     elif data_source == "eia":
-        success = db.insert_eia_jsonl_data(jsonl_file)
+        success, report = db.insert_eia_jsonl_data(
+            jsonl_file, validation_report_path=validation_report
+        )
     else:
         print(f"❌ Unknown data source: {data_source}")
+        db.close()
+        return False
+
+    # Check strict mode
+    if strict and report and (report.invalid_count > 0 or report.duplicate_count > 0):
+        print("❌ Strict mode: failing due to validation errors")
+        db.close()
         return False
 
     if success:
@@ -147,6 +174,8 @@ Examples:
   python database_management.py setup npp
   python database_management.py load-data npp ./data/npp_data.jsonl
   python database_management.py load-data entsoe ./data/entsoe_data.jsonl
+  python database_management.py load-data npp ./data/npp_data.jsonl --validation-report report.json
+  python database_management.py load-data eia ./data/eia_data.jsonl --strict
   python database_management.py stats
         """,
     )
@@ -179,12 +208,24 @@ Examples:
 
     # Load data command
     load_parser = subparsers.add_parser(
-        "load-data", help="Load JSONL data into database"
+        "load-data", help="Load JSONL data into database with validation"
     )
     load_parser.add_argument(
         "data_source", choices=["npp", "entsoe", "eia"], help="Type of data source"
     )
     load_parser.add_argument("jsonl_file", help="Path to JSONL file")
+    load_parser.add_argument(
+        "--validation-report",
+        "-r",
+        help="Path to save validation report JSON",
+        default=None,
+    )
+    load_parser.add_argument(
+        "--strict",
+        "-s",
+        action="store_true",
+        help="Fail on any validation errors (default: skip invalid records)",
+    )
 
     # Stats command
     subparsers.add_parser("stats", help="Show database statistics")
@@ -203,7 +244,12 @@ Examples:
     elif args.command == "update-schema":
         success = update_schema(args.table_type)
     elif args.command == "load-data":
-        success = load_data(args.data_source, args.jsonl_file)
+        success = load_data(
+            args.data_source,
+            args.jsonl_file,
+            validation_report=args.validation_report,
+            strict=args.strict,
+        )
     elif args.command == "stats":
         success = show_database_stats()
 
