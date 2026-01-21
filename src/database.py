@@ -391,11 +391,23 @@ class PowerGenerationDatabase:
                     extraction_run_id = str(uuid.uuid4())
                 created_at_ms = int(datetime.now().timestamp() * 1000)
 
-                for record in data:
-                    if not has_extraction_run_id:
-                        record["extraction_run_id"] = extraction_run_id
-                    if not has_created_at_ms:
-                        record["created_at_ms"] = created_at_ms
+            for record in data:
+                if not has_extraction_run_id:
+                    record["extraction_run_id"] = extraction_run_id
+                if not has_created_at_ms:
+                    record["created_at_ms"] = created_at_ms
+                # Convert IDs to strings for SQL VARCHAR columns
+                if "utility_id" in record and not isinstance(record["utility_id"], str):
+                    record["utility_id"] = str(record["utility_id"])
+                if "plant_code" in record and not isinstance(record["plant_code"], str):
+                    record["plant_code"] = str(record["plant_code"])
+                if "generator_id" in record and not isinstance(record["generator_id"], str):
+                    record["generator_id"] = str(record["generator_id"])
+                # Add optional fields if missing
+                if "fuel_source" not in record:
+                    record["fuel_source"] = None
+                if "energy_source" not in record:
+                    record["energy_source"] = None
 
             # Validate data
             validator = DataValidator()

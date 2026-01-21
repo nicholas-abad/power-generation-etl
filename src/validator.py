@@ -64,7 +64,7 @@ NPP_SCHEMA = {
         "actual_generation": {"type": "float", "validation": "non_negative"},
     },
     "optional_fields": {
-        "unit": {"type": "str_or_null", "validation": None},
+        "unit": {"type": "str_or_null_or_number", "validation": None},
     },
     "duplicate_key": ("timestamp_ms", "plant_and_unit"),
 }
@@ -74,16 +74,17 @@ EIA_SCHEMA = {
         "extraction_run_id": {"type": "str", "validation": "uuid"},
         "created_at_ms": {"type": "int", "validation": "positive_timestamp"},
         "timestamp_ms": {"type": "int", "validation": "positive_timestamp"},
-        "utility_id": {"type": "str", "validation": "non_empty"},
-        "plant_code": {"type": "str", "validation": "non_empty"},
-        "generator_id": {"type": "str", "validation": "non_empty"},
+        "utility_id": {"type": "int_or_str", "validation": None},
+        "plant_code": {"type": "int_or_str", "validation": None},
+        "generator_id": {"type": "int_or_str", "validation": None},
         "state": {"type": "str", "validation": "state_code"},
-        "fuel_source": {"type": "str", "validation": "non_empty"},
         "prime_mover": {"type": "str", "validation": "non_empty"},
-        "energy_source": {"type": "str", "validation": "non_empty"},
-        "net_generation_mwh": {"type": "float", "validation": "non_negative"},
+        "net_generation_mwh": {"type": "float", "validation": None},
     },
-    "optional_fields": {},
+    "optional_fields": {
+        "fuel_source": {"type": "str_or_null", "validation": None},
+        "energy_source": {"type": "str_or_null", "validation": None},
+    },
     "duplicate_key": ("timestamp_ms", "plant_code", "generator_id"),
 }
 
@@ -160,6 +161,12 @@ class DataValidator:
         elif expected_type == "str_or_null":
             if value is not None and not isinstance(value, str):
                 return False, f"expected string or null, got {type(value).__name__}"
+        elif expected_type == "int_or_str":
+            if not isinstance(value, (int, str)) or isinstance(value, bool):
+                return False, f"expected int or string, got {type(value).__name__}"
+        elif expected_type == "str_or_null_or_number":
+            if value is not None and not isinstance(value, (str, int, float)):
+                return False, f"expected string, number, or null, got {type(value).__name__}"
         return True, ""
 
     def _check_validation(self, value: Any, validation: str) -> Tuple[bool, str]:

@@ -12,32 +12,30 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- EIA TABLES
 -- ============================================================================
 
--- EIA generation data table (placeholder structure)
--- TODO: Update based on actual EIA data structure
+-- EIA generation data table
 CREATE TABLE IF NOT EXISTS eia_generation_data (
     id BIGSERIAL PRIMARY KEY,
-    
+
     -- Extraction metadata
     extraction_run_id UUID NOT NULL,
     created_at_ms BIGINT NOT NULL,
-    
+
     -- Location and facility identifiers
     utility_id VARCHAR(20) NOT NULL,
     plant_code VARCHAR(20) NOT NULL,
     generator_id VARCHAR(20) NOT NULL,
     state VARCHAR(5) NOT NULL,
-    
-    -- Technology and fuel information
-    fuel_source VARCHAR(100) NOT NULL,
+
+    -- Technology and fuel information (optional in ETL format)
+    fuel_source VARCHAR(100),
     prime_mover VARCHAR(50) NOT NULL,
-    energy_source VARCHAR(50) NOT NULL,
-    
+    energy_source VARCHAR(50),
+
     -- Time series data
     timestamp_ms BIGINT NOT NULL,
     net_generation_mwh DOUBLE PRECISION NOT NULL,
-    
+
     -- Data quality constraints
-    CONSTRAINT positive_generation_eia CHECK (net_generation_mwh >= 0),
     CONSTRAINT valid_timestamps_eia CHECK (timestamp_ms > 0 AND created_at_ms > 0)
 );
 
