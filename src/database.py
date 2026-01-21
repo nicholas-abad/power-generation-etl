@@ -10,11 +10,13 @@ import uuid
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
+
+from validator import DataValidator, ValidationReport, save_report
 
 try:
     from dotenv import load_dotenv
@@ -155,23 +157,29 @@ class PowerGenerationDatabase:
         return success
 
     def insert_npp_jsonl_data(
-        self, jsonl_file_path: str, extraction_run_id: str = None
-    ) -> bool:
-        """Insert NPP data from JSONL file.
+        self,
+        jsonl_file_path: str,
+        extraction_run_id: str = None,
+        validation_report_path: str = None,
+    ) -> Tuple[bool, Optional[ValidationReport]]:
+        """Insert NPP data from JSONL file with validation.
 
         Harmonized format matching EIA/ENTSOE schema:
         - extraction_run_id (UUID)
         - created_at_ms (BIGINT milliseconds)
         - timestamp_ms (BIGINT milliseconds)
+
+        Returns:
+            Tuple of (success, validation_report)
         """
         try:
             # Read JSONL data
             with open(jsonl_file_path, "r") as f:
-                data = [json.loads(line) for line in f]
+                data = [json.loads(line) for line in f if line.strip()]
 
             if not data:
                 print("⚠️ No NPP data found in JSONL file")
-                return True
+                return True, None
 
             # Generate extraction metadata (matches EIA/ENTSOE pattern)
             if extraction_run_id is None:
@@ -180,83 +188,135 @@ class PowerGenerationDatabase:
 
             # Transform data to match harmonized schema
             for record in data:
-                # Add extraction metadata
-                record["extraction_run_id"] = extraction_run_id
-                record["created_at_ms"] = created_at_ms
+                # Support new harmonized format (preferred)
+                if "extraction_run_id" in record and "timestamp_ms" in record:
+                    # Already harmonized, just validate created_at_ms
+                    if "created_at_ms" not in record:
+                        record["created_at_ms"] = created_at_ms
+                else:
+                    # Legacy format: convert on the fly
+                    record["extraction_run_id"] = extraction_run_id
+                    record["created_at_ms"] = created_at_ms
 
-                # Convert date (Unix seconds) to timestamp_ms (milliseconds)
-                if "date" in record:
-                    timestamp_seconds = record.pop("date")  # Remove old field
-                    record["timestamp_ms"] = int(timestamp_seconds * 1000)
+                    # Convert date (Unix seconds) to timestamp_ms (milliseconds)
+                    if "date" in record:
+                        timestamp_seconds = record.pop("date")  # Remove old field
+                        record["timestamp_ms"] = int(timestamp_seconds * 1000)
 
-                # Remove old scrape_id field if present
-                record.pop("scrape_id", None)
+                    # Remove old scrape_id field if present
+                    record.pop("scrape_id", None)
 
-            # Bulk insert using pandas (matches EIA pattern)
-            df = pd.DataFrame(data)
-            df.to_sql(
-                "npp_generation",
-                self.engine,
-                if_exists="append",
-                index=False,
-                method="multi",
-                chunksize=1000,
+            # Validate data
+            validator = DataValidator()
+            valid_records, report = validator.validate_file(
+                data, "npp", jsonl_file_path
             )
 
-            print(f"✅ Inserted {len(data)} NPP records")
-            return True
+            # Log validation summary
+            print(
+                f"📋 Validation: {report.valid_count}/{report.total_count} records valid"
+            )
+            if report.invalid_count > 0:
+                print(f"⚠️ Skipped {report.invalid_count} invalid records")
+            if report.duplicate_count > 0:
+                print(f"⚠️ Skipped {report.duplicate_count} duplicate records")
+
+            # Save validation report if requested
+            if validation_report_path:
+                save_report(report, validation_report_path)
+
+            # Insert only valid records
+            if valid_records:
+                df = pd.DataFrame(valid_records)
+                df.to_sql(
+                    "npp_generation",
+                    self.engine,
+                    if_exists="append",
+                    index=False,
+                    method="multi",
+                    chunksize=1000,
+                )
+                print(f"✅ Inserted {len(valid_records)} NPP records")
+            else:
+                print("⚠️ No valid records to insert")
+
+            return True, report
 
         except Exception as e:
             print(f"❌ Failed to insert NPP data: {e}")
-            return False
+            return False, None
 
     def insert_entsoe_jsonl_data(
-        self, jsonl_file_path: str, extraction_run_id: str = None
-    ) -> bool:
-        """Insert ENTSO-E data from JSONL file."""
-        try:
-            # Read JSONL file into DataFrame
-            df = pd.read_json(jsonl_file_path, lines=True)
+        self,
+        jsonl_file_path: str,
+        extraction_run_id: str = None,
+        validation_report_path: str = None,
+    ) -> Tuple[bool, Optional[ValidationReport]]:
+        """Insert ENTSO-E data from JSONL file with validation.
 
-            if df.empty:
+        Returns:
+            Tuple of (success, validation_report)
+        """
+        try:
+            # Read JSONL data as list of dicts for validation
+            with open(jsonl_file_path, "r") as f:
+                data = [json.loads(line) for line in f if line.strip()]
+
+            if not data:
                 print(f"⚠️ No ENTSO-E data found in {jsonl_file_path}")
-                return True
+                return True, None
 
             # Add extraction run ID and current timestamp only if not already present
-            if "extraction_run_id" not in df.columns:
-                if extraction_run_id is None:
-                    extraction_run_id = str(uuid.uuid4())
-                df["extraction_run_id"] = extraction_run_id
+            if extraction_run_id is None:
+                extraction_run_id = str(uuid.uuid4())
+            created_at_ms = int(datetime.now().timestamp() * 1000)
 
-            if "created_at_ms" not in df.columns:
-                df["created_at_ms"] = int(datetime.now().timestamp() * 1000)
+            for record in data:
+                if "extraction_run_id" not in record:
+                    record["extraction_run_id"] = extraction_run_id
+                if "created_at_ms" not in record:
+                    record["created_at_ms"] = created_at_ms
 
-            # Convert datetime strings to Unix timestamps in milliseconds
-            if "timestamp_ms" in df.columns:
-                # Handle both string datetime and existing timestamp formats
-                def convert_to_timestamp_ms(ts):
-                    if isinstance(ts, pd.Timestamp):
-                        # Convert pandas Timestamp directly to milliseconds
-                        return int(ts.timestamp() * 1000)
-                    elif isinstance(ts, str):
+                # Convert datetime strings to Unix timestamps in milliseconds
+                if "timestamp_ms" in record:
+                    ts = record["timestamp_ms"]
+                    if isinstance(ts, str):
                         try:
-                            # Parse datetime string and convert to milliseconds
                             dt = pd.to_datetime(ts, errors="coerce")
                             if pd.isnull(dt):
-                                raise ValueError(f"Invalid datetime format: {ts}")
-                            return int(dt.timestamp() * 1000)
-                        except Exception as e:
-                            print(f"⚠️ Skipping invalid timestamp: {ts} ({e})")
-                            return None  # Return None for invalid timestamps
-                    elif pd.notnull(ts):
-                        return int(ts)  # Assume it's already a valid timestamp
-                    else:
-                        return None  # Handle NaN or None values
+                                record["timestamp_ms"] = None
+                            else:
+                                record["timestamp_ms"] = int(dt.timestamp() * 1000)
+                        except Exception:
+                            record["timestamp_ms"] = None
+                    elif ts is not None:
+                        record["timestamp_ms"] = int(ts)
 
-                df["timestamp_ms"] = df["timestamp_ms"].apply(convert_to_timestamp_ms)
+            # Validate data
+            validator = DataValidator()
+            valid_records, report = validator.validate_file(
+                data, "entsoe", jsonl_file_path
+            )
 
-                # Drop rows with invalid timestamps
-                df = df.dropna(subset=["timestamp_ms"]).reset_index(drop=True)
+            # Log validation summary
+            print(
+                f"📋 Validation: {report.valid_count}/{report.total_count} records valid"
+            )
+            if report.invalid_count > 0:
+                print(f"⚠️ Skipped {report.invalid_count} invalid records")
+            if report.duplicate_count > 0:
+                print(f"⚠️ Skipped {report.duplicate_count} duplicate records")
+
+            # Save validation report if requested
+            if validation_report_path:
+                save_report(report, validation_report_path)
+
+            if not valid_records:
+                print("⚠️ No valid records to insert")
+                return True, report
+
+            # Convert to DataFrame for insertion
+            df = pd.DataFrame(valid_records)
 
             # Ensure column order matches table schema
             expected_columns = [
@@ -292,28 +352,34 @@ class PowerGenerationDatabase:
                 print(f"✅ Inserted {len(df)} ENTSO-E records")
             finally:
                 conn.close()
-            return True
+            return True, report
 
         except Exception as e:
             print(f"❌ Failed to insert ENTSO-E data from {jsonl_file_path}: {e}")
-            return False
+            return False, None
 
     def insert_eia_jsonl_data(
-        self, jsonl_file_path: str, extraction_run_id: str = None
-    ) -> bool:
-        """Insert EIA data from JSONL file.
+        self,
+        jsonl_file_path: str,
+        extraction_run_id: str = None,
+        validation_report_path: str = None,
+    ) -> Tuple[bool, Optional[ValidationReport]]:
+        """Insert EIA data from JSONL file with validation.
 
         Supports both legacy format (without metadata) and ETL-compatible format
         (with extraction_run_id and created_at_ms already included).
+
+        Returns:
+            Tuple of (success, validation_report)
         """
         try:
             # Read JSONL data
             with open(jsonl_file_path, "r") as f:
-                data = [json.loads(line) for line in f]
+                data = [json.loads(line) for line in f if line.strip()]
 
             if not data:
                 print("⚠️ No EIA data found in JSONL file")
-                return True
+                return True, None
 
             # Check if metadata fields already exist in the data
             has_extraction_run_id = "extraction_run_id" in data[0]
@@ -331,23 +397,45 @@ class PowerGenerationDatabase:
                     if not has_created_at_ms:
                         record["created_at_ms"] = created_at_ms
 
-            # Bulk insert using pandas
-            df = pd.DataFrame(data)
-            df.to_sql(
-                "eia_generation_data",
-                self.engine,
-                if_exists="append",
-                index=False,
-                method="multi",
-                chunksize=1000,
+            # Validate data
+            validator = DataValidator()
+            valid_records, report = validator.validate_file(
+                data, "eia", jsonl_file_path
             )
 
-            print(f"✅ Inserted {len(data)} EIA records")
-            return True
+            # Log validation summary
+            print(
+                f"📋 Validation: {report.valid_count}/{report.total_count} records valid"
+            )
+            if report.invalid_count > 0:
+                print(f"⚠️ Skipped {report.invalid_count} invalid records")
+            if report.duplicate_count > 0:
+                print(f"⚠️ Skipped {report.duplicate_count} duplicate records")
+
+            # Save validation report if requested
+            if validation_report_path:
+                save_report(report, validation_report_path)
+
+            # Insert only valid records
+            if valid_records:
+                df = pd.DataFrame(valid_records)
+                df.to_sql(
+                    "eia_generation_data",
+                    self.engine,
+                    if_exists="append",
+                    index=False,
+                    method="multi",
+                    chunksize=1000,
+                )
+                print(f"✅ Inserted {len(valid_records)} EIA records")
+            else:
+                print("⚠️ No valid records to insert")
+
+            return True, report
 
         except Exception as e:
             print(f"❌ Failed to insert EIA data: {e}")
-            return False
+            return False, None
 
     def get_record_count(self, table_name: str) -> int:
         """Get total number of records in a specific table."""
