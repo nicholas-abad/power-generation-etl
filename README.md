@@ -205,7 +205,7 @@ This ETL system supports three data sources with **harmonized schemas** for cons
 |-------------|------------|--------|--------|
 | **ENTSOE** | `entsoe-power-generation` | JSONL | ✅ 100% Compatible |
 | **India NPP** | `india-generation-npp` | JSONL | ✅ 100% Compatible (Harmonized) |
-| **EIA USA** | `eia_usa_generation` | JSONL (`*_etl.jsonl` files) | ✅ 100% Compatible |
+| **EIA USA** | `eia-usa-generation` | JSONL (`*_etl.jsonl` files) | ✅ 100% Compatible |
 
 ### Harmonized Schema
 
@@ -235,7 +235,7 @@ All three data sources use a **consistent metadata format**:
 
 **EIA USA:**
 - Files: `eia_generator_data_*_etl.jsonl`
-- Location: `eia_usa_generation/output/`
+- Location: `eia-usa-generation/output/`
 - Schema: `extraction_run_id`, `created_at_ms`, `timestamp_ms`, generator details
 
 ⸻

@@ -166,7 +166,7 @@ uv run src/database_management.py load-data eia ./data/eia_generator_data_2022_2
 The CLI also supports legacy format (without `extraction_run_id` and `created_at_ms`). These fields will be auto-generated.
 
 **Notes:**
-- Use ETL-compatible files: `eia_usa_generation/output/*_etl.jsonl`
+- Use ETL-compatible files: `eia-usa-generation/output/*_etl.jsonl`
 - ETL-compatible files include all required metadata fields
 - Legacy files will have metadata added automatically
 
@@ -225,7 +225,7 @@ india-generation-npp/
 
 ### EIA USA
 ```
-eia_usa_generation/
+eia-usa-generation/
 └── output/
     ├── eia_generator_data_YYYY_YYYY_timestamp.jsonl  (legacy)
     └── eia_generator_data_YYYY_YYYY_timestamp_etl.jsonl  (ETL-compatible)
@@ -254,7 +254,7 @@ uv run src/database_management.py load-data npp "$DATA_FILE" --metadata "$METADA
 ### Load EIA ETL-compatible files
 
 ```bash
-for file in eia_usa_generation/output/*_etl.jsonl; do
+for file in eia-usa-generation/output/*_etl.jsonl; do
   uv run src/database_management.py load-data eia "$file"
 done
 ```
@@ -363,7 +363,7 @@ This CLI is designed to work with the following repositories:
 
 1. **entsoe-power-generation** - ENTSOE data is 100% compatible out of the box
 2. **india-generation-npp** - Use JSON metadata files (PR #3)
-3. **eia_usa_generation** - Use ETL-compatible `*_etl.jsonl` files (PR #5)
+3. **eia-usa-generation** - Use ETL-compatible `*_etl.jsonl` files (PR #5)
 
 ## Next Steps
 
