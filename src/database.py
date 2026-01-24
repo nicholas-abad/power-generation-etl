@@ -6,6 +6,7 @@ Handles ingestion for NPP, ENTSO-E, and EIA generation data into PostgreSQL.
 
 import json
 import os
+import sys
 import uuid
 from datetime import datetime
 from io import StringIO
@@ -13,10 +14,42 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 import pandas as pd
+from loguru import logger
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError, InterfaceError
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log,
+)
 
 from validator import DataValidator, ValidationReport, save_report
+
+
+# Retry configuration for database operations
+DB_RETRY_ATTEMPTS = 3
+DB_WAIT_MULTIPLIER = 1  # seconds
+DB_WAIT_MIN = 1  # seconds
+DB_WAIT_MAX = 10  # seconds
+
+
+def db_retry_decorator():
+    """Create a retry decorator for database operations with exponential backoff."""
+    return retry(
+        stop=stop_after_attempt(DB_RETRY_ATTEMPTS),
+        wait=wait_exponential(
+            multiplier=DB_WAIT_MULTIPLIER, min=DB_WAIT_MIN, max=DB_WAIT_MAX
+        ),
+        retry=retry_if_exception_type(
+            (OperationalError, InterfaceError, ConnectionError)
+        ),
+        before_sleep=before_sleep_log(logger, "WARNING"),
+        reraise=True,
+    )
+
 
 try:
     from dotenv import load_dotenv
@@ -24,6 +57,24 @@ try:
     load_dotenv()
 except ImportError:
     pass
+
+
+# Configure loguru for structured logging
+# Remove default handler and add custom format
+logger.remove()
+logger.add(
+    sys.stderr,
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    level="INFO",
+)
+# Add file logging with rotation
+logger.add(
+    "logs/etl_{time:YYYY-MM-DD}.log",
+    rotation="1 day",
+    retention="30 days",
+    level="DEBUG",
+    format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
+)
 
 
 class PowerGenerationDatabase:
@@ -64,15 +115,35 @@ class PowerGenerationDatabase:
             self._engine = create_engine(self.connection_string)
         return self._engine
 
+    @db_retry_decorator()
+    def _execute_with_retry(self, query_func):
+        """Execute a database operation with retry logic.
+
+        Args:
+            query_func: A callable that performs the database operation.
+
+        Returns:
+            The result of query_func.
+
+        Raises:
+            The original exception after retries are exhausted.
+        """
+        return query_func()
+
     def test_connection(self) -> bool:
         """Test database connection."""
         try:
-            with self.engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-            print(f"✅ Database connection successful: {self.database}")
+
+            def _test():
+                with self.engine.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+                return True
+
+            self._execute_with_retry(_test)
+            logger.info("Database connection successful", database=self.database)
             return True
         except Exception as e:
-            print(f"❌ Database connection failed: {e}")
+            logger.error("Database connection failed", error=str(e))
             return False
 
     def create_database_if_not_exists(self) -> bool:
@@ -94,15 +165,15 @@ class PowerGenerationDatabase:
                     conn.commit()
                     conn.execute(text(f'CREATE DATABASE "{self.database}"'))
                     conn.commit()
-                    print(f"✅ Created database: {self.database}")
+                    logger.info("Created database", database=self.database)
                 else:
-                    print(f"ℹ️ Database already exists: {self.database}")
+                    logger.info("Database already exists", database=self.database)
 
             default_engine.dispose()
             return True
 
         except Exception as e:
-            print(f"❌ Failed to create database: {e}")
+            logger.error("Failed to create database", error=str(e))
             return False
 
     def _execute_schema_file(self, schema_filename: str) -> bool:
@@ -116,15 +187,17 @@ class PowerGenerationDatabase:
             with self.engine.connect() as conn:
                 conn.execute(text(schema_sql))
                 conn.commit()
-                print(f"✅ Schema executed successfully: {schema_filename}")
+                logger.info("Schema executed successfully", schema=schema_filename)
 
             return True
 
         except FileNotFoundError:
-            print(f"❌ Schema file not found: {schema_path}")
+            logger.error("Schema file not found", path=str(schema_path))
             return False
         except Exception as e:
-            print(f"❌ Failed to execute schema {schema_filename}: {e}")
+            logger.error(
+                "Failed to execute schema", schema=schema_filename, error=str(e)
+            )
             return False
 
     def create_npp_table(self) -> bool:
@@ -147,13 +220,15 @@ class PowerGenerationDatabase:
                 method = getattr(self, f"create_{table_type}_table")
                 if not method():
                     success = False
-                    print(f"❌ Failed to create {table_type} table")
+                    logger.error("Failed to create table", table_type=table_type)
             except Exception as e:
-                print(f"❌ Error creating {table_type} table: {e}")
+                logger.error(
+                    "Error creating table", table_type=table_type, error=str(e)
+                )
                 success = False
 
         if success:
-            print("✅ All tables created successfully")
+            logger.info("All tables created successfully")
         return success
 
     def insert_npp_jsonl_data(
@@ -178,7 +253,7 @@ class PowerGenerationDatabase:
                 data = [json.loads(line) for line in f if line.strip()]
 
             if not data:
-                print("⚠️ No NPP data found in JSONL file")
+                logger.warning("No NPP data found in JSONL file")
                 return True, None
 
             # Generate extraction metadata (matches EIA/ENTSOE pattern)
@@ -213,37 +288,45 @@ class PowerGenerationDatabase:
             )
 
             # Log validation summary
-            print(
-                f"📋 Validation: {report.valid_count}/{report.total_count} records valid"
+            logger.info(
+                "Validation complete",
+                valid=report.valid_count,
+                total=report.total_count,
             )
             if report.invalid_count > 0:
-                print(f"⚠️ Skipped {report.invalid_count} invalid records")
+                logger.warning("Skipped invalid records", count=report.invalid_count)
             if report.duplicate_count > 0:
-                print(f"⚠️ Skipped {report.duplicate_count} duplicate records")
+                logger.warning(
+                    "Skipped duplicate records", count=report.duplicate_count
+                )
 
             # Save validation report if requested
             if validation_report_path:
                 save_report(report, validation_report_path)
 
-            # Insert only valid records
+            # Insert only valid records with retry logic
             if valid_records:
                 df = pd.DataFrame(valid_records)
-                df.to_sql(
-                    "npp_generation",
-                    self.engine,
-                    if_exists="append",
-                    index=False,
-                    method="multi",
-                    chunksize=1000,
-                )
-                print(f"✅ Inserted {len(valid_records)} NPP records")
+
+                def _insert_npp():
+                    df.to_sql(
+                        "npp_generation",
+                        self.engine,
+                        if_exists="append",
+                        index=False,
+                        method="multi",
+                        chunksize=1000,
+                    )
+
+                self._execute_with_retry(_insert_npp)
+                logger.success("Inserted NPP records", count=len(valid_records))
             else:
-                print("⚠️ No valid records to insert")
+                logger.warning("No valid records to insert")
 
             return True, report
 
         except Exception as e:
-            print(f"❌ Failed to insert NPP data: {e}")
+            logger.error("Failed to insert NPP data", error=str(e))
             return False, None
 
     def insert_entsoe_jsonl_data(
@@ -263,7 +346,7 @@ class PowerGenerationDatabase:
                 data = [json.loads(line) for line in f if line.strip()]
 
             if not data:
-                print(f"⚠️ No ENTSO-E data found in {jsonl_file_path}")
+                logger.warning("No ENTSO-E data found", file=jsonl_file_path)
                 return True, None
 
             # Add extraction run ID and current timestamp only if not already present
@@ -299,20 +382,24 @@ class PowerGenerationDatabase:
             )
 
             # Log validation summary
-            print(
-                f"📋 Validation: {report.valid_count}/{report.total_count} records valid"
+            logger.info(
+                "Validation complete",
+                valid=report.valid_count,
+                total=report.total_count,
             )
             if report.invalid_count > 0:
-                print(f"⚠️ Skipped {report.invalid_count} invalid records")
+                logger.warning("Skipped invalid records", count=report.invalid_count)
             if report.duplicate_count > 0:
-                print(f"⚠️ Skipped {report.duplicate_count} duplicate records")
+                logger.warning(
+                    "Skipped duplicate records", count=report.duplicate_count
+                )
 
             # Save validation report if requested
             if validation_report_path:
                 save_report(report, validation_report_path)
 
             if not valid_records:
-                print("⚠️ No valid records to insert")
+                logger.warning("No valid records to insert")
                 return True, report
 
             # Convert to DataFrame for insertion
@@ -334,28 +421,36 @@ class PowerGenerationDatabase:
             # Reorder columns to match expected schema
             df = df[expected_columns]
 
-            # Use PostgreSQL COPY for fast bulk insert
-            conn = self.engine.raw_connection()
-            try:
-                cursor = conn.cursor()
-                # Create a StringIO object from the DataFrame
-                output = StringIO()
-                df.to_csv(output, sep="\t", header=False, index=False)
-                output.seek(0)
+            # Use PostgreSQL COPY for fast bulk insert with retry logic
+            def _insert_entsoe():
+                conn = self.engine.raw_connection()
+                try:
+                    cursor = conn.cursor()
+                    # Create a StringIO object from the DataFrame
+                    output = StringIO()
+                    df.to_csv(output, sep="\t", header=False, index=False)
+                    output.seek(0)
 
-                # Use COPY to insert data efficiently
-                cursor.copy_from(
-                    output, "entsoe_generation_data", columns=expected_columns, sep="\t"
-                )
+                    # Use COPY to insert data efficiently
+                    cursor.copy_from(
+                        output,
+                        "entsoe_generation_data",
+                        columns=expected_columns,
+                        sep="\t",
+                    )
 
-                conn.commit()
-                print(f"✅ Inserted {len(df)} ENTSO-E records")
-            finally:
-                conn.close()
+                    conn.commit()
+                finally:
+                    conn.close()
+
+            self._execute_with_retry(_insert_entsoe)
+            logger.success("Inserted ENTSO-E records", count=len(df))
             return True, report
 
         except Exception as e:
-            print(f"❌ Failed to insert ENTSO-E data from {jsonl_file_path}: {e}")
+            logger.error(
+                "Failed to insert ENTSO-E data", file=jsonl_file_path, error=str(e)
+            )
             return False, None
 
     def insert_eia_jsonl_data(
@@ -378,7 +473,7 @@ class PowerGenerationDatabase:
                 data = [json.loads(line) for line in f if line.strip()]
 
             if not data:
-                print("⚠️ No EIA data found in JSONL file")
+                logger.warning("No EIA data found in JSONL file")
                 return True, None
 
             # Check if metadata fields already exist in the data
@@ -401,7 +496,9 @@ class PowerGenerationDatabase:
                     record["utility_id"] = str(record["utility_id"])
                 if "plant_code" in record and not isinstance(record["plant_code"], str):
                     record["plant_code"] = str(record["plant_code"])
-                if "generator_id" in record and not isinstance(record["generator_id"], str):
+                if "generator_id" in record and not isinstance(
+                    record["generator_id"], str
+                ):
                     record["generator_id"] = str(record["generator_id"])
                 # Add optional fields if missing
                 if "fuel_source" not in record:
@@ -416,37 +513,45 @@ class PowerGenerationDatabase:
             )
 
             # Log validation summary
-            print(
-                f"📋 Validation: {report.valid_count}/{report.total_count} records valid"
+            logger.info(
+                "Validation complete",
+                valid=report.valid_count,
+                total=report.total_count,
             )
             if report.invalid_count > 0:
-                print(f"⚠️ Skipped {report.invalid_count} invalid records")
+                logger.warning("Skipped invalid records", count=report.invalid_count)
             if report.duplicate_count > 0:
-                print(f"⚠️ Skipped {report.duplicate_count} duplicate records")
+                logger.warning(
+                    "Skipped duplicate records", count=report.duplicate_count
+                )
 
             # Save validation report if requested
             if validation_report_path:
                 save_report(report, validation_report_path)
 
-            # Insert only valid records
+            # Insert only valid records with retry logic
             if valid_records:
                 df = pd.DataFrame(valid_records)
-                df.to_sql(
-                    "eia_generation_data",
-                    self.engine,
-                    if_exists="append",
-                    index=False,
-                    method="multi",
-                    chunksize=1000,
-                )
-                print(f"✅ Inserted {len(valid_records)} EIA records")
+
+                def _insert_eia():
+                    df.to_sql(
+                        "eia_generation_data",
+                        self.engine,
+                        if_exists="append",
+                        index=False,
+                        method="multi",
+                        chunksize=1000,
+                    )
+
+                self._execute_with_retry(_insert_eia)
+                logger.success("Inserted EIA records", count=len(valid_records))
             else:
-                print("⚠️ No valid records to insert")
+                logger.warning("No valid records to insert")
 
             return True, report
 
         except Exception as e:
-            print(f"❌ Failed to insert EIA data: {e}")
+            logger.error("Failed to insert EIA data", error=str(e))
             return False, None
 
     def get_record_count(self, table_name: str) -> int:
@@ -455,10 +560,10 @@ class PowerGenerationDatabase:
             with self.engine.connect() as conn:
                 result = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
                 count = result.scalar()
-                print(f"📊 Total records in {table_name}: {count:,}")
+                logger.info("Record count", table=table_name, count=count)
                 return count
         except Exception as e:
-            print(f"❌ Failed to get record count for {table_name}: {e}")
+            logger.error("Failed to get record count", table=table_name, error=str(e))
             return 0
 
     def get_all_record_counts(self) -> Dict[str, int]:
