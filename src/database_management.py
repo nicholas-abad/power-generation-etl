@@ -78,7 +78,9 @@ def update_schema(table_type: str = "entsoe"):
                     )
                 )
                 conn.commit()
-                logger.success("Updated entsoe_generation_data.country_code to VARCHAR(32)")
+                logger.success(
+                    "Updated entsoe_generation_data.country_code to VARCHAR(32)"
+                )
 
             if table_type == "all":
                 # Add other schema updates here as needed

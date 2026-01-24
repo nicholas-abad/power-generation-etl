@@ -41,14 +41,15 @@ def db_retry_decorator():
     return retry(
         stop=stop_after_attempt(DB_RETRY_ATTEMPTS),
         wait=wait_exponential(
-            multiplier=DB_WAIT_MULTIPLIER,
-            min=DB_WAIT_MIN,
-            max=DB_WAIT_MAX
+            multiplier=DB_WAIT_MULTIPLIER, min=DB_WAIT_MIN, max=DB_WAIT_MAX
         ),
-        retry=retry_if_exception_type((OperationalError, InterfaceError, ConnectionError)),
+        retry=retry_if_exception_type(
+            (OperationalError, InterfaceError, ConnectionError)
+        ),
         before_sleep=before_sleep_log(logger, "WARNING"),
         reraise=True,
     )
+
 
 try:
     from dotenv import load_dotenv
@@ -132,6 +133,7 @@ class PowerGenerationDatabase:
     def test_connection(self) -> bool:
         """Test database connection."""
         try:
+
             def _test():
                 with self.engine.connect() as conn:
                     conn.execute(text("SELECT 1"))
@@ -193,7 +195,9 @@ class PowerGenerationDatabase:
             logger.error("Schema file not found", path=str(schema_path))
             return False
         except Exception as e:
-            logger.error("Failed to execute schema", schema=schema_filename, error=str(e))
+            logger.error(
+                "Failed to execute schema", schema=schema_filename, error=str(e)
+            )
             return False
 
     def create_npp_table(self) -> bool:
@@ -218,7 +222,9 @@ class PowerGenerationDatabase:
                     success = False
                     logger.error("Failed to create table", table_type=table_type)
             except Exception as e:
-                logger.error("Error creating table", table_type=table_type, error=str(e))
+                logger.error(
+                    "Error creating table", table_type=table_type, error=str(e)
+                )
                 success = False
 
         if success:
@@ -282,11 +288,17 @@ class PowerGenerationDatabase:
             )
 
             # Log validation summary
-            logger.info("Validation complete", valid=report.valid_count, total=report.total_count)
+            logger.info(
+                "Validation complete",
+                valid=report.valid_count,
+                total=report.total_count,
+            )
             if report.invalid_count > 0:
                 logger.warning("Skipped invalid records", count=report.invalid_count)
             if report.duplicate_count > 0:
-                logger.warning("Skipped duplicate records", count=report.duplicate_count)
+                logger.warning(
+                    "Skipped duplicate records", count=report.duplicate_count
+                )
 
             # Save validation report if requested
             if validation_report_path:
@@ -370,11 +382,17 @@ class PowerGenerationDatabase:
             )
 
             # Log validation summary
-            logger.info("Validation complete", valid=report.valid_count, total=report.total_count)
+            logger.info(
+                "Validation complete",
+                valid=report.valid_count,
+                total=report.total_count,
+            )
             if report.invalid_count > 0:
                 logger.warning("Skipped invalid records", count=report.invalid_count)
             if report.duplicate_count > 0:
-                logger.warning("Skipped duplicate records", count=report.duplicate_count)
+                logger.warning(
+                    "Skipped duplicate records", count=report.duplicate_count
+                )
 
             # Save validation report if requested
             if validation_report_path:
@@ -415,7 +433,10 @@ class PowerGenerationDatabase:
 
                     # Use COPY to insert data efficiently
                     cursor.copy_from(
-                        output, "entsoe_generation_data", columns=expected_columns, sep="\t"
+                        output,
+                        "entsoe_generation_data",
+                        columns=expected_columns,
+                        sep="\t",
                     )
 
                     conn.commit()
@@ -427,7 +448,9 @@ class PowerGenerationDatabase:
             return True, report
 
         except Exception as e:
-            logger.error("Failed to insert ENTSO-E data", file=jsonl_file_path, error=str(e))
+            logger.error(
+                "Failed to insert ENTSO-E data", file=jsonl_file_path, error=str(e)
+            )
             return False, None
 
     def insert_eia_jsonl_data(
@@ -473,7 +496,9 @@ class PowerGenerationDatabase:
                     record["utility_id"] = str(record["utility_id"])
                 if "plant_code" in record and not isinstance(record["plant_code"], str):
                     record["plant_code"] = str(record["plant_code"])
-                if "generator_id" in record and not isinstance(record["generator_id"], str):
+                if "generator_id" in record and not isinstance(
+                    record["generator_id"], str
+                ):
                     record["generator_id"] = str(record["generator_id"])
                 # Add optional fields if missing
                 if "fuel_source" not in record:
@@ -488,11 +513,17 @@ class PowerGenerationDatabase:
             )
 
             # Log validation summary
-            logger.info("Validation complete", valid=report.valid_count, total=report.total_count)
+            logger.info(
+                "Validation complete",
+                valid=report.valid_count,
+                total=report.total_count,
+            )
             if report.invalid_count > 0:
                 logger.warning("Skipped invalid records", count=report.invalid_count)
             if report.duplicate_count > 0:
-                logger.warning("Skipped duplicate records", count=report.duplicate_count)
+                logger.warning(
+                    "Skipped duplicate records", count=report.duplicate_count
+                )
 
             # Save validation report if requested
             if validation_report_path:

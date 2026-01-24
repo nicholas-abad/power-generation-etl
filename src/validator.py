@@ -51,7 +51,11 @@ class ValidationReport:
         self.errors_by_type[error_type] = self.errors_by_type.get(error_type, 0) + 1
         if len(self.sample_errors) < 10:
             self.sample_errors.append(
-                {"record_index": record_index, "error_type": error_type, "details": details}
+                {
+                    "record_index": record_index,
+                    "error_type": error_type,
+                    "details": details,
+                }
             )
 
 
@@ -168,7 +172,10 @@ class DataValidator:
                 return False, f"expected int or string, got {type(value).__name__}"
         elif expected_type == "str_or_null_or_number":
             if value is not None and not isinstance(value, (str, int, float)):
-                return False, f"expected string, number, or null, got {type(value).__name__}"
+                return (
+                    False,
+                    f"expected string, number, or null, got {type(value).__name__}",
+                )
         return True, ""
 
     def _check_validation(self, value: Any, validation: str) -> Tuple[bool, str]:
