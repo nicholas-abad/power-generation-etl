@@ -69,6 +69,8 @@ High-level flow:
 ## Repository Structure
 ```
 power-generation-etl/
+├── .github/workflows/    # CI/CD pipelines
+│   └── ci.yml            # GitHub Actions workflow
 ├── dags/                 # Airflow DAG definitions
 │   ├── minimal_etl.py
 │   ├── eia_monthly.py
@@ -81,6 +83,9 @@ power-generation-etl/
 │   └── validator.py      # Data validation module
 ├── tests/                # Unit tests
 │   └── test_validator.py # Validation tests
+├── logs/                 # Log files (auto-generated)
+├── Dockerfile            # Container image definition
+├── .dockerignore         # Docker build exclusions
 ├── README.md
 └── pyproject.toml
 ```
@@ -309,6 +314,62 @@ Example report:
 	•	Future analytics or modeling pipelines
 
 ⸻
+
+## Production Features
+
+### Structured Logging
+
+The ETL uses **loguru** for structured logging with:
+- Console output with color-coded log levels
+- File logging with daily rotation (30-day retention)
+- Log files stored in `logs/etl_YYYY-MM-DD.log`
+
+```python
+# Log levels used:
+# INFO - Normal operations
+# WARNING - Skipped records, non-critical issues
+# ERROR - Failed operations
+# SUCCESS - Completed operations
+```
+
+### Retry Logic
+
+Database operations include automatic retry with exponential backoff:
+- **3 retry attempts** for transient failures
+- **Exponential backoff**: 1-10 seconds between retries
+- Retries on: `OperationalError`, `InterfaceError`, `ConnectionError`
+
+### Docker Support
+
+Build and run the ETL in a container:
+
+```bash
+# Build the image
+docker build -t power-generation-etl .
+
+# Run database setup
+docker run --rm \
+  -e POSTGRES_HOST=host.docker.internal \
+  -e POSTGRES_DB=power_generation \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  power-generation-etl python src/database_management.py setup all
+
+# Load data
+docker run --rm \
+  -v /path/to/data:/data \
+  -e POSTGRES_HOST=host.docker.internal \
+  power-generation-etl python src/database_management.py load-data entsoe /data/entsoe.jsonl
+```
+
+### CI/CD Pipeline
+
+GitHub Actions workflow (`.github/workflows/ci.yml`) runs on push/PR:
+- **Lint**: Ruff linter and formatter checks
+- **Test**: Pytest with PostgreSQL service container
+- **Type Check**: Optional mypy analysis
+
+---
 
 ## Future Improvements
 	•	Add dbt for SQL modeling and tests

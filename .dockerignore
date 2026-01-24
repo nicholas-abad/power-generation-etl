@@ -1,0 +1,52 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv
+venv
+ENV
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov
+.tox
+.nox
+
+# Build
+build
+dist
+*.egg-info
+
+# Data files (too large)
+data/
+*.jsonl
+*.csv
+*.parquet
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.envrc
+
+# Documentation
+docs/_build
+
+# Misc
+.DS_Store
+*.bak

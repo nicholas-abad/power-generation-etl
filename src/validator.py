@@ -12,6 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from loguru import logger
+
 
 # UUID regex pattern for validation
 UUID_PATTERN = re.compile(
@@ -330,7 +332,7 @@ def save_report(report: ValidationReport, output_path: str) -> None:
     with open(output_path, "w") as f:
         json.dump(report_dict, f, indent=2)
 
-    print(f"Validation report saved to: {output_path}")
+    logger.info(f"Validation report saved to: {output_path}")
 
 
 def load_and_validate_jsonl(

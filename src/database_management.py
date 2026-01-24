@@ -8,26 +8,36 @@ import argparse
 import sys
 from pathlib import Path
 
+from loguru import logger
 from database import create_power_generation_database
 from sqlalchemy import text
 
 
+# Configure loguru for CLI output
+logger.remove()
+logger.add(
+    sys.stderr,
+    format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
+    level="INFO",
+)
+
+
 def setup_database(table_type: str = "all"):
     """Initialize database and create tables."""
-    print(f"🗄️ Setting up database tables: {table_type}")
+    logger.info(f"Setting up database tables: {table_type}")
 
     db = create_power_generation_database()
 
     # Create database if it doesn't exist
     if not db.test_connection():
-        print("Creating database...")
+        logger.info("Creating database...")
         if not db.create_database_if_not_exists():
-            print("❌ Failed to create database")
+            logger.error("Failed to create database")
             return False
 
         # Test connection again
         if not db.test_connection():
-            print("❌ Database connection failed after creation")
+            logger.error("Database connection failed after creation")
             return False
 
     # Create tables based on type
@@ -41,7 +51,7 @@ def setup_database(table_type: str = "all"):
     elif table_type == "eia":
         success = db.create_eia_table()
     else:
-        print(f"❌ Unknown table type: {table_type}")
+        logger.error(f"Unknown table type: {table_type}")
         return False
 
     db.close()
@@ -50,12 +60,12 @@ def setup_database(table_type: str = "all"):
 
 def update_schema(table_type: str = "entsoe"):
     """Update existing table schemas."""
-    print(f"🔧 Updating schema for: {table_type}")
+    logger.info(f"Updating schema for: {table_type}")
 
     db = create_power_generation_database()
 
     if not db.test_connection():
-        print("❌ Database connection failed")
+        logger.error("Database connection failed")
         return False
 
     try:
@@ -68,7 +78,7 @@ def update_schema(table_type: str = "entsoe"):
                     )
                 )
                 conn.commit()
-                print("✅ Updated entsoe_generation_data.country_code to VARCHAR(32)")
+                logger.success("Updated entsoe_generation_data.country_code to VARCHAR(32)")
 
             if table_type == "all":
                 # Add other schema updates here as needed
@@ -78,7 +88,7 @@ def update_schema(table_type: str = "entsoe"):
         return True
 
     except Exception as e:
-        print(f"❌ Failed to update schema: {e}")
+        logger.error(f"Failed to update schema: {e}")
         db.close()
         return False
 
@@ -97,16 +107,16 @@ def load_data(
         validation_report: Optional path to save validation report
         strict: If True, fail on any validation errors
     """
-    print(f"📥 Loading {data_source} data from {jsonl_file}")
+    logger.info(f"Loading {data_source} data from {jsonl_file}")
 
     if not Path(jsonl_file).exists():
-        print(f"❌ File not found: {jsonl_file}")
+        logger.error(f"File not found: {jsonl_file}")
         return False
 
     db = create_power_generation_database()
 
     if not db.test_connection():
-        print("❌ Database connection failed")
+        logger.error("Database connection failed")
         return False
 
     success = False
@@ -125,18 +135,18 @@ def load_data(
             jsonl_file, validation_report_path=validation_report
         )
     else:
-        print(f"❌ Unknown data source: {data_source}")
+        logger.error(f"Unknown data source: {data_source}")
         db.close()
         return False
 
     # Check strict mode
     if strict and report and (report.invalid_count > 0 or report.duplicate_count > 0):
-        print("❌ Strict mode: failing due to validation errors")
+        logger.error("Strict mode: failing due to validation errors")
         db.close()
         return False
 
     if success:
-        print("✅ Data loaded successfully!")
+        logger.success("Data loaded successfully!")
 
     db.close()
     return success
@@ -144,20 +154,20 @@ def load_data(
 
 def show_database_stats():
     """Show database statistics."""
-    print("📊 Database Statistics:")
+    logger.info("Database Statistics:")
 
     db = create_power_generation_database()
 
     if not db.test_connection():
-        print("❌ Database connection failed")
+        logger.error("Database connection failed")
         return False
 
     counts = db.get_all_record_counts()
     total_records = sum(counts.values())
 
-    print(f"Total records across all tables: {total_records:,}")
+    logger.info(f"Total records across all tables: {total_records:,}")
     for table, count in counts.items():
-        print(f"  {table}: {count:,} records")
+        logger.info(f"  {table}: {count:,} records")
 
     db.close()
     return True
