@@ -112,7 +112,7 @@ uv run src/database_management.py load-data npp \
   "date": 1546473600,
   "plant": "I.P.CCPP",
   "unit": null,
-  "actual_generation": 0.98,
+  "generation_mwh": 0.98,
   "plant_and_unit": "I.P.CCPP"
 }
 ```

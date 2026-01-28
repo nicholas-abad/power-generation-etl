@@ -20,6 +20,16 @@ UUID_PATTERN = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
 
+# Valid US state codes (50 states + DC + territories)
+US_STATE_CODES = {
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+    "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+    "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+    "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+    "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+    "DC", "PR", "VI", "GU", "AS", "MP",
+}
+
 # Current timestamp in milliseconds (for future date validation)
 # Allow 1 day buffer for timezone differences
 MAX_FUTURE_BUFFER_MS = 24 * 60 * 60 * 1000
@@ -67,10 +77,11 @@ NPP_SCHEMA = {
         "timestamp_ms": {"type": "int", "validation": "positive_timestamp"},
         "plant": {"type": "str", "validation": "non_empty"},
         "plant_and_unit": {"type": "str", "validation": "non_empty"},
-        "actual_generation": {"type": "float", "validation": "non_negative"},
+        "generation_mwh": {"type": "float", "validation": "non_negative"},
     },
     "optional_fields": {
         "unit": {"type": "str_or_null_or_number", "validation": None},
+        "resolution_minutes": {"type": "int_or_null", "validation": None},
     },
     "duplicate_key": ("timestamp_ms", "plant_and_unit"),
 }
@@ -85,11 +96,14 @@ EIA_SCHEMA = {
         "generator_id": {"type": "int_or_str", "validation": None},
         "state": {"type": "str", "validation": "state_code"},
         "prime_mover": {"type": "str", "validation": "non_empty"},
-        "net_generation_mwh": {"type": "float", "validation": None},
+        "net_generation_mwh": {"type": "float", "validation": "non_negative"},
     },
     "optional_fields": {
         "fuel_source": {"type": "str_or_null", "validation": None},
         "energy_source": {"type": "str_or_null", "validation": None},
+        "resolution_minutes": {"type": "int_or_null", "validation": None},
+        "in_gcpt_crosswalk": {"type": "bool_or_null", "validation": None},
+        "eia_plant_unit_id": {"type": "str_or_null", "validation": None},
     },
     "duplicate_key": ("timestamp_ms", "plant_code", "generator_id"),
 }
@@ -105,6 +119,7 @@ ENTSOE_SCHEMA = {
         "fuel_type": {"type": "str", "validation": "non_empty"},
         "data_type": {"type": "str", "validation": "non_empty"},
         "generation_mw": {"type": "float", "validation": "non_negative"},
+        "resolution_minutes": {"type": "int", "validation": "positive"},
     },
     "optional_fields": {},
     "duplicate_key": ("timestamp_ms", "country_code", "psr_type", "plant_name"),
@@ -144,8 +159,8 @@ class DataValidator:
         return isinstance(value, str) and len(value.strip()) > 0
 
     def _is_state_code(self, value: Any) -> bool:
-        """Check if value is a valid 2-character state code."""
-        return isinstance(value, str) and len(value) == 2
+        """Check if value is a valid US state code."""
+        return isinstance(value, str) and value.upper() in US_STATE_CODES
 
     def _is_non_negative(self, value: Any) -> bool:
         """Check if value is a non-negative number."""
@@ -176,6 +191,12 @@ class DataValidator:
                     False,
                     f"expected string, number, or null, got {type(value).__name__}",
                 )
+        elif expected_type == "int_or_null":
+            if value is not None and (not isinstance(value, int) or isinstance(value, bool)):
+                return False, f"expected int or null, got {type(value).__name__}"
+        elif expected_type == "bool_or_null":
+            if value is not None and not isinstance(value, bool):
+                return False, f"expected bool or null, got {type(value).__name__}"
         return True, ""
 
     def _check_validation(self, value: Any, validation: str) -> Tuple[bool, str]:

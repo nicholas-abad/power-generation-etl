@@ -212,10 +212,14 @@ class PowerGenerationDatabase:
         """Create EIA generation table."""
         return self._execute_schema_file("eia_generation.sql")
 
+    def create_extraction_metadata_table(self) -> bool:
+        """Create extraction metadata table."""
+        return self._execute_schema_file("extraction_metadata.sql")
+
     def create_all_tables(self) -> bool:
-        """Create all generation tables."""
+        """Create all generation tables including metadata."""
         success = True
-        for table_type in ["npp", "entsoe", "eia"]:
+        for table_type in ["npp", "entsoe", "eia", "extraction_metadata"]:
             try:
                 method = getattr(self, f"create_{table_type}_table")
                 if not method():
@@ -416,6 +420,7 @@ class PowerGenerationDatabase:
                 "data_type",
                 "timestamp_ms",
                 "generation_mw",
+                "resolution_minutes",
             ]
 
             # Reorder columns to match expected schema
@@ -580,6 +585,96 @@ class PowerGenerationDatabase:
                 counts[table] = 0
 
         return counts
+
+    def insert_extraction_metadata(
+        self,
+        extraction_run_id: str,
+        source: str,
+        extraction_timestamp: datetime,
+        start_date: str = None,
+        end_date: str = None,
+        total_records: int = 0,
+        failed_count: int = 0,
+        success: bool = True,
+        failed_details: list = None,
+        config_snapshot: dict = None,
+        source_urls: dict = None,
+        extraction_duration_seconds: int = None,
+    ) -> bool:
+        """Insert extraction metadata into the database.
+
+        Args:
+            extraction_run_id: UUID of the extraction run
+            source: Data source ('npp', 'eia', 'entsoe')
+            extraction_timestamp: When the extraction was performed
+            start_date: Start of data range (YYYY-MM-DD)
+            end_date: End of data range (YYYY-MM-DD)
+            total_records: Number of records extracted
+            failed_count: Number of failed extractions
+            success: Whether extraction was successful overall
+            failed_details: List of failed date/error details
+            config_snapshot: Extractor configuration used
+            source_urls: URLs accessed during extraction
+            extraction_duration_seconds: How long extraction took
+
+        Returns:
+            True if insertion successful, False otherwise
+        """
+        try:
+            insert_sql = text("""
+                INSERT INTO extraction_metadata (
+                    extraction_run_id, source, extraction_timestamp,
+                    start_date, end_date, total_records, failed_count, success,
+                    failed_details, config_snapshot, source_urls,
+                    extraction_duration_seconds
+                ) VALUES (
+                    :extraction_run_id, :source, :extraction_timestamp,
+                    :start_date, :end_date, :total_records, :failed_count, :success,
+                    :failed_details, :config_snapshot, :source_urls,
+                    :extraction_duration_seconds
+                )
+                ON CONFLICT (extraction_run_id) DO UPDATE SET
+                    total_records = EXCLUDED.total_records,
+                    failed_count = EXCLUDED.failed_count,
+                    success = EXCLUDED.success,
+                    failed_details = EXCLUDED.failed_details
+            """)
+
+            with self.engine.connect() as conn:
+                conn.execute(
+                    insert_sql,
+                    {
+                        "extraction_run_id": extraction_run_id,
+                        "source": source,
+                        "extraction_timestamp": extraction_timestamp,
+                        "start_date": start_date,
+                        "end_date": end_date,
+                        "total_records": total_records,
+                        "failed_count": failed_count,
+                        "success": success,
+                        "failed_details": json.dumps(failed_details) if failed_details else None,
+                        "config_snapshot": json.dumps(config_snapshot) if config_snapshot else None,
+                        "source_urls": json.dumps(source_urls) if source_urls else None,
+                        "extraction_duration_seconds": extraction_duration_seconds,
+                    },
+                )
+                conn.commit()
+
+            logger.info(
+                "Extraction metadata inserted",
+                extraction_run_id=extraction_run_id,
+                source=source,
+                total_records=total_records,
+            )
+            return True
+
+        except Exception as e:
+            logger.error(
+                "Failed to insert extraction metadata",
+                extraction_run_id=extraction_run_id,
+                error=str(e),
+            )
+            return False
 
     def close(self):
         """Close database connection."""

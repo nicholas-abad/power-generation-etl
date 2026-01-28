@@ -28,10 +28,11 @@ CREATE TABLE IF NOT EXISTS npp_generation (
 
     -- Time series data
     timestamp_ms BIGINT NOT NULL,
-    actual_generation DOUBLE PRECISION NOT NULL,
+    generation_mwh DOUBLE PRECISION NOT NULL,
+    resolution_minutes INTEGER,  -- Data granularity (1440 = daily)
 
     -- Data quality constraints
-    CONSTRAINT positive_generation_npp CHECK (actual_generation >= 0),
+    CONSTRAINT positive_generation_npp CHECK (generation_mwh >= 0),
     CONSTRAINT valid_timestamps_npp CHECK (timestamp_ms > 0 AND created_at_ms > 0)
 );
 

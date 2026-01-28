@@ -72,7 +72,7 @@ class TestDataValidatorNPP:
             "timestamp_ms": self.current_time_ms - 1000,
             "plant": "Kudankulam",
             "plant_and_unit": "Kudankulam Unit 1",
-            "actual_generation": 1000.5,
+            "generation_mwh": 1000.5,
             "unit": "Unit 1",
         }
 
@@ -97,7 +97,7 @@ class TestDataValidatorNPP:
 
     def test_negative_generation(self):
         record = self.valid_record.copy()
-        record["actual_generation"] = -100.0
+        record["generation_mwh"] = -100.0
         result = self.validator.validate_npp_record(record)
         assert result.valid is False
         assert any("non-negative" in e for e in result.errors)
@@ -186,6 +186,7 @@ class TestDataValidatorENTSOE:
             "fuel_type": "Solar",
             "data_type": "Actual",
             "generation_mw": 500.0,
+            "resolution_minutes": 60,
         }
 
     def test_valid_record(self):
@@ -223,7 +224,7 @@ class TestFileValidation:
                 "timestamp_ms": 1000000,
                 "plant": "Plant A",
                 "plant_and_unit": "Plant A Unit 1",
-                "actual_generation": 100.0,
+                "generation_mwh": 100.0,
             },
             {
                 "extraction_run_id": "550e8400-e29b-41d4-a716-446655440001",
@@ -231,7 +232,7 @@ class TestFileValidation:
                 "timestamp_ms": 1000000,  # Same timestamp
                 "plant": "Plant A",
                 "plant_and_unit": "Plant A Unit 1",  # Same plant_and_unit
-                "actual_generation": 200.0,
+                "generation_mwh": 200.0,
             },
             {
                 "extraction_run_id": "550e8400-e29b-41d4-a716-446655440002",
@@ -239,7 +240,7 @@ class TestFileValidation:
                 "timestamp_ms": 1000000,
                 "plant": "Plant A",
                 "plant_and_unit": "Plant A Unit 2",  # Different unit
-                "actual_generation": 300.0,
+                "generation_mwh": 300.0,
             },
         ]
 
@@ -259,7 +260,7 @@ class TestFileValidation:
                 "timestamp_ms": 1000000,
                 "plant": "Plant A",
                 "plant_and_unit": "Plant A Unit 1",
-                "actual_generation": 100.0,
+                "generation_mwh": 100.0,
             },
             {
                 # Invalid: missing plant
@@ -267,7 +268,7 @@ class TestFileValidation:
                 "created_at_ms": self.current_time_ms,
                 "timestamp_ms": 2000000,
                 "plant_and_unit": "Plant B Unit 1",
-                "actual_generation": 200.0,
+                "generation_mwh": 200.0,
             },
             {
                 # Invalid: negative generation
@@ -276,7 +277,7 @@ class TestFileValidation:
                 "timestamp_ms": 3000000,
                 "plant": "Plant C",
                 "plant_and_unit": "Plant C Unit 1",
-                "actual_generation": -50.0,
+                "generation_mwh": -50.0,
             },
         ]
 
@@ -349,7 +350,7 @@ class TestLoadAndValidateJSONL:
                 "timestamp_ms": current_time_ms - 1000,
                 "plant": "Plant A",
                 "plant_and_unit": "Plant A Unit 1",
-                "actual_generation": 100.0,
+                "generation_mwh": 100.0,
             }
         ]
 
@@ -385,7 +386,7 @@ class TestTypeValidation:
             "timestamp_ms": current_time_ms,
             "plant": "Plant A",
             "plant_and_unit": "Plant A Unit 1",
-            "actual_generation": 100.0,
+            "generation_mwh": 100.0,
         }
         result = self.validator.validate_npp_record(record)
         assert result.valid is False
@@ -399,7 +400,7 @@ class TestTypeValidation:
             "timestamp_ms": current_time_ms,
             "plant": "Plant A",
             "plant_and_unit": "Plant A Unit 1",
-            "actual_generation": "100.0",  # String instead of float
+            "generation_mwh": "100.0",  # String instead of float
         }
         result = self.validator.validate_npp_record(record)
         assert result.valid is False
@@ -413,7 +414,7 @@ class TestTypeValidation:
             "timestamp_ms": current_time_ms,
             "plant": "Plant A",
             "plant_and_unit": "Plant A Unit 1",
-            "actual_generation": 100,  # Int instead of float
+            "generation_mwh": 100,  # Int instead of float
         }
         result = self.validator.validate_npp_record(record)
         assert result.valid is True

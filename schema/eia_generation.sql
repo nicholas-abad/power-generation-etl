@@ -34,6 +34,11 @@ CREATE TABLE IF NOT EXISTS eia_generation_data (
     -- Time series data
     timestamp_ms BIGINT NOT NULL,
     net_generation_mwh DOUBLE PRECISION NOT NULL,
+    resolution_minutes INTEGER,  -- Data granularity (NULL = monthly)
+
+    -- Crosswalk data
+    in_gcpt_crosswalk BOOLEAN,  -- TRUE if plant matches GCPT database
+    eia_plant_unit_id VARCHAR(100),  -- Combined plant+unit ID for matching
 
     -- Data quality constraints
     CONSTRAINT valid_timestamps_eia CHECK (timestamp_ms > 0 AND created_at_ms > 0)
