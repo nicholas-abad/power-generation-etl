@@ -77,6 +77,12 @@ power-generation-etl/
 │   ├── npp_monthly.py
 │   └── entsoe_monthly.py
 ├── schema/               # SQL schema definitions
+│   ├── eia_generation.sql
+│   ├── npp_generation.sql
+│   ├── entsoe_generation.sql
+│   └── extraction_metadata.sql
+├── docs/                 # Documentation
+│   └── DATA_UNITS.md     # MW vs MWh documentation
 ├── src/                  # Core Python modules
 │   ├── database.py       # Database operations with validation
 │   ├── database_management.py  # CLI tool
@@ -225,18 +231,20 @@ All three data sources use a **consistent metadata format**:
 **ENTSOE:**
 - Files: `entsoe_monthly_YYYY_MM_*.jsonl`
 - Location: `entsoe-power-generation/data/plant_production/raw_data/`
-- Schema: `extraction_run_id`, `created_at_ms`, `timestamp_ms`, country/plant details
+- Schema: `extraction_run_id`, `created_at_ms`, `timestamp_ms`, `generation_mw`, `resolution_minutes`, country/plant details
+- Note: Uses MW (instantaneous power), typically 15/30/60 minute resolution
 
 **India NPP:**
 - Files: `npp_*.jsonl`
 - Location: `india-generation-npp/output/`
-- Schema: `extraction_run_id`, `created_at_ms`, `timestamp_ms`, plant/unit details
-- Note: No separate metadata file needed (harmonized with EIA/ENTSOE)
+- Schema: `extraction_run_id`, `created_at_ms`, `timestamp_ms`, `generation_mwh`, `resolution_minutes`, plant/unit details
+- Note: Uses MWh (energy), daily resolution (1440 minutes)
 
 **EIA USA:**
 - Files: `eia_generator_data_*_etl.jsonl`
 - Location: `eia_usa_generation/output/`
-- Schema: `extraction_run_id`, `created_at_ms`, `timestamp_ms`, generator details
+- Schema: `extraction_run_id`, `created_at_ms`, `timestamp_ms`, `net_generation_mwh`, `resolution_minutes`, generator details
+- Note: Uses MWh (energy), monthly resolution (null)
 
 ⸻
 
@@ -292,11 +300,21 @@ Example report:
 
 ### Validation Rules by Source
 
-| Source | Duplicate Key |
-|--------|--------------|
-| **NPP** | `(timestamp_ms, plant_and_unit)` |
-| **EIA** | `(timestamp_ms, plant_code, generator_id)` |
-| **ENTSOE** | `(timestamp_ms, country_code, psr_type, plant_name)` |
+| Source | Duplicate Key | Resolution |
+|--------|--------------|------------|
+| **NPP** | `(timestamp_ms, plant_and_unit)` | Daily (1440 min) |
+| **EIA** | `(timestamp_ms, plant_code, generator_id)` | Monthly (null) |
+| **ENTSOE** | `(timestamp_ms, country_code, psr_type, plant_name)` | 15/30/60 min |
+
+### Data Units
+
+Different sources use different units. See [docs/DATA_UNITS.md](./docs/DATA_UNITS.md) for details:
+
+| Source | Field | Unit | Type |
+|--------|-------|------|------|
+| **ENTSOE** | `generation_mw` | MW | Instantaneous power |
+| **NPP** | `generation_mwh` | MWh | Energy (daily) |
+| **EIA** | `net_generation_mwh` | MWh | Energy (monthly) |
 
 ---
 
