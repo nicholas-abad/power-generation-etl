@@ -324,6 +324,17 @@ class PowerGenerationDatabase:
 
                 self._execute_with_retry(_insert_npp)
                 logger.success("Inserted NPP records", count=len(valid_records))
+
+                # Record extraction metadata
+                run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
+                self.insert_extraction_metadata(
+                    extraction_run_id=run_id,
+                    source="npp",
+                    extraction_timestamp=datetime.now(),
+                    total_records=report.valid_count,
+                    failed_count=report.invalid_count,
+                    success=True,
+                )
             else:
                 logger.warning("No valid records to insert")
 
@@ -450,6 +461,17 @@ class PowerGenerationDatabase:
 
             self._execute_with_retry(_insert_entsoe)
             logger.success("Inserted ENTSO-E records", count=len(df))
+
+            # Record extraction metadata
+            run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
+            self.insert_extraction_metadata(
+                extraction_run_id=run_id,
+                source="entsoe",
+                extraction_timestamp=datetime.now(),
+                total_records=report.valid_count,
+                failed_count=report.invalid_count,
+                success=True,
+            )
             return True, report
 
         except Exception as e:
@@ -550,6 +572,17 @@ class PowerGenerationDatabase:
 
                 self._execute_with_retry(_insert_eia)
                 logger.success("Inserted EIA records", count=len(valid_records))
+
+                # Record extraction metadata
+                run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
+                self.insert_extraction_metadata(
+                    extraction_run_id=run_id,
+                    source="eia",
+                    extraction_timestamp=datetime.now(),
+                    total_records=report.valid_count,
+                    failed_count=report.invalid_count,
+                    success=True,
+                )
             else:
                 logger.warning("No valid records to insert")
 
