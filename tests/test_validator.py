@@ -207,6 +207,21 @@ class TestDataValidatorENTSOE:
         result = self.validator.validate_entsoe_record(record)
         assert result.valid is False
 
+    def test_zero_resolution_minutes(self):
+        """Test that resolution_minutes=0 fails positive validation."""
+        record = self.valid_record.copy()
+        record["resolution_minutes"] = 0
+        result = self.validator.validate_entsoe_record(record)
+        assert result.valid is False
+        assert any("positive" in e for e in result.errors)
+
+    def test_negative_resolution_minutes(self):
+        """Test that negative resolution_minutes fails positive validation."""
+        record = self.valid_record.copy()
+        record["resolution_minutes"] = -15
+        result = self.validator.validate_entsoe_record(record)
+        assert result.valid is False
+
 
 class TestFileValidation:
     """Tests for file-level validation with duplicate detection."""

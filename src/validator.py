@@ -216,6 +216,9 @@ class DataValidator:
         elif validation == "non_negative":
             if not self._is_non_negative(value):
                 return False, "must be non-negative number"
+        elif validation == "positive":
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
+                return False, "must be a positive number"
         return True, ""
 
     def _validate_record(
