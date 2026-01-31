@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Database Management CLI for Power Generation ETL
-Unified management interface for NPP, ENTSO-E, and EIA data.
+Unified management interface for NPP, ENTSO-E, EIA, and ONS data.
 """
 
 import argparse
@@ -50,6 +50,8 @@ def setup_database(table_type: str = "all"):
         success = db.create_entsoe_table()
     elif table_type == "eia":
         success = db.create_eia_table()
+    elif table_type == "ons":
+        success = db.create_ons_table()
     else:
         logger.error(f"Unknown table type: {table_type}")
         return False
@@ -136,6 +138,10 @@ def load_data(
         success, report = db.insert_eia_jsonl_data(
             jsonl_file, validation_report_path=validation_report
         )
+    elif data_source == "ons":
+        success, report = db.insert_ons_jsonl_data(
+            jsonl_file, validation_report_path=validation_report
+        )
     else:
         logger.error(f"Unknown data source: {data_source}")
         db.close()
@@ -186,8 +192,9 @@ Examples:
   python database_management.py setup npp
   python database_management.py load-data npp ./data/npp_data.jsonl
   python database_management.py load-data entsoe ./data/entsoe_data.jsonl
-  python database_management.py load-data npp ./data/npp_data.jsonl --validation-report report.json
   python database_management.py load-data eia ./data/eia_data.jsonl --strict
+  python database_management.py load-data ons ./data/ons_data_etl.jsonl
+  python database_management.py load-data npp ./data/npp_data.jsonl --validation-report report.json
   python database_management.py stats
         """,
     )
@@ -200,7 +207,7 @@ Examples:
     )
     setup_parser.add_argument(
         "table_type",
-        choices=["all", "npp", "entsoe", "eia"],
+        choices=["all", "npp", "entsoe", "eia", "ons"],
         default="all",
         nargs="?",
         help="Type of tables to create (default: all)",
@@ -212,7 +219,7 @@ Examples:
     )
     update_parser.add_argument(
         "table_type",
-        choices=["all", "npp", "entsoe", "eia"],
+        choices=["all", "npp", "entsoe", "eia", "ons"],
         default="entsoe",
         nargs="?",
         help="Schema to update (default: entsoe)",
@@ -223,7 +230,7 @@ Examples:
         "load-data", help="Load JSONL data into database with validation"
     )
     load_parser.add_argument(
-        "data_source", choices=["npp", "entsoe", "eia"], help="Type of data source"
+        "data_source", choices=["npp", "entsoe", "eia", "ons"], help="Type of data source"
     )
     load_parser.add_argument("jsonl_file", help="Path to JSONL file")
     load_parser.add_argument(

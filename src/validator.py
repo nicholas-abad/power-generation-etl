@@ -125,6 +125,29 @@ ENTSOE_SCHEMA = {
     "duplicate_key": ("timestamp_ms", "country_code", "psr_type", "plant_name"),
 }
 
+ONS_SCHEMA = {
+    "required_fields": {
+        "extraction_run_id": {"type": "str", "validation": "uuid"},
+        "created_at_ms": {"type": "int", "validation": "positive_timestamp"},
+        "timestamp_ms": {"type": "int", "validation": "positive_timestamp"},
+        "plant": {"type": "str", "validation": "non_empty"},
+        "generation_mwh": {"type": "float", "validation": "non_negative"},
+    },
+    "optional_fields": {
+        "ons_plant_id": {"type": "str_or_null", "validation": None},
+        "plant_type": {"type": "str_or_null", "validation": None},
+        "fuel_type": {"type": "str_or_null", "validation": None},
+        "subsystem_id": {"type": "str_or_null", "validation": None},
+        "subsystem": {"type": "str_or_null", "validation": None},
+        "state": {"type": "str_or_null", "validation": None},
+        "state_name": {"type": "str_or_null", "validation": None},
+        "operation_mode": {"type": "str_or_null", "validation": None},
+        "ceg": {"type": "str_or_null", "validation": None},
+        "resolution_minutes": {"type": "int_or_null", "validation": None},
+    },
+    "duplicate_key": ("timestamp_ms", "plant", "ons_plant_id"),
+}
+
 
 class DataValidator:
     """Validates power generation data records."""
@@ -134,6 +157,7 @@ class DataValidator:
             "npp": NPP_SCHEMA,
             "eia": EIA_SCHEMA,
             "entsoe": ENTSOE_SCHEMA,
+            "ons": ONS_SCHEMA,
         }
 
     def _is_valid_uuid(self, value: str) -> bool:
@@ -270,6 +294,10 @@ class DataValidator:
     def validate_entsoe_record(self, record: Dict[str, Any]) -> ValidationResult:
         """Validate a single ENTSOE record."""
         return self._validate_record(record, ENTSOE_SCHEMA)
+
+    def validate_ons_record(self, record: Dict[str, Any]) -> ValidationResult:
+        """Validate a single ONS Brazil record."""
+        return self._validate_record(record, ONS_SCHEMA)
 
     def _get_duplicate_key(
         self, record: Dict[str, Any], key_fields: Tuple[str, ...]

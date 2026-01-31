@@ -23,8 +23,9 @@ The system is designed to be:
 Each data source is maintained in its own repository and exposed as a Python package or container:
 
 - **EIA** — U.S. Energy Information Administration
-- **NPP** — Global power plant / generation datasets
+- **NPP** — India National Power Portal generation data
 - **ENTSOE** — European power generation data
+- **ONS** — Brazil ONS (Operador Nacional do Sistema Elétrico) thermal generation data
 
 This repository **does not** contain scraping logic itself.  
 It is responsible for **scheduling, coordination, validation, and loading**.
@@ -45,6 +46,10 @@ High-level flow:
         |
 +-------------+
 | ENTSOE Repo |
++-------------+
+        |
++-------------+
+|   ONS Repo  |
 +-------------+
         |
         v
@@ -80,6 +85,7 @@ power-generation-etl/
 │   ├── eia_generation.sql
 │   ├── npp_generation.sql
 │   ├── entsoe_generation.sql
+│   ├── ons_generation.sql
 │   └── extraction_metadata.sql
 ├── docs/                 # Documentation
 │   └── DATA_UNITS.md     # MW vs MWh documentation
@@ -158,6 +164,7 @@ uv run src/database_management.py setup all
 uv run src/database_management.py load-data entsoe ./path/to/entsoe_data.jsonl
 uv run src/database_management.py load-data npp ./path/to/npp_data.jsonl
 uv run src/database_management.py load-data eia ./path/to/eia_data_etl.jsonl
+uv run src/database_management.py load-data ons ./path/to/ons_data_etl.jsonl
 
 # 5. Load data with validation report
 uv run src/database_management.py load-data npp ./path/to/npp_data.jsonl \
@@ -205,17 +212,18 @@ Create an Airflow connection:
 
 ## Data Source Compatibility
 
-This ETL system supports three data sources with **harmonized schemas** for consistent data loading:
+This ETL system supports four data sources with **harmonized schemas** for consistent data loading:
 
 | Data Source | Repository | Format | Status |
 |-------------|------------|--------|--------|
 | **ENTSOE** | `entsoe-power-generation` | JSONL | ✅ 100% Compatible |
 | **India NPP** | `india-generation-npp` | JSONL | ✅ 100% Compatible (Harmonized) |
-| **EIA USA** | `eia_usa_generation` | JSONL (`*_etl.jsonl` files) | ✅ 100% Compatible |
+| **EIA USA** | `eia-usa-generation` | JSONL (`*_etl.jsonl` files) | ✅ 100% Compatible |
+| **Brazil ONS** | `brazil-ons-generation` | JSONL (`*_etl.jsonl` files) | ✅ 100% Compatible |
 
 ### Harmonized Schema
 
-All three data sources use a **consistent metadata format**:
+All four data sources use a **consistent metadata format**:
 
 ```json
 {
@@ -242,9 +250,15 @@ All three data sources use a **consistent metadata format**:
 
 **EIA USA:**
 - Files: `eia_generator_data_*_etl.jsonl`
-- Location: `eia_usa_generation/output/`
+- Location: `eia-usa-generation/output/`
 - Schema: `extraction_run_id`, `created_at_ms`, `timestamp_ms`, `net_generation_mwh`, `resolution_minutes`, generator details
 - Note: Uses MWh (energy), monthly resolution (null)
+
+**Brazil ONS:**
+- Files: `ons_generation_*_etl.jsonl`
+- Location: `brazil-ons-generation/output/`
+- Schema: `extraction_run_id`, `created_at_ms`, `timestamp_ms`, `generation_mwh`, `resolution_minutes`, plant/fuel/subsystem details
+- Note: Uses MWh (energy), hourly resolution (60 minutes)
 
 ⸻
 
@@ -305,6 +319,7 @@ Example report:
 | **NPP** | `(timestamp_ms, plant_and_unit)` | Daily (1440 min) |
 | **EIA** | `(timestamp_ms, plant_code, generator_id)` | Monthly (null) |
 | **ENTSOE** | `(timestamp_ms, country_code, psr_type, plant_name)` | 15/30/60 min |
+| **ONS** | `(timestamp_ms, plant, ons_plant_id)` | Hourly (60 min) |
 
 ### Data Units
 
@@ -315,6 +330,7 @@ Different sources use different units. See [docs/DATA_UNITS.md](./docs/DATA_UNIT
 | **ENTSOE** | `generation_mw` | MW | Instantaneous power |
 | **NPP** | `generation_mwh` | MWh | Energy (daily) |
 | **EIA** | `net_generation_mwh` | MWh | Energy (monthly) |
+| **ONS** | `generation_mwh` | MWh | Energy (hourly) |
 
 ---
 
