@@ -2887,6 +2887,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "ruff" },
     { name = "sqlalchemy" },
+    { name = "tenacity" },
     { name = "tqdm" },
 ]
 
@@ -2904,6 +2905,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "ruff", specifier = ">=0.14.8" },
     { name = "sqlalchemy", specifier = ">=2.0.25" },
+    { name = "tenacity", specifier = ">=8.2.0" },
     { name = "tqdm", specifier = ">=4.67.1" },
 ]
 

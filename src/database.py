@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Unified Power Generation Database Module
-Handles ingestion for NPP, ENTSO-E, EIA, and ONS generation data into PostgreSQL.
+Handles ingestion for NPP, ENTSO-E, EIA, ONS, and OE generation data into PostgreSQL.
 """
 
 import json
@@ -216,6 +216,14 @@ class PowerGenerationDatabase:
         """Create ONS Brazil generation table."""
         return self._execute_schema_file("ons_generation.sql")
 
+    def create_oe_table(self) -> bool:
+        """Create OpenElectricity Australia generation table."""
+        return self._execute_schema_file("oe_generation.sql")
+
+    def create_oe_facility_table(self) -> bool:
+        """Create OpenElectricity Australia facility generation table."""
+        return self._execute_schema_file("oe_facility_generation.sql")
+
     def create_extraction_metadata_table(self) -> bool:
         """Create extraction metadata table."""
         return self._execute_schema_file("extraction_metadata.sql")
@@ -223,7 +231,7 @@ class PowerGenerationDatabase:
     def create_all_tables(self) -> bool:
         """Create all generation tables including metadata."""
         success = True
-        for table_type in ["npp", "entsoe", "eia", "ons", "extraction_metadata"]:
+        for table_type in ["npp", "entsoe", "eia", "ons", "oe", "oe_facility", "extraction_metadata"]:
             try:
                 method = getattr(self, f"create_{table_type}_table")
                 if not method():
@@ -690,6 +698,194 @@ class PowerGenerationDatabase:
             logger.error("Failed to insert ONS data", error=str(e))
             return False, None
 
+    def insert_oe_jsonl_data(
+        self,
+        jsonl_file_path: str,
+        extraction_run_id: str = None,
+        validation_report_path: str = None,
+    ) -> Tuple[bool, Optional[ValidationReport]]:
+        """Insert OpenElectricity Australia data from JSONL file with validation.
+
+        Returns:
+            Tuple of (success, validation_report)
+        """
+        try:
+            # Read JSONL data
+            with open(jsonl_file_path, "r") as f:
+                data = [json.loads(line) for line in f if line.strip()]
+
+            if not data:
+                logger.warning("No OE data found in JSONL file")
+                return True, None
+
+            # Add extraction metadata if not already present
+            has_extraction_run_id = "extraction_run_id" in data[0]
+            has_created_at_ms = "created_at_ms" in data[0]
+
+            if not has_extraction_run_id or not has_created_at_ms:
+                if extraction_run_id is None:
+                    extraction_run_id = str(uuid.uuid4())
+                created_at_ms = int(datetime.now().timestamp() * 1000)
+
+            for record in data:
+                if not has_extraction_run_id:
+                    record["extraction_run_id"] = extraction_run_id
+                if not has_created_at_ms:
+                    record["created_at_ms"] = created_at_ms
+
+            # Validate data
+            validator = DataValidator()
+            valid_records, report = validator.validate_file(
+                data, "oe", jsonl_file_path
+            )
+
+            # Log validation summary
+            logger.info(
+                "Validation complete",
+                valid=report.valid_count,
+                total=report.total_count,
+            )
+            if report.invalid_count > 0:
+                logger.warning("Skipped invalid records", count=report.invalid_count)
+            if report.duplicate_count > 0:
+                logger.warning(
+                    "Skipped duplicate records", count=report.duplicate_count
+                )
+
+            # Save validation report if requested
+            if validation_report_path:
+                save_report(report, validation_report_path)
+
+            # Insert only valid records with retry logic
+            if valid_records:
+                df = pd.DataFrame(valid_records)
+
+                def _insert_oe():
+                    df.to_sql(
+                        "oe_generation_data",
+                        self.engine,
+                        if_exists="append",
+                        index=False,
+                        method="multi",
+                        chunksize=1000,
+                    )
+
+                self._execute_with_retry(_insert_oe)
+                logger.success("Inserted OE records", count=len(valid_records))
+
+                # Record extraction metadata
+                run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
+                self.insert_extraction_metadata(
+                    extraction_run_id=run_id,
+                    source="oe",
+                    extraction_timestamp=datetime.now(),
+                    total_records=report.valid_count,
+                    failed_count=report.invalid_count,
+                    success=True,
+                )
+            else:
+                logger.warning("No valid records to insert")
+
+            return True, report
+
+        except Exception as e:
+            logger.error("Failed to insert OE data", error=str(e))
+            return False, None
+
+    def insert_oe_facility_jsonl_data(
+        self,
+        jsonl_file_path: str,
+        extraction_run_id: str = None,
+        validation_report_path: str = None,
+    ) -> Tuple[bool, Optional[ValidationReport]]:
+        """Insert OpenElectricity Australia facility data from JSONL file with validation.
+
+        Returns:
+            Tuple of (success, validation_report)
+        """
+        try:
+            # Read JSONL data
+            with open(jsonl_file_path, "r") as f:
+                data = [json.loads(line) for line in f if line.strip()]
+
+            if not data:
+                logger.warning("No OE facility data found in JSONL file")
+                return True, None
+
+            # Add extraction metadata if not already present
+            has_extraction_run_id = "extraction_run_id" in data[0]
+            has_created_at_ms = "created_at_ms" in data[0]
+
+            if not has_extraction_run_id or not has_created_at_ms:
+                if extraction_run_id is None:
+                    extraction_run_id = str(uuid.uuid4())
+                created_at_ms = int(datetime.now().timestamp() * 1000)
+
+            for record in data:
+                if not has_extraction_run_id:
+                    record["extraction_run_id"] = extraction_run_id
+                if not has_created_at_ms:
+                    record["created_at_ms"] = created_at_ms
+
+            # Validate data
+            validator = DataValidator()
+            valid_records, report = validator.validate_file(
+                data, "oe_facility", jsonl_file_path
+            )
+
+            # Log validation summary
+            logger.info(
+                "Validation complete",
+                valid=report.valid_count,
+                total=report.total_count,
+            )
+            if report.invalid_count > 0:
+                logger.warning("Skipped invalid records", count=report.invalid_count)
+            if report.duplicate_count > 0:
+                logger.warning(
+                    "Skipped duplicate records", count=report.duplicate_count
+                )
+
+            # Save validation report if requested
+            if validation_report_path:
+                save_report(report, validation_report_path)
+
+            # Insert only valid records with retry logic
+            if valid_records:
+                df = pd.DataFrame(valid_records)
+
+                def _insert_oe_facility():
+                    df.to_sql(
+                        "oe_facility_generation_data",
+                        self.engine,
+                        if_exists="append",
+                        index=False,
+                        method="multi",
+                        chunksize=1000,
+                    )
+
+                self._execute_with_retry(_insert_oe_facility)
+                logger.success("Inserted OE facility records", count=len(valid_records))
+
+                # Record extraction metadata
+                run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
+                self.insert_extraction_metadata(
+                    extraction_run_id=run_id,
+                    source="oe_facility",
+                    extraction_timestamp=datetime.now(),
+                    total_records=report.valid_count,
+                    failed_count=report.invalid_count,
+                    success=True,
+                )
+            else:
+                logger.warning("No valid records to insert")
+
+            return True, report
+
+        except Exception as e:
+            logger.error("Failed to insert OE facility data", error=str(e))
+            return False, None
+
     def get_record_count(self, table_name: str) -> int:
         """Get total number of records in a specific table."""
         try:
@@ -704,7 +900,7 @@ class PowerGenerationDatabase:
 
     def get_all_record_counts(self) -> Dict[str, int]:
         """Get record counts for all main tables."""
-        tables = ["npp_generation", "entsoe_generation_data", "eia_generation_data", "ons_generation_data"]
+        tables = ["npp_generation", "entsoe_generation_data", "eia_generation_data", "ons_generation_data", "oe_generation_data", "oe_facility_generation_data"]
         counts = {}
 
         for table in tables:
@@ -736,7 +932,7 @@ class PowerGenerationDatabase:
 
         Args:
             extraction_run_id: UUID of the extraction run
-            source: Data source ('npp', 'eia', 'entsoe', 'ons')
+            source: Data source ('npp', 'eia', 'entsoe', 'ons', 'oe')
             extraction_timestamp: When the extraction was performed
             start_date: Start of data range (YYYY-MM-DD)
             end_date: End of data range (YYYY-MM-DD)

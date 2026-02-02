@@ -148,6 +148,45 @@ ONS_SCHEMA = {
     "duplicate_key": ("timestamp_ms", "plant", "ons_plant_id"),
 }
 
+OE_SCHEMA = {
+    "required_fields": {
+        "extraction_run_id": {"type": "str", "validation": "uuid"},
+        "created_at_ms": {"type": "int", "validation": "positive_timestamp"},
+        "timestamp_ms": {"type": "int", "validation": "positive_timestamp"},
+        "network_code": {"type": "str", "validation": "non_empty"},
+        "fueltech": {"type": "str", "validation": "non_empty"},
+        "generation_mwh": {"type": "float", "validation": "non_negative"},
+    },
+    "optional_fields": {
+        "network_region": {"type": "str_or_null", "validation": None},
+        "fueltech_group": {"type": "str_or_null", "validation": None},
+        "resolution_minutes": {"type": "int_or_null", "validation": None},
+    },
+    "duplicate_key": ("timestamp_ms", "fueltech", "network_code"),
+}
+
+OE_FACILITY_SCHEMA = {
+    "required_fields": {
+        "extraction_run_id": {"type": "str", "validation": "uuid"},
+        "created_at_ms": {"type": "int", "validation": "positive_timestamp"},
+        "timestamp_ms": {"type": "int", "validation": "positive_timestamp"},
+        "network_code": {"type": "str", "validation": "non_empty"},
+        "facility_code": {"type": "str", "validation": "non_empty"},
+        "facility_name": {"type": "str", "validation": "non_empty"},
+        "fueltech": {"type": "str", "validation": "non_empty"},
+        "generation_mwh": {"type": "float", "validation": "non_negative"},
+    },
+    "optional_fields": {
+        "network_region": {"type": "str_or_null", "validation": None},
+        "fueltech_group": {"type": "str_or_null", "validation": None},
+        "latitude": {"type": "float_or_null", "validation": None},
+        "longitude": {"type": "float_or_null", "validation": None},
+        "capacity_registered_mw": {"type": "float_or_null", "validation": None},
+        "resolution_minutes": {"type": "int_or_null", "validation": None},
+    },
+    "duplicate_key": ("timestamp_ms", "facility_code", "fueltech"),
+}
+
 
 class DataValidator:
     """Validates power generation data records."""
@@ -158,6 +197,8 @@ class DataValidator:
             "eia": EIA_SCHEMA,
             "entsoe": ENTSOE_SCHEMA,
             "ons": ONS_SCHEMA,
+            "oe": OE_SCHEMA,
+            "oe_facility": OE_FACILITY_SCHEMA,
         }
 
     def _is_valid_uuid(self, value: str) -> bool:
@@ -215,6 +256,9 @@ class DataValidator:
                     False,
                     f"expected string, number, or null, got {type(value).__name__}",
                 )
+        elif expected_type == "float_or_null":
+            if value is not None and (not isinstance(value, (int, float)) or isinstance(value, bool)):
+                return False, f"expected float or null, got {type(value).__name__}"
         elif expected_type == "int_or_null":
             if value is not None and (not isinstance(value, int) or isinstance(value, bool)):
                 return False, f"expected int or null, got {type(value).__name__}"
@@ -298,6 +342,14 @@ class DataValidator:
     def validate_ons_record(self, record: Dict[str, Any]) -> ValidationResult:
         """Validate a single ONS Brazil record."""
         return self._validate_record(record, ONS_SCHEMA)
+
+    def validate_oe_record(self, record: Dict[str, Any]) -> ValidationResult:
+        """Validate a single OpenElectricity Australia record."""
+        return self._validate_record(record, OE_SCHEMA)
+
+    def validate_oe_facility_record(self, record: Dict[str, Any]) -> ValidationResult:
+        """Validate a single OpenElectricity Australia facility record."""
+        return self._validate_record(record, OE_FACILITY_SCHEMA)
 
     def _get_duplicate_key(
         self, record: Dict[str, Any], key_fields: Tuple[str, ...]
