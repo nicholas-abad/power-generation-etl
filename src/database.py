@@ -361,78 +361,21 @@ class PowerGenerationDatabase:
         jsonl_file_path: str,
         extraction_run_id: str = None,
         validation_report_path: str = None,
+        batch_size: int = 500000,
     ) -> Tuple[bool, Optional[ValidationReport]]:
         """Insert ENTSO-E data from JSONL file with validation.
+
+        Uses streaming/batching for large files to avoid memory issues.
 
         Returns:
             Tuple of (success, validation_report)
         """
         try:
-            # Read JSONL data as list of dicts for validation
-            with open(jsonl_file_path, "r") as f:
-                data = [json.loads(line) for line in f if line.strip()]
-
-            if not data:
-                logger.warning("No ENTSO-E data found", file=jsonl_file_path)
-                return True, None
-
-            # Add extraction run ID and current timestamp only if not already present
+            # Set up extraction metadata
             if extraction_run_id is None:
                 extraction_run_id = str(uuid.uuid4())
             created_at_ms = int(datetime.now().timestamp() * 1000)
 
-            for record in data:
-                if "extraction_run_id" not in record:
-                    record["extraction_run_id"] = extraction_run_id
-                if "created_at_ms" not in record:
-                    record["created_at_ms"] = created_at_ms
-
-                # Convert datetime strings to Unix timestamps in milliseconds
-                if "timestamp_ms" in record:
-                    ts = record["timestamp_ms"]
-                    if isinstance(ts, str):
-                        try:
-                            dt = pd.to_datetime(ts, errors="coerce")
-                            if pd.isnull(dt):
-                                record["timestamp_ms"] = None
-                            else:
-                                record["timestamp_ms"] = int(dt.timestamp() * 1000)
-                        except Exception:
-                            record["timestamp_ms"] = None
-                    elif ts is not None:
-                        record["timestamp_ms"] = int(ts)
-
-            # Validate data
-            validator = DataValidator()
-            valid_records, report = validator.validate_file(
-                data, "entsoe", jsonl_file_path
-            )
-
-            # Log validation summary
-            logger.info(
-                "Validation complete",
-                valid=report.valid_count,
-                total=report.total_count,
-            )
-            if report.invalid_count > 0:
-                logger.warning("Skipped invalid records", count=report.invalid_count)
-            if report.duplicate_count > 0:
-                logger.warning(
-                    "Skipped duplicate records", count=report.duplicate_count
-                )
-
-            # Save validation report if requested
-            if validation_report_path:
-                save_report(report, validation_report_path)
-
-            if not valid_records:
-                logger.warning("No valid records to insert")
-                return True, report
-
-            # Convert to DataFrame for insertion
-            df = pd.DataFrame(valid_records)
-
-            # Ensure column order matches table schema
             expected_columns = [
                 "extraction_run_id",
                 "created_at_ms",
@@ -446,42 +389,108 @@ class PowerGenerationDatabase:
                 "resolution_minutes",
             ]
 
-            # Reorder columns to match expected schema
-            df = df[expected_columns]
+            # Count total lines first for progress reporting
+            logger.info("Counting total records...")
+            with open(jsonl_file_path, "r") as f:
+                total_lines = sum(1 for line in f if line.strip())
+            logger.info(f"Total records to process: {total_lines:,}")
 
-            # Use PostgreSQL COPY for fast bulk insert with retry logic
-            def _insert_entsoe():
-                conn = self.engine.raw_connection()
-                try:
-                    cursor = conn.cursor()
-                    # Create a StringIO object from the DataFrame
-                    output = StringIO()
-                    df.to_csv(output, sep="\t", header=False, index=False)
-                    output.seek(0)
+            # Initialize aggregate validation report
+            total_valid = 0
+            total_invalid = 0
+            total_duplicate = 0
+            total_inserted = 0
+            batch_num = 0
+            first_run_id = None
 
-                    # Use COPY to insert data efficiently
-                    cursor.copy_from(
-                        output,
-                        "entsoe_generation_data",
-                        columns=expected_columns,
-                        sep="\t",
+            validator = DataValidator()
+
+            # Process file in batches
+            with open(jsonl_file_path, "r") as f:
+                batch = []
+                for line_num, line in enumerate(f, 1):
+                    if not line.strip():
+                        continue
+
+                    record = json.loads(line)
+
+                    # Add extraction metadata if not present
+                    if "extraction_run_id" not in record:
+                        record["extraction_run_id"] = extraction_run_id
+                    if "created_at_ms" not in record:
+                        record["created_at_ms"] = created_at_ms
+
+                    # Capture first run_id for metadata
+                    if first_run_id is None:
+                        first_run_id = record.get("extraction_run_id", extraction_run_id)
+
+                    # Convert datetime strings to Unix timestamps in milliseconds
+                    if "timestamp_ms" in record:
+                        ts = record["timestamp_ms"]
+                        if isinstance(ts, str):
+                            try:
+                                dt = pd.to_datetime(ts, errors="coerce")
+                                if pd.isnull(dt):
+                                    record["timestamp_ms"] = None
+                                else:
+                                    record["timestamp_ms"] = int(dt.timestamp() * 1000)
+                            except Exception:
+                                record["timestamp_ms"] = None
+                        elif ts is not None:
+                            record["timestamp_ms"] = int(ts)
+
+                    batch.append(record)
+
+                    # Process batch when full
+                    if len(batch) >= batch_size:
+                        batch_num += 1
+                        inserted, valid, invalid, dup = self._insert_entsoe_batch(
+                            batch, expected_columns, validator, batch_num, line_num, total_lines
+                        )
+                        total_inserted += inserted
+                        total_valid += valid
+                        total_invalid += invalid
+                        total_duplicate += dup
+                        batch = []
+
+                # Process remaining records
+                if batch:
+                    batch_num += 1
+                    inserted, valid, invalid, dup = self._insert_entsoe_batch(
+                        batch, expected_columns, validator, batch_num, line_num, total_lines
                     )
+                    total_inserted += inserted
+                    total_valid += valid
+                    total_invalid += invalid
+                    total_duplicate += dup
 
-                    conn.commit()
-                finally:
-                    conn.close()
+            # Create aggregate validation report
+            report = ValidationReport(
+                source_type="entsoe",
+                file_path=jsonl_file_path,
+                total_count=total_valid + total_invalid + total_duplicate,
+                valid_count=total_valid,
+                invalid_count=total_invalid,
+                duplicate_count=total_duplicate,
+            )
 
-            self._execute_with_retry(_insert_entsoe)
-            logger.success("Inserted ENTSO-E records", count=len(df))
+            # Log final summary
+            logger.success(
+                f"ENTSO-E load complete: {total_inserted:,} records inserted, "
+                f"{total_invalid:,} invalid, {total_duplicate:,} duplicates skipped"
+            )
+
+            # Save validation report if requested
+            if validation_report_path:
+                save_report(report, validation_report_path)
 
             # Record extraction metadata
-            run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
             self.insert_extraction_metadata(
-                extraction_run_id=run_id,
+                extraction_run_id=first_run_id or extraction_run_id,
                 source="entsoe",
                 extraction_timestamp=datetime.now(),
-                total_records=report.valid_count,
-                failed_count=report.invalid_count,
+                total_records=total_valid,
+                failed_count=total_invalid,
                 success=True,
             )
             return True, report
@@ -491,6 +500,182 @@ class PowerGenerationDatabase:
                 "Failed to insert ENTSO-E data", file=jsonl_file_path, error=str(e)
             )
             return False, None
+
+    def _insert_entsoe_batch(
+        self,
+        batch: list,
+        expected_columns: list,
+        validator: "DataValidator",
+        batch_num: int,
+        current_line: int,
+        total_lines: int,
+    ) -> Tuple[int, int, int, int]:
+        """Insert a batch of ENTSO-E records.
+
+        Returns:
+            Tuple of (inserted_count, valid_count, invalid_count, duplicate_count)
+        """
+        # Validate batch
+        valid_records, report = validator.validate_file(
+            batch, "entsoe", f"batch_{batch_num}"
+        )
+
+        if not valid_records:
+            logger.warning(f"Batch {batch_num}: No valid records")
+            return 0, report.valid_count, report.invalid_count, report.duplicate_count
+
+        # Convert to DataFrame
+        df = pd.DataFrame(valid_records)
+        df = df[expected_columns]
+
+        # Insert using COPY
+        def _insert():
+            conn = self.engine.raw_connection()
+            try:
+                cursor = conn.cursor()
+                output = StringIO()
+                df.to_csv(output, sep="\t", header=False, index=False)
+                output.seek(0)
+                cursor.copy_from(
+                    output,
+                    "entsoe_generation_data",
+                    columns=expected_columns,
+                    sep="\t",
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+        self._execute_with_retry(_insert)
+
+        pct = (current_line / total_lines) * 100
+        logger.info(
+            f"Batch {batch_num}: Inserted {len(df):,} records "
+            f"({current_line:,}/{total_lines:,} = {pct:.1f}%)"
+        )
+
+        return len(df), report.valid_count, report.invalid_count, report.duplicate_count
+
+    def aggregate_entsoe_to_monthly(
+        self, output_dir: str, granularity: str = "plant"
+    ) -> Tuple[bool, int]:
+        """Aggregate ENTSOE hourly data to monthly and export to CSV files.
+
+        Args:
+            output_dir: Directory to save CSV files
+            granularity: Level of aggregation - 'plant', 'country-fuel', or 'country'
+
+        Returns:
+            Tuple of (success, total_rows_exported)
+        """
+        try:
+            output_path = Path(output_dir)
+            output_path.mkdir(parents=True, exist_ok=True)
+
+            # Build aggregation query based on granularity
+            if granularity == "plant":
+                group_cols = "month, country_code, psr_type, plant_name"
+                select_cols = """
+                    TO_CHAR(date_trunc('month', to_timestamp(timestamp_ms / 1000)), 'YYYY-MM-01') AS month,
+                    country_code,
+                    psr_type,
+                    plant_name,
+                    SUM(generation_mw) AS total_generation_mwh,
+                    COUNT(*) AS hours_of_data,
+                    AVG(generation_mw) AS avg_generation_mw,
+                    MAX(generation_mw) AS peak_generation_mw
+                """
+            elif granularity == "country-fuel":
+                group_cols = "month, country_code, psr_type"
+                select_cols = """
+                    TO_CHAR(date_trunc('month', to_timestamp(timestamp_ms / 1000)), 'YYYY-MM-01') AS month,
+                    country_code,
+                    psr_type,
+                    SUM(generation_mw) AS total_generation_mwh,
+                    COUNT(*) AS hours_of_data,
+                    AVG(generation_mw) AS avg_generation_mw,
+                    MAX(generation_mw) AS peak_generation_mw
+                """
+            else:  # country
+                group_cols = "month, country_code"
+                select_cols = """
+                    TO_CHAR(date_trunc('month', to_timestamp(timestamp_ms / 1000)), 'YYYY-MM-01') AS month,
+                    country_code,
+                    SUM(generation_mw) AS total_generation_mwh,
+                    COUNT(*) AS hours_of_data,
+                    AVG(generation_mw) AS avg_generation_mw,
+                    MAX(generation_mw) AS peak_generation_mw
+                """
+
+            # Get distinct years in the data
+            with self.engine.connect() as conn:
+                years_result = conn.execute(
+                    text("""
+                        SELECT DISTINCT EXTRACT(YEAR FROM to_timestamp(timestamp_ms / 1000))::INTEGER AS year
+                        FROM entsoe_generation_data
+                        ORDER BY year
+                    """)
+                )
+                years = [row[0] for row in years_result]
+
+            if not years:
+                logger.warning("No data found in entsoe_generation_data")
+                return True, 0
+
+            logger.info(f"Found data for years: {years}")
+            total_rows = 0
+
+            # Export each year to a separate CSV
+            for year in years:
+                logger.info(f"Aggregating year {year}...")
+
+                query = f"""
+                    SELECT {select_cols}
+                    FROM entsoe_generation_data
+                    WHERE EXTRACT(YEAR FROM to_timestamp(timestamp_ms / 1000)) = :year
+                    GROUP BY {group_cols}
+                    ORDER BY {group_cols}
+                """
+
+                df = pd.read_sql(text(query), self.engine, params={"year": year})
+
+                if len(df) > 0:
+                    csv_path = output_path / f"entsoe_monthly_{year}.csv"
+                    df.to_csv(csv_path, index=False)
+                    total_rows += len(df)
+                    logger.success(f"Exported {len(df):,} rows to {csv_path}")
+
+            logger.success(f"Total exported: {total_rows:,} rows across {len(years)} files")
+            return True, total_rows
+
+        except Exception as e:
+            logger.error(f"Failed to aggregate ENTSOE data: {e}")
+            return False, 0
+
+    def clear_entsoe_data(self) -> Tuple[bool, int]:
+        """Clear all data from the ENTSOE table.
+
+        Returns:
+            Tuple of (success, rows_deleted)
+        """
+        try:
+            with self.engine.connect() as conn:
+                # Get count before deletion
+                count_result = conn.execute(
+                    text("SELECT COUNT(*) FROM entsoe_generation_data")
+                )
+                row_count = count_result.scalar()
+
+                # Delete all rows
+                conn.execute(text("TRUNCATE TABLE entsoe_generation_data"))
+                conn.commit()
+
+                logger.success(f"Cleared {row_count:,} rows from entsoe_generation_data")
+                return True, row_count
+
+        except Exception as e:
+            logger.error(f"Failed to clear ENTSOE data: {e}")
+            return False, 0
 
     def insert_eia_jsonl_data(
         self,

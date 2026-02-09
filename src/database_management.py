@@ -193,6 +193,63 @@ def show_database_stats():
     return True
 
 
+def aggregate_export(data_source: str, output_dir: str, granularity: str = "plant"):
+    """Aggregate hourly data to monthly and export to CSV files.
+
+    Args:
+        data_source: Data source to aggregate (currently only 'entsoe' supported)
+        output_dir: Directory to save CSV files
+        granularity: Level of aggregation - 'plant', 'country-fuel', or 'country'
+    """
+    logger.info(f"Aggregating {data_source} data to monthly ({granularity} level)")
+
+    db = create_power_generation_database()
+
+    if not db.test_connection():
+        logger.error("Database connection failed")
+        return False
+
+    if data_source == "entsoe":
+        success, total_rows = db.aggregate_entsoe_to_monthly(output_dir, granularity)
+    else:
+        logger.error(f"Aggregation not supported for: {data_source}")
+        db.close()
+        return False
+
+    db.close()
+    return success
+
+
+def clear_table(data_source: str, confirm: bool = False):
+    """Clear all data from a table.
+
+    Args:
+        data_source: Data source table to clear
+        confirm: Must be True to actually delete data
+    """
+    if not confirm:
+        logger.error("Must use --confirm flag to delete data")
+        return False
+
+    logger.warning(f"Clearing all data from {data_source} table...")
+
+    db = create_power_generation_database()
+
+    if not db.test_connection():
+        logger.error("Database connection failed")
+        return False
+
+    if data_source == "entsoe":
+        success, rows_deleted = db.clear_entsoe_data()
+    else:
+        logger.error(f"Clear not supported for: {data_source}")
+        db.close()
+        return False
+
+    db.close()
+    return success
+
+
 def main():
     """Main CLI interface."""
     parser = argparse.ArgumentParser(
@@ -210,6 +267,8 @@ Examples:
   python database_management.py load-data oe_facility ./data/oe_facility_data_etl.jsonl
   python database_management.py load-data npp ./data/npp_data.jsonl --validation-report report.json
   python database_management.py stats
+  python database_management.py aggregate-export entsoe --output-dir ./exports/entsoe_monthly
+  python database_management.py clear-table entsoe --confirm
         """,
     )
 
@@ -263,6 +322,44 @@ Examples:
     # Stats command
     subparsers.add_parser("stats", help="Show database statistics")
 
+    # Aggregate-export command
+    agg_parser = subparsers.add_parser(
+        "aggregate-export", help="Aggregate hourly data to monthly and export to CSV"
+    )
+    agg_parser.add_argument(
+        "data_source",
+        choices=["entsoe"],
+        help="Data source to aggregate",
+    )
+    agg_parser.add_argument(
+        "--output-dir",
+        "-o",
+        required=True,
+        help="Directory to save CSV files",
+    )
+    agg_parser.add_argument(
+        "--granularity",
+        "-g",
+        choices=["plant", "country-fuel", "country"],
+        default="plant",
+        help="Level of aggregation (default: plant)",
+    )
+
+    # Clear-table command
+    clear_parser = subparsers.add_parser(
+        "clear-table", help="Clear all data from a table"
+    )
+    clear_parser.add_argument(
+        "data_source",
+        choices=["entsoe"],
+        help="Data source table to clear",
+    )
+    clear_parser.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Required flag to confirm deletion",
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -285,6 +382,10 @@ Examples:
         )
     elif args.command == "stats":
         success = show_database_stats()
+    elif args.command == "aggregate-export":
+        success = aggregate_export(args.data_source, args.output_dir, args.granularity)
+    elif args.command == "clear-table":
+        success = clear_table(args.data_source, args.confirm)
 
     sys.exit(0 if success else 1)
 
