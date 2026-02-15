@@ -33,7 +33,10 @@ CREATE TABLE IF NOT EXISTS npp_generation (
 
     -- Data quality constraints
     CONSTRAINT positive_generation_npp CHECK (generation_mwh >= 0),
-    CONSTRAINT valid_timestamps_npp CHECK (timestamp_ms > 0 AND created_at_ms > 0)
+    CONSTRAINT valid_timestamps_npp CHECK (timestamp_ms > 0 AND created_at_ms > 0),
+
+    -- Natural key uniqueness (prevents cross-batch and re-load duplicates)
+    CONSTRAINT uq_npp_natural_key UNIQUE (timestamp_ms, plant_and_unit)
 );
 
 -- ============================================================================

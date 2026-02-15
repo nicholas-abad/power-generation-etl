@@ -24,7 +24,10 @@ CREATE TABLE IF NOT EXISTS oe_generation_data (
 
     -- Data quality constraints
     CONSTRAINT valid_timestamps_oe CHECK (timestamp_ms > 0 AND created_at_ms > 0),
-    CONSTRAINT non_negative_generation_oe CHECK (generation_mwh >= 0)
+    CONSTRAINT non_negative_generation_oe CHECK (generation_mwh >= 0),
+
+    -- Natural key uniqueness (prevents cross-batch and re-load duplicates)
+    CONSTRAINT uq_oe_natural_key UNIQUE (timestamp_ms, fueltech, network_code)
 );
 
 -- Performance indexes

@@ -41,7 +41,10 @@ CREATE TABLE IF NOT EXISTS eia_generation_data (
     eia_plant_unit_id VARCHAR(100),  -- Combined plant+unit ID for matching
 
     -- Data quality constraints
-    CONSTRAINT valid_timestamps_eia CHECK (timestamp_ms > 0 AND created_at_ms > 0)
+    CONSTRAINT valid_timestamps_eia CHECK (timestamp_ms > 0 AND created_at_ms > 0),
+
+    -- Natural key uniqueness (prevents cross-batch and re-load duplicates)
+    CONSTRAINT uq_eia_natural_key UNIQUE (timestamp_ms, plant_code, generator_id)
 );
 
 -- ============================================================================
@@ -62,8 +65,12 @@ CREATE INDEX IF NOT EXISTS idx_eia_generation_plant_time ON eia_generation_data
 (plant_code, timestamp_ms);
 
 -- Extraction run tracking
-CREATE INDEX IF NOT EXISTS idx_eia_generation_extraction_run ON eia_generation_data 
+CREATE INDEX IF NOT EXISTS idx_eia_generation_extraction_run ON eia_generation_data
 (extraction_run_id);
+
+-- Prime mover + time for dashboard fuel-type filtered queries
+CREATE INDEX IF NOT EXISTS idx_eia_generation_prime_mover_time ON eia_generation_data
+(prime_mover, timestamp_ms);
 
 -- Schema creation complete
 SELECT 'EIA Generation schema created successfully!' AS status;

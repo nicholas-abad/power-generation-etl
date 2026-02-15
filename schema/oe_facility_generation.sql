@@ -38,7 +38,10 @@ CREATE TABLE IF NOT EXISTS oe_facility_generation_data (
     CONSTRAINT valid_timestamps_oe_fac CHECK (timestamp_ms > 0 AND created_at_ms > 0),
     CONSTRAINT non_negative_generation_oe_fac CHECK (generation_mwh >= 0),
     CONSTRAINT valid_latitude_oe_fac CHECK (latitude IS NULL OR (latitude >= -90 AND latitude <= 90)),
-    CONSTRAINT valid_longitude_oe_fac CHECK (longitude IS NULL OR (longitude >= -180 AND longitude <= 180))
+    CONSTRAINT valid_longitude_oe_fac CHECK (longitude IS NULL OR (longitude >= -180 AND longitude <= 180)),
+
+    -- Natural key uniqueness (prevents cross-batch and re-load duplicates)
+    CONSTRAINT uq_oe_facility_natural_key UNIQUE (timestamp_ms, facility_code, fueltech)
 );
 
 -- Performance indexes

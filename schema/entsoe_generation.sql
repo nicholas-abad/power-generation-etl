@@ -35,7 +35,10 @@ CREATE TABLE IF NOT EXISTS entsoe_generation_data (
     -- Data quality constraints
     CONSTRAINT positive_generation CHECK (generation_mw >= 0),
     CONSTRAINT valid_timestamps CHECK (timestamp_ms > 0 AND created_at_ms > 0),
-    CONSTRAINT valid_resolution CHECK (resolution_minutes > 0)
+    CONSTRAINT valid_resolution CHECK (resolution_minutes > 0),
+
+    -- Natural key uniqueness (prevents cross-batch and re-load duplicates)
+    CONSTRAINT uq_entsoe_natural_key UNIQUE (timestamp_ms, country_code, psr_type, plant_name)
 );
 
 -- ============================================================================

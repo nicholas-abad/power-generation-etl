@@ -43,3 +43,8 @@ CREATE INDEX IF NOT EXISTS idx_ons_gen_state_time ON ons_generation_data (state,
 CREATE INDEX IF NOT EXISTS idx_ons_gen_subsystem_time ON ons_generation_data (subsystem_id, timestamp_ms);
 CREATE INDEX IF NOT EXISTS idx_ons_gen_extraction_run ON ons_generation_data (extraction_run_id);
 CREATE INDEX IF NOT EXISTS idx_ons_gen_plant_id ON ons_generation_data (ons_plant_id);
+
+-- Natural key uniqueness (prevents cross-batch and re-load duplicates)
+-- Uses expression index because ons_plant_id is nullable (NULL != NULL in UNIQUE)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ons_natural_key
+ON ons_generation_data (timestamp_ms, plant, COALESCE(ons_plant_id, ''));

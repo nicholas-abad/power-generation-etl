@@ -28,6 +28,36 @@ from tenacity import (
 
 from validator import DataValidator, ValidationReport, save_report
 
+# ENTSO-E PSR type codes to human-readable fuel type names.
+# Used to fix fuel_type during JSONL ingestion (records extracted before the
+# extractor fix may have fuel_type="Unknown" due to column-name parsing bugs).
+PSR_TO_FUEL_TYPE = {
+    "B01": "Biomass",
+    "B02": "Fossil Brown coal/Lignite",
+    "B03": "Fossil Coal-derived gas",
+    "B04": "Fossil Gas",
+    "B05": "Fossil Hard coal",
+    "B06": "Fossil Oil",
+    "B07": "Fossil Oil shale",
+    "B08": "Fossil Peat",
+    "B09": "Geothermal",
+    "B10": "Hydro Pumped Storage",
+    "B11": "Hydro Run-of-river and poundage",
+    "B12": "Hydro Water Reservoir",
+    "B13": "Marine",
+    "B14": "Nuclear",
+    "B15": "Other renewable",
+    "B16": "Solar",
+    "B17": "Waste",
+    "B18": "Wind Offshore",
+    "B19": "Wind Onshore",
+    "B20": "Other",
+}
+
+# Suffixes that leak into plant names from column flattening
+_FUEL_TYPE_SUFFIXES = sorted(PSR_TO_FUEL_TYPE.values(), key=len, reverse=True)
+_DATA_TYPE_SUFFIXES = ["Actual Aggregated", "Actual Consumption"]
+
 
 # Retry configuration for database operations
 DB_RETRY_ATTEMPTS = 3
@@ -104,7 +134,10 @@ class PowerGenerationDatabase:
         self.username = username or os.getenv("POSTGRES_USER", "postgres")
         self.password = password or os.getenv("POSTGRES_PASSWORD", "")
 
+        self.sslmode = os.getenv("POSTGRES_SSLMODE", "")
         self.connection_string = f"postgresql://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
+        if self.sslmode:
+            self.connection_string += f"?sslmode={self.sslmode}"
 
         self._engine: Optional[Engine] = None
 
@@ -130,6 +163,72 @@ class PowerGenerationDatabase:
         """
         return query_func()
 
+    def _upsert_via_staging(
+        self,
+        df: pd.DataFrame,
+        target_table: str,
+        conflict_columns: list,
+        conflict_expr: str = None,
+    ) -> int:
+        """Insert rows via a staging table, skipping duplicates on conflict.
+
+        Uses CREATE TEMP TABLE + COPY + INSERT ... ON CONFLICT DO NOTHING
+        for efficient bulk upsert.
+
+        Args:
+            df: DataFrame of rows to insert.
+            target_table: Destination table name.
+            conflict_columns: List of column names forming the natural key
+                (used when the conflict target is plain columns).
+            conflict_expr: Raw SQL expression for the ON CONFLICT target when
+                the unique index uses expressions (e.g. COALESCE). When set,
+                this is used instead of conflict_columns in the ON CONFLICT clause.
+
+        Returns:
+            Number of rows actually inserted (excluding duplicates).
+        """
+        staging = f"_staging_{target_table}"
+        columns = list(df.columns)
+        col_list = ", ".join(columns)
+
+        if conflict_expr:
+            conflict_target = f"({conflict_expr})"
+        else:
+            conflict_target = f"({', '.join(conflict_columns)})"
+
+        conn = self.engine.raw_connection()
+        try:
+            cursor = conn.cursor()
+
+            # 1. Create temp staging table (dropped at end of transaction)
+            cursor.execute(
+                f"CREATE TEMP TABLE {staging} "
+                f"(LIKE {target_table} INCLUDING DEFAULTS) "
+                f"ON COMMIT DROP"
+            )
+
+            # 2. COPY data into staging table
+            output = StringIO()
+            df.to_csv(output, sep="\t", header=False, index=False, na_rep="\\N")
+            output.seek(0)
+            cursor.copy_from(output, staging, columns=columns, sep="\t", null="\\N")
+
+            # 3. INSERT from staging into target, skipping duplicates
+            cursor.execute(
+                f"INSERT INTO {target_table} ({col_list}) "
+                f"SELECT {col_list} FROM {staging} "
+                f"ON CONFLICT {conflict_target} DO NOTHING"
+            )
+            inserted = cursor.rowcount
+
+            conn.commit()
+            return inserted
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def test_connection(self) -> bool:
         """Test database connection."""
         try:
@@ -151,6 +250,8 @@ class PowerGenerationDatabase:
         try:
             # Connect to default postgres database to create target database
             default_conn_string = f"postgresql://{self.username}:{self.password}@{self.host}:{self.port}/postgres"
+            if self.sslmode:
+                default_conn_string += f"?sslmode={self.sslmode}"
             default_engine = create_engine(default_conn_string)
 
             with default_engine.connect() as conn:
@@ -320,22 +421,20 @@ class PowerGenerationDatabase:
             if validation_report_path:
                 save_report(report, validation_report_path)
 
-            # Insert only valid records with retry logic
+            # Insert only valid records via upsert (skips duplicates)
             if valid_records:
                 df = pd.DataFrame(valid_records)
 
-                def _insert_npp():
-                    df.to_sql(
-                        "npp_generation",
-                        self.engine,
-                        if_exists="append",
-                        index=False,
-                        method="multi",
-                        chunksize=1000,
+                def _upsert_npp():
+                    return self._upsert_via_staging(
+                        df, "npp_generation", ["timestamp_ms", "plant_and_unit"]
                     )
 
-                self._execute_with_retry(_insert_npp)
-                logger.success("Inserted NPP records", count=len(valid_records))
+                inserted = self._execute_with_retry(_upsert_npp)
+                skipped = len(valid_records) - inserted
+                logger.success(
+                    f"NPP upsert: {inserted} inserted, {skipped} duplicates skipped"
+                )
 
                 # Record extraction metadata
                 run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
@@ -343,7 +442,7 @@ class PowerGenerationDatabase:
                     extraction_run_id=run_id,
                     source="npp",
                     extraction_timestamp=datetime.now(),
-                    total_records=report.valid_count,
+                    total_records=inserted,
                     failed_count=report.invalid_count,
                     success=True,
                 )
@@ -439,6 +538,23 @@ class PowerGenerationDatabase:
                         elif ts is not None:
                             record["timestamp_ms"] = int(ts)
 
+                    # Fix fuel_type: derive from psr_type (always correct)
+                    psr = record.get("psr_type", "")
+                    if psr in PSR_TO_FUEL_TYPE:
+                        record["fuel_type"] = PSR_TO_FUEL_TYPE[psr]
+
+                    # Clean plant_name: strip leaked fuel-type and data-type suffixes
+                    plant_name = record.get("plant_name", "")
+                    for suffix in _DATA_TYPE_SUFFIXES:
+                        if plant_name.endswith("_" + suffix):
+                            plant_name = plant_name[: -(len(suffix) + 1)]
+                            break
+                    for suffix in _FUEL_TYPE_SUFFIXES:
+                        if plant_name.endswith("_" + suffix):
+                            plant_name = plant_name[: -(len(suffix) + 1)]
+                            break
+                    record["plant_name"] = plant_name
+
                     batch.append(record)
 
                     # Process batch when full
@@ -528,33 +644,24 @@ class PowerGenerationDatabase:
         df = pd.DataFrame(valid_records)
         df = df[expected_columns]
 
-        # Insert using COPY
-        def _insert():
-            conn = self.engine.raw_connection()
-            try:
-                cursor = conn.cursor()
-                output = StringIO()
-                df.to_csv(output, sep="\t", header=False, index=False)
-                output.seek(0)
-                cursor.copy_from(
-                    output,
-                    "entsoe_generation_data",
-                    columns=expected_columns,
-                    sep="\t",
-                )
-                conn.commit()
-            finally:
-                conn.close()
+        # Insert via staging table upsert (handles existing UNIQUE constraint)
+        def _upsert():
+            return self._upsert_via_staging(
+                df,
+                "entsoe_generation_data",
+                ["timestamp_ms", "country_code", "psr_type", "plant_name"],
+            )
 
-        self._execute_with_retry(_insert)
+        inserted = self._execute_with_retry(_upsert)
 
+        skipped = len(df) - inserted
         pct = (current_line / total_lines) * 100
         logger.info(
-            f"Batch {batch_num}: Inserted {len(df):,} records "
+            f"Batch {batch_num}: {inserted:,} inserted, {skipped:,} duplicates skipped "
             f"({current_line:,}/{total_lines:,} = {pct:.1f}%)"
         )
 
-        return len(df), report.valid_count, report.invalid_count, report.duplicate_count
+        return inserted, report.valid_count, report.invalid_count, report.duplicate_count
 
     def aggregate_entsoe_to_monthly(
         self, output_dir: str, granularity: str = "plant"
@@ -753,22 +860,22 @@ class PowerGenerationDatabase:
             if validation_report_path:
                 save_report(report, validation_report_path)
 
-            # Insert only valid records with retry logic
+            # Insert only valid records via upsert (skips duplicates)
             if valid_records:
                 df = pd.DataFrame(valid_records)
 
-                def _insert_eia():
-                    df.to_sql(
+                def _upsert_eia():
+                    return self._upsert_via_staging(
+                        df,
                         "eia_generation_data",
-                        self.engine,
-                        if_exists="append",
-                        index=False,
-                        method="multi",
-                        chunksize=1000,
+                        ["timestamp_ms", "plant_code", "generator_id"],
                     )
 
-                self._execute_with_retry(_insert_eia)
-                logger.success("Inserted EIA records", count=len(valid_records))
+                inserted = self._execute_with_retry(_upsert_eia)
+                skipped = len(valid_records) - inserted
+                logger.success(
+                    f"EIA upsert: {inserted} inserted, {skipped} duplicates skipped"
+                )
 
                 # Record extraction metadata
                 run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
@@ -776,7 +883,7 @@ class PowerGenerationDatabase:
                     extraction_run_id=run_id,
                     source="eia",
                     extraction_timestamp=datetime.now(),
-                    total_records=report.valid_count,
+                    total_records=inserted,
                     failed_count=report.invalid_count,
                     success=True,
                 )
@@ -794,90 +901,129 @@ class PowerGenerationDatabase:
         jsonl_file_path: str,
         extraction_run_id: str = None,
         validation_report_path: str = None,
+        chunk_lines: int = 50_000,
     ) -> Tuple[bool, Optional[ValidationReport]]:
         """Insert ONS Brazil data from JSONL file with validation.
+
+        Processes the file in streaming chunks to handle large files (11M+ rows)
+        without loading everything into memory.
 
         Returns:
             Tuple of (success, validation_report)
         """
         try:
-            # Read JSONL data
-            with open(jsonl_file_path, "r") as f:
-                data = [json.loads(line) for line in f if line.strip()]
+            if extraction_run_id is None:
+                extraction_run_id = str(uuid.uuid4())
+            created_at_ms = int(datetime.now().timestamp() * 1000)
 
-            if not data:
-                logger.warning("No ONS data found in JSONL file")
-                return True, None
-
-            # Add extraction metadata if not already present
-            has_extraction_run_id = "extraction_run_id" in data[0]
-            has_created_at_ms = "created_at_ms" in data[0]
-
-            if not has_extraction_run_id or not has_created_at_ms:
-                if extraction_run_id is None:
-                    extraction_run_id = str(uuid.uuid4())
-                created_at_ms = int(datetime.now().timestamp() * 1000)
-
-            for record in data:
-                if not has_extraction_run_id:
-                    record["extraction_run_id"] = extraction_run_id
-                if not has_created_at_ms:
-                    record["created_at_ms"] = created_at_ms
-
-            # Validate data
             validator = DataValidator()
-            valid_records, report = validator.validate_file(
-                data, "ons", jsonl_file_path
-            )
+            total_inserted = 0
+            total_valid = 0
+            total_invalid = 0
+            total_duplicates = 0
+            total_records = 0
+            chunk_num = 0
 
-            # Log validation summary
-            logger.info(
-                "Validation complete",
-                valid=report.valid_count,
-                total=report.total_count,
-            )
-            if report.invalid_count > 0:
-                logger.warning("Skipped invalid records", count=report.invalid_count)
-            if report.duplicate_count > 0:
-                logger.warning(
-                    "Skipped duplicate records", count=report.duplicate_count
-                )
+            with open(jsonl_file_path, "r") as f:
+                while True:
+                    # Read a chunk of lines
+                    chunk = []
+                    for _ in range(chunk_lines):
+                        line = f.readline()
+                        if not line:
+                            break
+                        line = line.strip()
+                        if line:
+                            chunk.append(json.loads(line))
 
-            # Save validation report if requested
-            if validation_report_path:
-                save_report(report, validation_report_path)
+                    if not chunk:
+                        break
 
-            # Insert only valid records with retry logic
-            if valid_records:
-                df = pd.DataFrame(valid_records)
+                    chunk_num += 1
 
-                def _insert_ons():
-                    df.to_sql(
-                        "ons_generation_data",
-                        self.engine,
-                        if_exists="append",
-                        index=False,
-                        method="multi",
-                        chunksize=1000,
+                    # Add extraction metadata
+                    has_extraction_run_id = "extraction_run_id" in chunk[0]
+                    has_created_at_ms = "created_at_ms" in chunk[0]
+
+                    for record in chunk:
+                        if not has_extraction_run_id:
+                            record["extraction_run_id"] = extraction_run_id
+                        if not has_created_at_ms:
+                            record["created_at_ms"] = created_at_ms
+
+                    # Validate chunk
+                    valid_records, report = validator.validate_file(
+                        chunk, "ons", jsonl_file_path
                     )
 
-                self._execute_with_retry(_insert_ons)
-                logger.success("Inserted ONS records", count=len(valid_records))
+                    total_records += report.total_count
+                    total_valid += report.valid_count
+                    total_invalid += report.invalid_count
+                    total_duplicates += report.duplicate_count
 
-                # Record extraction metadata
-                run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
+                    # Insert valid records via upsert (skips duplicates)
+                    if valid_records:
+                        df = pd.DataFrame(valid_records)
+
+                        def _upsert_chunk():
+                            return self._upsert_via_staging(
+                                df,
+                                "ons_generation_data",
+                                ["timestamp_ms", "plant", "ons_plant_id"],
+                                conflict_expr="timestamp_ms, plant, COALESCE(ons_plant_id, '')",
+                            )
+
+                        inserted = self._execute_with_retry(_upsert_chunk)
+                        total_inserted += inserted
+
+                    logger.info(
+                        f"Chunk {chunk_num} done",
+                        chunk_valid=report.valid_count,
+                        total_inserted=total_inserted,
+                    )
+
+                    # Free memory
+                    del chunk, valid_records
+
+            # Log final summary
+            logger.info(
+                "Validation complete",
+                valid=total_valid,
+                invalid=total_invalid,
+                duplicates=total_duplicates,
+                total=total_records,
+            )
+            if total_invalid > 0:
+                logger.warning("Skipped invalid records", count=total_invalid)
+            if total_duplicates > 0:
+                logger.warning("Skipped duplicate records", count=total_duplicates)
+
+            if total_inserted > 0:
                 self.insert_extraction_metadata(
-                    extraction_run_id=run_id,
+                    extraction_run_id=extraction_run_id,
                     source="ons",
                     extraction_timestamp=datetime.now(),
-                    total_records=report.valid_count,
-                    failed_count=report.invalid_count,
+                    total_records=total_valid,
+                    failed_count=total_invalid,
                     success=True,
                 )
+                logger.success("Inserted ONS records", count=total_inserted)
             else:
                 logger.warning("No valid records to insert")
 
-            return True, report
+            # Build an aggregate report for the return value
+            aggregate_report = ValidationReport(
+                source_file=jsonl_file_path,
+                total_count=total_records,
+                valid_count=total_valid,
+                invalid_count=total_invalid,
+                duplicate_count=total_duplicates,
+            )
+
+            if validation_report_path:
+                save_report(aggregate_report, validation_report_path)
+
+            return True, aggregate_report
 
         except Exception as e:
             logger.error("Failed to insert ONS data", error=str(e))
@@ -941,22 +1087,22 @@ class PowerGenerationDatabase:
             if validation_report_path:
                 save_report(report, validation_report_path)
 
-            # Insert only valid records with retry logic
+            # Insert only valid records via upsert (skips duplicates)
             if valid_records:
                 df = pd.DataFrame(valid_records)
 
-                def _insert_oe():
-                    df.to_sql(
+                def _upsert_oe():
+                    return self._upsert_via_staging(
+                        df,
                         "oe_generation_data",
-                        self.engine,
-                        if_exists="append",
-                        index=False,
-                        method="multi",
-                        chunksize=1000,
+                        ["timestamp_ms", "fueltech", "network_code"],
                     )
 
-                self._execute_with_retry(_insert_oe)
-                logger.success("Inserted OE records", count=len(valid_records))
+                inserted = self._execute_with_retry(_upsert_oe)
+                skipped = len(valid_records) - inserted
+                logger.success(
+                    f"OE upsert: {inserted} inserted, {skipped} duplicates skipped"
+                )
 
                 # Record extraction metadata
                 run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
@@ -964,7 +1110,7 @@ class PowerGenerationDatabase:
                     extraction_run_id=run_id,
                     source="oe",
                     extraction_timestamp=datetime.now(),
-                    total_records=report.valid_count,
+                    total_records=inserted,
                     failed_count=report.invalid_count,
                     success=True,
                 )
@@ -1035,22 +1181,22 @@ class PowerGenerationDatabase:
             if validation_report_path:
                 save_report(report, validation_report_path)
 
-            # Insert only valid records with retry logic
+            # Insert only valid records via upsert (skips duplicates)
             if valid_records:
                 df = pd.DataFrame(valid_records)
 
-                def _insert_oe_facility():
-                    df.to_sql(
+                def _upsert_oe_facility():
+                    return self._upsert_via_staging(
+                        df,
                         "oe_facility_generation_data",
-                        self.engine,
-                        if_exists="append",
-                        index=False,
-                        method="multi",
-                        chunksize=1000,
+                        ["timestamp_ms", "facility_code", "fueltech"],
                     )
 
-                self._execute_with_retry(_insert_oe_facility)
-                logger.success("Inserted OE facility records", count=len(valid_records))
+                inserted = self._execute_with_retry(_upsert_oe_facility)
+                skipped = len(valid_records) - inserted
+                logger.success(
+                    f"OE facility upsert: {inserted} inserted, {skipped} duplicates skipped"
+                )
 
                 # Record extraction metadata
                 run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
@@ -1058,7 +1204,7 @@ class PowerGenerationDatabase:
                     extraction_run_id=run_id,
                     source="oe_facility",
                     extraction_timestamp=datetime.now(),
-                    total_records=report.valid_count,
+                    total_records=inserted,
                     failed_count=report.invalid_count,
                     success=True,
                 )
