@@ -26,6 +26,7 @@ Each data source is maintained in its own repository and exposed as a Python pac
 - **NPP** — India National Power Portal generation data
 - **ENTSOE** — European power generation data
 - **ONS** — Brazil ONS (Operador Nacional do Sistema Elétrico) thermal generation data
+- **OE** — Australia OpenElectricity (NEM) generation data
 
 This repository **does not** contain scraping logic itself.  
 It is responsible for **scheduling, coordination, validation, and loading**.
@@ -50,6 +51,10 @@ High-level flow:
         |
 +-------------+
 |   ONS Repo  |
++-------------+
+        |
++-------------+
+|   OE Repo   |
 +-------------+
         |
         v
@@ -86,7 +91,12 @@ power-generation-etl/
 │   ├── npp_generation.sql
 │   ├── entsoe_generation.sql
 │   ├── ons_generation.sql
-│   └── extraction_metadata.sql
+│   ├── oe_generation.sql
+│   ├── oe_facility_generation.sql
+│   ├── materialized_views.sql
+│   ├── extraction_metadata.sql
+│   └── migrations/       # Schema migrations
+│       └── 001_add_unique_constraints.sql
 ├── docs/                 # Documentation
 │   └── DATA_UNITS.md     # MW vs MWh documentation
 ├── src/                  # Core Python modules
@@ -128,11 +138,13 @@ Each source runs independently and can be retried or backfilled safely.
 
 ## Database
 
-The pipelines load into **PostgreSQL** (currently Neon).
+The pipelines load into **PostgreSQL** (currently Neon, with `sslmode=require`).
 
-- Source-specific canonical tables (e.g. `gen_eia`, `gen_npp`, `gen_entsoe`)
-- Unified SQL views combine sources for analytics
-- Primary keys + UPSERT ensure idempotency
+- **Source-specific tables**: `eia_generation_data`, `npp_generation_data`, `entsoe_generation_data`, `ons_generation_data`, `oe_generation_data`
+- **Natural key UNIQUE constraints** on each table prevent duplicate rows across re-runs (e.g. `uq_entsoe_natural_key`, `uq_npp_natural_key`)
+- **Staging table upsert**: data is loaded into a temp staging table, then `INSERT ... ON CONFLICT DO NOTHING` merges into the main table — safe for re-runs and partial overlaps
+- **Materialized views**: `mv_entsoe_monthly`, `mv_entsoe_plant_monthly`, `mv_ons_monthly`, `mv_ons_plant_monthly`, `mv_npp_monthly`, `mv_npp_plant_monthly` pre-aggregate large tables for dashboard performance
+- **Streaming ingestion**: JSONL files are read line-by-line and inserted in configurable batch sizes to keep memory usage low
 
 Downstream consumers (e.g. Streamlit) **read only from the database**.
 
@@ -212,7 +224,7 @@ Create an Airflow connection:
 
 ## Data Source Compatibility
 
-This ETL system supports four data sources with **harmonized schemas** for consistent data loading:
+This ETL system supports five data sources with **harmonized schemas** for consistent data loading:
 
 | Data Source | Repository | Format | Status |
 |-------------|------------|--------|--------|
@@ -220,6 +232,7 @@ This ETL system supports four data sources with **harmonized schemas** for consi
 | **India NPP** | `india-generation-npp` | JSONL | ✅ 100% Compatible (Harmonized) |
 | **EIA USA** | `eia-usa-generation` | JSONL (`*_etl.jsonl` files) | ✅ 100% Compatible |
 | **Brazil ONS** | `brazil-ons-generation` | JSONL (`*_etl.jsonl` files) | ✅ 100% Compatible |
+| **Australia OE** | `australia-openelectricity-generation` | JSONL (`*_etl.jsonl` files) | ✅ 100% Compatible |
 
 ### Harmonized Schema
 
@@ -259,6 +272,12 @@ All four data sources use a **consistent metadata format**:
 - Location: `brazil-ons-generation/output/`
 - Schema: `extraction_run_id`, `created_at_ms`, `timestamp_ms`, `generation_mwh`, `resolution_minutes`, plant/fuel/subsystem details
 - Note: Uses MWh (energy), hourly resolution (60 minutes)
+
+**Australia OE:**
+- Files: `oe_generation_*_etl.jsonl`
+- Location: `australia-openelectricity-generation/output/`
+- Schema: `extraction_run_id`, `created_at_ms`, `timestamp_ms`, `generation_mwh`, `resolution_minutes`, network/fueltech details
+- Note: Uses MWh (energy), daily resolution (1440 minutes)
 
 ⸻
 
@@ -320,6 +339,7 @@ Example report:
 | **EIA** | `(timestamp_ms, plant_code, generator_id)` | Monthly (null) |
 | **ENTSOE** | `(timestamp_ms, country_code, psr_type, plant_name)` | 15/30/60 min |
 | **ONS** | `(timestamp_ms, plant, ons_plant_id)` | Hourly (60 min) |
+| **OE** | `(timestamp_ms, fueltech, network_code)` | Daily (1440 min) |
 
 ### Data Units
 
@@ -331,6 +351,7 @@ Different sources use different units. See [docs/DATA_UNITS.md](./docs/DATA_UNIT
 | **NPP** | `generation_mwh` | MWh | Energy (daily) |
 | **EIA** | `net_generation_mwh` | MWh | Energy (monthly) |
 | **ONS** | `generation_mwh` | MWh | Energy (hourly) |
+| **OE** | `generation_mwh` | MWh | Energy (daily) |
 
 ---
 
@@ -407,55 +428,6 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) runs on push/PR:
 
 ## Future Improvements
 	•	Add dbt for SQL modeling and tests
-	•	Materialized views for heavy aggregations
 	•	Source-level data quality checks
 	•	Alerting on failed or delayed pipelines
 
----
-
-## Project Tickets
-
-1. **Design SQL schema for EIA data**  
-   Define tables and fields for US electricity generation data. This ensures data is organized for efficient storage and querying.
-
-2. **Design SQL schema for NPP (India) data**  
-   Create a schema for India's power generation dataset. Necessary for integrating and analyzing Indian data alongside other sources.
-
-3. **Design SQL schema for ENTSOE (Europe) data**  
-   Structure tables for European electricity data. Enables consistent storage and cross-region analysis.
-
-4. **Set up local PostgreSQL database and create tables**  
-   Install and configure a local database for development. Allows you to test ETL scripts and schema before cloud deployment.
-
-5. **Refactor EIA ETL notebook into Python module**  
-   Convert notebook code to reusable Python scripts. Improves maintainability and enables automation.
-
-6. **Refactor NPP ETL notebook into Python module**  
-   Modularize India ETL code for consistency and easier updates.
-
-7. **Refactor ENTSOE ETL notebook into Python module**  
-   Standardize ETL process for European data, facilitating integration.
-
-8. **Write data loading scripts for each dataset**  
-   Automate loading cleaned data into the database. Ensures repeatable and error-free ingestion.
-
-9. **Test data ingestion into local database**  
-   Validate that data loads correctly and schema supports queries. Prevents issues before cloud migration.
-
-10. **Document schema and ETL process in README**  
-    Provide clear instructions and schema details. Helps collaborators understand and use the project.
-
-11. **Set up cloud PostgreSQL database (Neon or similar)**  
-    Prepare a cloud database for production use. Enables remote access and dashboard integration.
-
-12. **Update ETL scripts to load data into cloud database**  
-    Modify scripts to use cloud connection strings. Ensures seamless transition from local to cloud.
-
-13. **Create sample queries for dashboard integration**  
-    Develop example SQL queries for dashboard use. Demonstrates how to access and visualize data.
-
-14. **Set up automated ETL workflow (GitHub Actions or cron)**  
-    Schedule regular data updates. Keeps database and dashboard current with minimal manual effort.
-
-15. **Add error handling and logging to ETL scripts**  
-    Implement robust error checks and logs. Improves reliability and simplifies debugging.
