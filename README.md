@@ -20,7 +20,7 @@ The system is designed to be:
 
 ## Data Sources
 
-Each data source is maintained in its own repository and exposed as a Python package or container:
+All 5 data sources are extracted via the unified [`energy-extractors`](https://github.com/nicholas-abad/energy-extractors) package:
 
 - **EIA** — U.S. Energy Information Administration
 - **NPP** — India National Power Portal generation data
@@ -28,7 +28,7 @@ Each data source is maintained in its own repository and exposed as a Python pac
 - **ONS** — Brazil ONS (Operador Nacional do Sistema Elétrico) thermal generation data
 - **OE** — Australia OpenElectricity (NEM) generation data
 
-This repository **does not** contain scraping logic itself.  
+This repository **does not** contain scraping logic itself.
 It is responsible for **scheduling, coordination, validation, and loading**.
 
 ---
@@ -37,43 +37,27 @@ It is responsible for **scheduling, coordination, validation, and loading**.
 
 High-level flow:
 ```
-+-------------+
-|   EIA Repo  |
-+-------------+
-        |
-+-------------+
-|   NPP Repo  |
-+-------------+
-        |
-+-------------+
-| ENTSOE Repo |
-+-------------+
-        |
-+-------------+
-|   ONS Repo  |
-+-------------+
-        |
-+-------------+
-|   OE Repo   |
-+-------------+
++----------------------------------+
+|   energy-extractors              |
+|  (EIA, ENTSOE, NPP, ONS, OE)    |
+|  energy-extract <source> ...     |
++----------------------------------+
         |
         v
-+----------------+
-|    Airflow     |
-|  (This Repo)   |
-+----------------+
++----------------------------------+
+|    ETL (This Repo)               |
+|  Airflow / CLI                   |
++----------------------------------+
         |
         v
-+----------------+
-| PostgreSQL     |
-| (Neon / local) |
-+----------------+
++----------------------------------+
+| PostgreSQL (Neon / local)        |
++----------------------------------+
         |
         v
-+----------------+
-|  Streamlit     |
-|  Dashboard     |
-+----------------+
++----------------------------------+
+|  Streamlit Dashboard             |
++----------------------------------+
 ```
 
 ## Repository Structure
@@ -172,11 +156,12 @@ docker run -d \
 # 3. Set up database tables
 uv run src/database_management.py setup all
 
-# 4. Load data from each source (with automatic validation)
-uv run src/database_management.py load-data entsoe ./path/to/entsoe_data.jsonl
-uv run src/database_management.py load-data npp ./path/to/npp_data.jsonl
-uv run src/database_management.py load-data eia ./path/to/eia_data_etl.jsonl
-uv run src/database_management.py load-data ons ./path/to/ons_data_etl.jsonl
+# 4. Load data from energy-extractors output (with automatic validation)
+uv run src/database_management.py load-data entsoe ../../extractors/energy-extractors/output/*_etl.jsonl
+uv run src/database_management.py load-data npp ../../extractors/energy-extractors/output/*_etl.jsonl
+uv run src/database_management.py load-data eia ../../extractors/energy-extractors/output/*_etl.jsonl
+uv run src/database_management.py load-data ons ../../extractors/energy-extractors/output/*_etl.jsonl
+uv run src/database_management.py load-data oe ../../extractors/energy-extractors/output/*_etl.jsonl
 
 # 5. Load data with validation report
 uv run src/database_management.py load-data npp ./path/to/npp_data.jsonl \
@@ -226,13 +211,13 @@ Create an Airflow connection:
 
 This ETL system supports five data sources with **harmonized schemas** for consistent data loading:
 
-| Data Source | Repository | Format | Status |
-|-------------|------------|--------|--------|
-| **ENTSOE** | `entsoe-power-generation` | JSONL | ✅ 100% Compatible |
-| **India NPP** | `india-generation-npp` | JSONL | ✅ 100% Compatible (Harmonized) |
-| **EIA USA** | `eia-usa-generation` | JSONL (`*_etl.jsonl` files) | ✅ 100% Compatible |
-| **Brazil ONS** | `brazil-ons-generation` | JSONL (`*_etl.jsonl` files) | ✅ 100% Compatible |
-| **Australia OE** | `australia-openelectricity-generation` | JSONL (`*_etl.jsonl` files) | ✅ 100% Compatible |
+| Data Source | Package Module | Format | Status |
+|-------------|----------------|--------|--------|
+| **ENTSOE** | `energy_extractors.entsoe` | JSONL | ✅ 100% Compatible |
+| **India NPP** | `energy_extractors.npp` | JSONL | ✅ 100% Compatible |
+| **EIA USA** | `energy_extractors.eia` | JSONL (`*_etl.jsonl`) | ✅ 100% Compatible |
+| **Brazil ONS** | `energy_extractors.ons` | JSONL (`*_etl.jsonl`) | ✅ 100% Compatible |
+| **Australia OE** | `energy_extractors.openelectricity` | JSONL (`*_etl.jsonl`) | ✅ 100% Compatible |
 
 ### Harmonized Schema
 
@@ -249,33 +234,35 @@ All four data sources use a **consistent metadata format**:
 
 ### Expected File Formats
 
+All sources are extracted via the unified `energy-extractors` package (`energy-extract <source> --output ./output`). Output files are saved to the specified output directory.
+
 **ENTSOE:**
-- Files: `entsoe_monthly_YYYY_MM_*.jsonl`
-- Location: `entsoe-power-generation/data/plant_production/raw_data/`
+- Files: `entsoe_generation_*_etl.jsonl`
+- CLI: `energy-extract entsoe --output ./output --yes`
 - Schema: `extraction_run_id`, `created_at_ms`, `timestamp_ms`, `generation_mw`, `resolution_minutes`, country/plant details
 - Note: Uses MW (instantaneous power), typically 15/30/60 minute resolution
 
 **India NPP:**
-- Files: `npp_*.jsonl`
-- Location: `india-generation-npp/output/`
+- Files: `npp_generation_*_etl.jsonl`
+- CLI: `energy-extract npp --start-date 2024-01-01 --end-date 2024-12-31 --output ./output`
 - Schema: `extraction_run_id`, `created_at_ms`, `timestamp_ms`, `generation_mwh`, `resolution_minutes`, plant/unit details
 - Note: Uses MWh (energy), daily resolution (1440 minutes)
 
 **EIA USA:**
-- Files: `eia_generator_data_*_etl.jsonl`
-- Location: `eia-usa-generation/output/`
+- Files: `eia_generation_*_etl.jsonl`
+- CLI: `energy-extract eia --start-year 2019 --end-year 2025 --output ./output`
 - Schema: `extraction_run_id`, `created_at_ms`, `timestamp_ms`, `net_generation_mwh`, `resolution_minutes`, generator details
 - Note: Uses MWh (energy), monthly resolution (null)
 
 **Brazil ONS:**
 - Files: `ons_generation_*_etl.jsonl`
-- Location: `brazil-ons-generation/output/`
+- CLI: `energy-extract ons --start-year 2019 --end-year 2025 --output ./output`
 - Schema: `extraction_run_id`, `created_at_ms`, `timestamp_ms`, `generation_mwh`, `resolution_minutes`, plant/fuel/subsystem details
 - Note: Uses MWh (energy), hourly resolution (60 minutes)
 
 **Australia OE:**
 - Files: `oe_generation_*_etl.jsonl`
-- Location: `australia-openelectricity-generation/output/`
+- CLI: `energy-extract openelectricity --start-date 2019-01-01 --output ./output`
 - Schema: `extraction_run_id`, `created_at_ms`, `timestamp_ms`, `generation_mwh`, `resolution_minutes`, network/fueltech details
 - Note: Uses MWh (energy), daily resolution (1440 minutes)
 
