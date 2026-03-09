@@ -108,4 +108,36 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_npp_plant_monthly
 ON mv_npp_plant_monthly (month, plant);
 
 -- ============================================================================
+-- OCCTO MATERIALIZED VIEWS
+-- ============================================================================
+
+-- Aggregated by month + fuel_type (for time-series chart)
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_occto_monthly AS
+SELECT
+    DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)) AS month,
+    fuel_type,
+    SUM(generation_mwh) AS generation_mwh
+FROM occto_generation_data
+GROUP BY 1, 2
+ORDER BY 1, 2;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_occto_monthly
+ON mv_occto_monthly (month, fuel_type);
+
+-- Aggregated by month + plant + area + fuel_type (for map)
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_occto_plant_monthly AS
+SELECT
+    DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)) AS month,
+    plant,
+    area_name,
+    fuel_type,
+    SUM(generation_mwh) AS generation_mwh
+FROM occto_generation_data
+GROUP BY 1, 2, 3, 4
+ORDER BY 1, 2, 3, 4;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_occto_plant_monthly
+ON mv_occto_plant_monthly (month, plant, area_name, fuel_type);
+
+-- ============================================================================
 SELECT 'Materialized views created successfully!' AS status;

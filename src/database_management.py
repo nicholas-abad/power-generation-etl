@@ -56,6 +56,8 @@ def setup_database(table_type: str = "all"):
         success = db.create_oe_table()
     elif table_type == "oe_facility":
         success = db.create_oe_facility_table()
+    elif table_type == "occto":
+        success = db.create_occto_table()
     else:
         logger.error(f"Unknown table type: {table_type}")
         return False
@@ -152,6 +154,10 @@ def load_data(
         )
     elif data_source == "oe_facility":
         success, report = db.insert_oe_facility_jsonl_data(
+            jsonl_file, validation_report_path=validation_report
+        )
+    elif data_source == "occto":
+        success, report = db.insert_occto_jsonl_data(
             jsonl_file, validation_report_path=validation_report
         )
     else:
@@ -265,6 +271,7 @@ Examples:
   python database_management.py load-data ons ./data/ons_data_etl.jsonl
   python database_management.py load-data oe ./data/oe_data_etl.jsonl
   python database_management.py load-data oe_facility ./data/oe_facility_data_etl.jsonl
+  python database_management.py load-data occto ./data/occto_data.jsonl
   python database_management.py load-data npp ./data/npp_data.jsonl --validation-report report.json
   python database_management.py stats
   python database_management.py aggregate-export entsoe --output-dir ./exports/entsoe_monthly
@@ -280,7 +287,7 @@ Examples:
     )
     setup_parser.add_argument(
         "table_type",
-        choices=["all", "npp", "entsoe", "eia", "ons", "oe", "oe_facility"],
+        choices=["all", "npp", "entsoe", "eia", "ons", "oe", "oe_facility", "occto"],
         default="all",
         nargs="?",
         help="Type of tables to create (default: all)",
@@ -292,7 +299,7 @@ Examples:
     )
     update_parser.add_argument(
         "table_type",
-        choices=["all", "npp", "entsoe", "eia", "ons", "oe", "oe_facility"],
+        choices=["all", "npp", "entsoe", "eia", "ons", "oe", "oe_facility", "occto"],
         default="entsoe",
         nargs="?",
         help="Schema to update (default: entsoe)",
@@ -303,7 +310,7 @@ Examples:
         "load-data", help="Load JSONL data into database with validation"
     )
     load_parser.add_argument(
-        "data_source", choices=["npp", "entsoe", "eia", "ons", "oe", "oe_facility"], help="Type of data source"
+        "data_source", choices=["npp", "entsoe", "eia", "ons", "oe", "oe_facility", "occto"], help="Type of data source"
     )
     load_parser.add_argument("jsonl_file", help="Path to JSONL file")
     load_parser.add_argument(

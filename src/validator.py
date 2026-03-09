@@ -165,6 +165,26 @@ OE_SCHEMA = {
     "duplicate_key": ("timestamp_ms", "fueltech", "network_code"),
 }
 
+OCCTO_SCHEMA = {
+    "required_fields": {
+        "extraction_run_id": {"type": "str", "validation": "uuid"},
+        "created_at_ms": {"type": "int", "validation": "positive_timestamp"},
+        "timestamp_ms": {"type": "int", "validation": "positive_timestamp"},
+        "plant": {"type": "str", "validation": "non_empty"},
+        "generation_mwh": {"type": "float", "validation": "non_negative"},
+    },
+    "optional_fields": {
+        "unit": {"type": "str_or_null", "validation": None},
+        "plant_code": {"type": "str_or_null", "validation": None},
+        "fuel_code": {"type": "str_or_null", "validation": None},
+        "fuel_type": {"type": "str_or_null", "validation": None},
+        "area_code": {"type": "str_or_null", "validation": None},
+        "area_name": {"type": "str_or_null", "validation": None},
+        "resolution_minutes": {"type": "int_or_null", "validation": None},
+    },
+    "duplicate_key": ("timestamp_ms", "plant", "unit"),
+}
+
 OE_FACILITY_SCHEMA = {
     "required_fields": {
         "extraction_run_id": {"type": "str", "validation": "uuid"},
@@ -199,6 +219,7 @@ class DataValidator:
             "ons": ONS_SCHEMA,
             "oe": OE_SCHEMA,
             "oe_facility": OE_FACILITY_SCHEMA,
+            "occto": OCCTO_SCHEMA,
         }
 
     def _is_valid_uuid(self, value: str) -> bool:
@@ -346,6 +367,10 @@ class DataValidator:
     def validate_oe_record(self, record: Dict[str, Any]) -> ValidationResult:
         """Validate a single OpenElectricity Australia record."""
         return self._validate_record(record, OE_SCHEMA)
+
+    def validate_occto_record(self, record: Dict[str, Any]) -> ValidationResult:
+        """Validate a single OCCTO Japan record."""
+        return self._validate_record(record, OCCTO_SCHEMA)
 
     def validate_oe_facility_record(self, record: Dict[str, Any]) -> ValidationResult:
         """Validate a single OpenElectricity Australia facility record."""

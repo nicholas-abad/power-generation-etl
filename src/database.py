@@ -321,6 +321,10 @@ class PowerGenerationDatabase:
         """Create OpenElectricity Australia generation table."""
         return self._execute_schema_file("oe_generation.sql")
 
+    def create_occto_table(self) -> bool:
+        """Create OCCTO Japan generation table."""
+        return self._execute_schema_file("occto_generation.sql")
+
     def create_oe_facility_table(self) -> bool:
         """Create OpenElectricity Australia facility generation table."""
         return self._execute_schema_file("oe_facility_generation.sql")
@@ -332,7 +336,7 @@ class PowerGenerationDatabase:
     def create_all_tables(self) -> bool:
         """Create all generation tables including metadata."""
         success = True
-        for table_type in ["npp", "entsoe", "eia", "ons", "oe", "oe_facility", "extraction_metadata"]:
+        for table_type in ["npp", "entsoe", "eia", "ons", "oe", "oe_facility", "occto", "extraction_metadata"]:
             try:
                 method = getattr(self, f"create_{table_type}_table")
                 if not method():
@@ -1029,6 +1033,110 @@ class PowerGenerationDatabase:
             logger.error("Failed to insert ONS data", error=str(e))
             return False, None
 
+    def insert_occto_jsonl_data(
+        self,
+        jsonl_file_path: str,
+        extraction_run_id: str = None,
+        validation_report_path: str = None,
+    ) -> Tuple[bool, Optional[ValidationReport]]:
+        """Insert OCCTO Japan data from JSONL file with validation.
+
+        Returns:
+            Tuple of (success, validation_report)
+        """
+        try:
+            # Read JSONL data
+            with open(jsonl_file_path, "r") as f:
+                data = [json.loads(line) for line in f if line.strip()]
+
+            if not data:
+                logger.warning("No OCCTO data found in JSONL file")
+                return True, None
+
+            # Add extraction metadata if not already present
+            has_extraction_run_id = "extraction_run_id" in data[0]
+            has_created_at_ms = "created_at_ms" in data[0]
+
+            if not has_extraction_run_id or not has_created_at_ms:
+                if extraction_run_id is None:
+                    extraction_run_id = str(uuid.uuid4())
+                created_at_ms = int(datetime.now().timestamp() * 1000)
+
+            for record in data:
+                if not has_extraction_run_id:
+                    record["extraction_run_id"] = extraction_run_id
+                if not has_created_at_ms:
+                    record["created_at_ms"] = created_at_ms
+
+            # Validate data
+            validator = DataValidator()
+            valid_records, report = validator.validate_file(
+                data, "occto", jsonl_file_path
+            )
+
+            # Log validation summary
+            logger.info(
+                "Validation complete",
+                valid=report.valid_count,
+                total=report.total_count,
+            )
+            if report.invalid_count > 0:
+                logger.warning("Skipped invalid records", count=report.invalid_count)
+            if report.duplicate_count > 0:
+                logger.warning(
+                    "Skipped duplicate records", count=report.duplicate_count
+                )
+
+            # Save validation report if requested
+            if validation_report_path:
+                save_report(report, validation_report_path)
+
+            # Insert only valid records via upsert (skips duplicates)
+            if valid_records:
+                df = pd.DataFrame(valid_records)
+
+                # Keep only columns that exist in the DB table
+                db_columns = [
+                    "extraction_run_id", "created_at_ms", "plant", "unit",
+                    "plant_code", "fuel_code", "fuel_type", "area_code",
+                    "area_name", "timestamp_ms", "generation_mwh",
+                    "resolution_minutes",
+                ]
+                df = df[[c for c in db_columns if c in df.columns]]
+
+                def _upsert_occto():
+                    return self._upsert_via_staging(
+                        df,
+                        "occto_generation_data",
+                        conflict_columns=["timestamp_ms", "plant"],
+                        conflict_expr="timestamp_ms, plant, COALESCE(unit, '')",
+                    )
+
+                inserted = self._execute_with_retry(_upsert_occto)
+                skipped = len(valid_records) - inserted
+                logger.success(
+                    f"OCCTO upsert: {inserted} inserted, {skipped} duplicates skipped"
+                )
+
+                # Record extraction metadata
+                run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
+                self.insert_extraction_metadata(
+                    extraction_run_id=run_id,
+                    source="occto",
+                    extraction_timestamp=datetime.now(),
+                    total_records=inserted,
+                    failed_count=report.invalid_count,
+                    success=True,
+                )
+            else:
+                logger.warning("No valid records to insert")
+
+            return True, report
+
+        except Exception as e:
+            logger.error("Failed to insert OCCTO data", error=str(e))
+            return False, None
+
     def insert_oe_jsonl_data(
         self,
         jsonl_file_path: str,
@@ -1231,7 +1339,7 @@ class PowerGenerationDatabase:
 
     def get_all_record_counts(self) -> Dict[str, int]:
         """Get record counts for all main tables."""
-        tables = ["npp_generation", "entsoe_generation_data", "eia_generation_data", "ons_generation_data", "oe_generation_data", "oe_facility_generation_data"]
+        tables = ["npp_generation", "entsoe_generation_data", "eia_generation_data", "ons_generation_data", "oe_generation_data", "oe_facility_generation_data", "occto_generation_data"]
         counts = {}
 
         for table in tables:
