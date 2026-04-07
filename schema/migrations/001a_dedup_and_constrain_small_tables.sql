@@ -1,16 +1,17 @@
--- Migration 001: Add UNIQUE constraints to prevent duplicate rows
+-- Migration 001a: Add UNIQUE constraints to small/medium tables (transactional)
 -- Date: 2026-02-15
 --
 -- Context: 4 of 5 data tables have no duplicate protection at the database level.
 -- Re-running an extraction for the same date range silently inserts duplicate rows,
 -- inflating all SUM/COUNT aggregations in the dashboard.
 --
--- This migration:
+-- This migration handles NPP, EIA, OE, and OE_FACILITY (all < 1M rows):
 --   1. Counts existing duplicates (informational)
 --   2. Deletes duplicates keeping the row with the smallest id
---   3. Adds UNIQUE constraint/index to each table
+--   3. Adds UNIQUE constraint to each table
 --
--- Run with: psql $DATABASE_URL -f 001_add_unique_constraints.sql
+-- Run with: psql $DATABASE_URL -f 001a_dedup_and_constrain_small_tables.sql
+-- Then run 001b separately for ONS.
 
 BEGIN;
 
@@ -113,45 +114,3 @@ ALTER TABLE oe_facility_generation_data
 ADD CONSTRAINT uq_oe_facility_natural_key UNIQUE (timestamp_ms, facility_code, fueltech);
 
 COMMIT;
-
--- ============================================================================
--- 5. ONS_GENERATION_DATA  (natural key: timestamp_ms, plant, COALESCE(ons_plant_id, ''))
---    ~12.9M rows — use CTE with ROW_NUMBER for dedup, CREATE INDEX CONCURRENTLY
---    to avoid long table locks.
---    NOTE: Must run outside transaction for CONCURRENTLY.
--- ============================================================================
-
--- Count duplicates (informational)
-DO $$
-DECLARE dup_count BIGINT;
-BEGIN
-    WITH ranked AS (
-        SELECT id,
-               ROW_NUMBER() OVER (
-                   PARTITION BY timestamp_ms, plant, COALESCE(ons_plant_id, '')
-                   ORDER BY id
-               ) AS rn
-        FROM ons_generation_data
-    )
-    SELECT COUNT(*) INTO dup_count FROM ranked WHERE rn > 1;
-    RAISE NOTICE 'ons_generation_data: % duplicate rows to remove', dup_count;
-END $$;
-
--- Delete duplicates using CTE (more efficient for large tables)
-DELETE FROM ons_generation_data
-WHERE id IN (
-    SELECT id FROM (
-        SELECT id,
-               ROW_NUMBER() OVER (
-                   PARTITION BY timestamp_ms, plant, COALESCE(ons_plant_id, '')
-                   ORDER BY id
-               ) AS rn
-        FROM ons_generation_data
-    ) sub
-    WHERE rn > 1
-);
-
--- Expression-based unique index (COALESCE handles nullable ons_plant_id)
--- CONCURRENTLY avoids locking the table during index creation
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_ons_natural_key
-ON ons_generation_data (timestamp_ms, plant, COALESCE(ons_plant_id, ''));

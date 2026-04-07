@@ -6,6 +6,7 @@ Handles ingestion for NPP, ENTSO-E, EIA, ONS, and OE generation data into Postgr
 
 import json
 import os
+import re
 import sys
 import uuid
 from datetime import datetime
@@ -16,7 +17,7 @@ from typing import Dict, Optional, Tuple
 import pandas as pd
 from loguru import logger
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, URL
 from sqlalchemy.exc import OperationalError, InterfaceError
 from tenacity import (
     retry,
@@ -107,6 +108,45 @@ logger.add(
 )
 
 
+_VALID_SQL_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
+
+# All tables this ETL is allowed to operate on.
+_KNOWN_TABLES = frozenset({
+    "npp_generation",
+    "entsoe_generation_data",
+    "eia_generation_data",
+    "ons_generation_data",
+    "oe_generation_data",
+    "oe_facility_generation_data",
+    "occto_generation_data",
+    "extraction_metadata",
+    "plant_crosswalk",
+    "eia_generator_info",
+    "gcpt_coal_metadata",
+})
+
+
+def _validate_identifier(name: str) -> str:
+    """Validate that a string is a safe SQL identifier (lowercase, alphanumeric + underscores).
+
+    Raises ValueError if the name contains unexpected characters.
+    Returns the name unchanged if valid.
+    """
+    if not _VALID_SQL_IDENTIFIER.match(name):
+        raise ValueError(f"Invalid SQL identifier: {name!r}")
+    return name
+
+
+def _validate_table(name: str) -> str:
+    """Validate that a table name is in the known whitelist.
+
+    Raises ValueError if unknown.
+    """
+    if name not in _KNOWN_TABLES:
+        raise ValueError(f"Unknown table: {name!r}")
+    return name
+
+
 class PowerGenerationDatabase:
     """Unified database handler for all power generation data sources."""
 
@@ -131,13 +171,20 @@ class PowerGenerationDatabase:
         self.host = host or os.getenv("POSTGRES_HOST", "localhost")
         self.port = port or int(os.getenv("POSTGRES_PORT", "5432"))
         self.database = database or os.getenv("POSTGRES_DB", "power_generation")
-        self.username = username or os.getenv("POSTGRES_USER", "postgres")
-        self.password = password or os.getenv("POSTGRES_PASSWORD", "")
+        self.username = username or os.environ["POSTGRES_USER"]
+        self.password = password or os.environ["POSTGRES_PASSWORD"]
 
         self.sslmode = os.getenv("POSTGRES_SSLMODE", "")
-        self.connection_string = f"postgresql://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
-        if self.sslmode:
-            self.connection_string += f"?sslmode={self.sslmode}"
+        query_params = {"sslmode": self.sslmode} if self.sslmode else {}
+        self.connection_url = URL.create(
+            drivername="postgresql",
+            username=self.username,
+            password=self.password,
+            host=self.host,
+            port=self.port,
+            database=self.database,
+            query=query_params,
+        )
 
         self._engine: Optional[Engine] = None
 
@@ -145,7 +192,7 @@ class PowerGenerationDatabase:
     def engine(self) -> Engine:
         """Get SQLAlchemy engine, creating it if necessary."""
         if self._engine is None:
-            self._engine = create_engine(self.connection_string)
+            self._engine = create_engine(self.connection_url)
         return self._engine
 
     @db_retry_decorator()
@@ -187,13 +234,18 @@ class PowerGenerationDatabase:
         Returns:
             Number of rows actually inserted (excluding duplicates).
         """
+        _validate_table(target_table)
         staging = f"_staging_{target_table}"
         columns = list(df.columns)
+        for col in columns:
+            _validate_identifier(col)
         col_list = ", ".join(columns)
 
         if conflict_expr:
             conflict_target = f"({conflict_expr})"
         else:
+            for col in conflict_columns:
+                _validate_identifier(col)
             conflict_target = f"({', '.join(conflict_columns)})"
 
         conn = self.engine.raw_connection()
@@ -1327,6 +1379,7 @@ class PowerGenerationDatabase:
 
     def get_record_count(self, table_name: str) -> int:
         """Get total number of records in a specific table."""
+        _validate_table(table_name)
         try:
             with self.engine.connect() as conn:
                 result = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
@@ -1339,7 +1392,11 @@ class PowerGenerationDatabase:
 
     def get_all_record_counts(self) -> Dict[str, int]:
         """Get record counts for all main tables."""
-        tables = ["npp_generation", "entsoe_generation_data", "eia_generation_data", "ons_generation_data", "oe_generation_data", "oe_facility_generation_data", "occto_generation_data"]
+        tables = [
+            "npp_generation", "entsoe_generation_data", "eia_generation_data",
+            "ons_generation_data", "oe_generation_data",
+            "oe_facility_generation_data", "occto_generation_data",
+        ]
         counts = {}
 
         for table in tables:
