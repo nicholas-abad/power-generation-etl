@@ -29,6 +29,11 @@ CREATE TABLE IF NOT EXISTS oe_facility_generation_data (
     -- Capacity
     capacity_registered_mw DOUBLE PRECISION,
 
+    -- OE-curated CO2 intensity per unit (tCO2/MWh) sourced from AEMO emissions
+    -- registry. Same value across all timestamps for a given (facility_code, fueltech)
+    -- — denormalised here for query convenience.
+    emissions_factor_co2 DOUBLE PRECISION,
+
     -- Time series data
     timestamp_ms BIGINT NOT NULL,
     generation_mwh DOUBLE PRECISION NOT NULL,
