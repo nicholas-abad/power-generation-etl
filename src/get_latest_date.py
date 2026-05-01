@@ -18,10 +18,16 @@ load_dotenv()
 # Source → (table_name, timestamp_expression)
 SOURCE_CONFIG = {
     "eia": ("eia_generation_data", "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date"),
-    "entsoe": ("entsoe_generation_data", "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date"),
+    "entsoe": (
+        "entsoe_generation_data",
+        "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date",
+    ),
     "npp": ("npp_generation", "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date"),
     "ons": ("ons_generation_data", "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date"),
-    "oe": ("oe_facility_generation_data", "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date"),
+    "oe": (
+        "oe_facility_generation_data",
+        "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date",
+    ),
     "occto": ("occto_generation_data", "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date"),
 }
 
@@ -43,7 +49,10 @@ def get_connection_url() -> str:
 
 def get_latest_date(source: str) -> str:
     if source not in SOURCE_CONFIG:
-        print(f"Unknown source: {source}. Valid: {', '.join(SOURCE_CONFIG.keys())}", file=sys.stderr)
+        print(
+            f"Unknown source: {source}. Valid: {', '.join(SOURCE_CONFIG.keys())}",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     table, expr = SOURCE_CONFIG[source]

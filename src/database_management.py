@@ -310,7 +310,9 @@ Examples:
         "load-data", help="Load JSONL data into database with validation"
     )
     load_parser.add_argument(
-        "data_source", choices=["npp", "entsoe", "eia", "ons", "oe", "oe_facility", "occto"], help="Type of data source"
+        "data_source",
+        choices=["npp", "entsoe", "eia", "ons", "oe", "oe_facility", "occto"],
+        help="Type of data source",
     )
     load_parser.add_argument("jsonl_file", help="Path to JSONL file")
     load_parser.add_argument(

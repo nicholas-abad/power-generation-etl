@@ -111,19 +111,21 @@ logger.add(
 _VALID_SQL_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 # All tables this ETL is allowed to operate on.
-_KNOWN_TABLES = frozenset({
-    "npp_generation",
-    "entsoe_generation_data",
-    "eia_generation_data",
-    "ons_generation_data",
-    "oe_generation_data",
-    "oe_facility_generation_data",
-    "occto_generation_data",
-    "extraction_metadata",
-    "plant_crosswalk",
-    "eia_generator_info",
-    "gcpt_coal_metadata",
-})
+_KNOWN_TABLES = frozenset(
+    {
+        "npp_generation",
+        "entsoe_generation_data",
+        "eia_generation_data",
+        "ons_generation_data",
+        "oe_generation_data",
+        "oe_facility_generation_data",
+        "occto_generation_data",
+        "extraction_metadata",
+        "plant_crosswalk",
+        "eia_generator_info",
+        "gcpt_coal_metadata",
+    }
+)
 
 
 def _validate_identifier(name: str) -> str:
@@ -388,7 +390,16 @@ class PowerGenerationDatabase:
     def create_all_tables(self) -> bool:
         """Create all generation tables including metadata."""
         success = True
-        for table_type in ["npp", "entsoe", "eia", "ons", "oe", "oe_facility", "occto", "extraction_metadata"]:
+        for table_type in [
+            "npp",
+            "entsoe",
+            "eia",
+            "ons",
+            "oe",
+            "oe_facility",
+            "occto",
+            "extraction_metadata",
+        ]:
             try:
                 method = getattr(self, f"create_{table_type}_table")
                 if not method():
@@ -577,7 +588,9 @@ class PowerGenerationDatabase:
 
                     # Capture first run_id for metadata
                     if first_run_id is None:
-                        first_run_id = record.get("extraction_run_id", extraction_run_id)
+                        first_run_id = record.get(
+                            "extraction_run_id", extraction_run_id
+                        )
 
                     # Convert datetime strings to Unix timestamps in milliseconds
                     if "timestamp_ms" in record:
@@ -617,7 +630,12 @@ class PowerGenerationDatabase:
                     if len(batch) >= batch_size:
                         batch_num += 1
                         inserted, valid, invalid, dup = self._insert_entsoe_batch(
-                            batch, expected_columns, validator, batch_num, line_num, total_lines
+                            batch,
+                            expected_columns,
+                            validator,
+                            batch_num,
+                            line_num,
+                            total_lines,
                         )
                         total_inserted += inserted
                         total_valid += valid
@@ -629,7 +647,12 @@ class PowerGenerationDatabase:
                 if batch:
                     batch_num += 1
                     inserted, valid, invalid, dup = self._insert_entsoe_batch(
-                        batch, expected_columns, validator, batch_num, line_num, total_lines
+                        batch,
+                        expected_columns,
+                        validator,
+                        batch_num,
+                        line_num,
+                        total_lines,
                     )
                     total_inserted += inserted
                     total_valid += valid
@@ -717,7 +740,12 @@ class PowerGenerationDatabase:
             f"({current_line:,}/{total_lines:,} = {pct:.1f}%)"
         )
 
-        return inserted, report.valid_count, report.invalid_count, report.duplicate_count
+        return (
+            inserted,
+            report.valid_count,
+            report.invalid_count,
+            report.duplicate_count,
+        )
 
     def aggregate_entsoe_to_monthly(
         self, output_dir: str, granularity: str = "plant"
@@ -808,7 +836,9 @@ class PowerGenerationDatabase:
                     total_rows += len(df)
                     logger.success(f"Exported {len(df):,} rows to {csv_path}")
 
-            logger.success(f"Total exported: {total_rows:,} rows across {len(years)} files")
+            logger.success(
+                f"Total exported: {total_rows:,} rows across {len(years)} files"
+            )
             return True, total_rows
 
         except Exception as e:
@@ -833,7 +863,9 @@ class PowerGenerationDatabase:
                 conn.execute(text("TRUNCATE TABLE entsoe_generation_data"))
                 conn.commit()
 
-                logger.success(f"Cleared {row_count:,} rows from entsoe_generation_data")
+                logger.success(
+                    f"Cleared {row_count:,} rows from entsoe_generation_data"
+                )
                 return True, row_count
 
         except Exception as e:
@@ -1149,9 +1181,17 @@ class PowerGenerationDatabase:
 
                 # Keep only columns that exist in the DB table
                 db_columns = [
-                    "extraction_run_id", "created_at_ms", "plant", "unit",
-                    "plant_code", "fuel_code", "fuel_type", "area_code",
-                    "area_name", "timestamp_ms", "generation_mwh",
+                    "extraction_run_id",
+                    "created_at_ms",
+                    "plant",
+                    "unit",
+                    "plant_code",
+                    "fuel_code",
+                    "fuel_type",
+                    "area_code",
+                    "area_name",
+                    "timestamp_ms",
+                    "generation_mwh",
                     "resolution_minutes",
                 ]
                 df = df[[c for c in db_columns if c in df.columns]]
@@ -1226,9 +1266,7 @@ class PowerGenerationDatabase:
 
             # Validate data
             validator = DataValidator()
-            valid_records, report = validator.validate_file(
-                data, "oe", jsonl_file_path
-            )
+            valid_records, report = validator.validate_file(data, "oe", jsonl_file_path)
 
             # Log validation summary
             logger.info(
@@ -1393,9 +1431,13 @@ class PowerGenerationDatabase:
     def get_all_record_counts(self) -> Dict[str, int]:
         """Get record counts for all main tables."""
         tables = [
-            "npp_generation", "entsoe_generation_data", "eia_generation_data",
-            "ons_generation_data", "oe_generation_data",
-            "oe_facility_generation_data", "occto_generation_data",
+            "npp_generation",
+            "entsoe_generation_data",
+            "eia_generation_data",
+            "ons_generation_data",
+            "oe_generation_data",
+            "oe_facility_generation_data",
+            "occto_generation_data",
         ]
         counts = {}
 
@@ -1475,8 +1517,12 @@ class PowerGenerationDatabase:
                         "total_records": total_records,
                         "failed_count": failed_count,
                         "success": success,
-                        "failed_details": json.dumps(failed_details) if failed_details else None,
-                        "config_snapshot": json.dumps(config_snapshot) if config_snapshot else None,
+                        "failed_details": json.dumps(failed_details)
+                        if failed_details
+                        else None,
+                        "config_snapshot": json.dumps(config_snapshot)
+                        if config_snapshot
+                        else None,
                         "source_urls": json.dumps(source_urls) if source_urls else None,
                         "extraction_duration_seconds": extraction_duration_seconds,
                     },

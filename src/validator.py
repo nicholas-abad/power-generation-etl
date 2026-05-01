@@ -22,12 +22,62 @@ UUID_PATTERN = re.compile(
 
 # Valid US state codes (50 states + DC + territories)
 US_STATE_CODES = {
-    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
-    "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
-    "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
-    "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
-    "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
-    "DC", "PR", "VI", "GU", "AS", "MP",
+    "AL",
+    "AK",
+    "AZ",
+    "AR",
+    "CA",
+    "CO",
+    "CT",
+    "DE",
+    "FL",
+    "GA",
+    "HI",
+    "ID",
+    "IL",
+    "IN",
+    "IA",
+    "KS",
+    "KY",
+    "LA",
+    "ME",
+    "MD",
+    "MA",
+    "MI",
+    "MN",
+    "MS",
+    "MO",
+    "MT",
+    "NE",
+    "NV",
+    "NH",
+    "NJ",
+    "NM",
+    "NY",
+    "NC",
+    "ND",
+    "OH",
+    "OK",
+    "OR",
+    "PA",
+    "RI",
+    "SC",
+    "SD",
+    "TN",
+    "TX",
+    "UT",
+    "VT",
+    "VA",
+    "WA",
+    "WV",
+    "WI",
+    "WY",
+    "DC",
+    "PR",
+    "VI",
+    "GU",
+    "AS",
+    "MP",
 }
 
 # Current timestamp in milliseconds (for future date validation)
@@ -278,10 +328,14 @@ class DataValidator:
                     f"expected string, number, or null, got {type(value).__name__}",
                 )
         elif expected_type == "float_or_null":
-            if value is not None and (not isinstance(value, (int, float)) or isinstance(value, bool)):
+            if value is not None and (
+                not isinstance(value, (int, float)) or isinstance(value, bool)
+            ):
                 return False, f"expected float or null, got {type(value).__name__}"
         elif expected_type == "int_or_null":
-            if value is not None and (not isinstance(value, int) or isinstance(value, bool)):
+            if value is not None and (
+                not isinstance(value, int) or isinstance(value, bool)
+            ):
                 return False, f"expected int or null, got {type(value).__name__}"
         elif expected_type == "bool_or_null":
             if value is not None and not isinstance(value, bool):
@@ -306,7 +360,11 @@ class DataValidator:
             if not self._is_non_negative(value):
                 return False, "must be non-negative number"
         elif validation == "positive":
-            if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or value <= 0
+            ):
                 return False, "must be a positive number"
         return True, ""
 

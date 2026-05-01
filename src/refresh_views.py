@@ -70,8 +70,12 @@ if __name__ == "__main__":
 
     if source:
         if source not in SOURCE_VIEWS:
-            logger.error(f"Unknown source: {source}. Valid: {', '.join(SOURCE_VIEWS.keys())}")
-            logger.info("Note: EIA and OE have no materialized views (tables are small enough)")
+            logger.error(
+                f"Unknown source: {source}. Valid: {', '.join(SOURCE_VIEWS.keys())}"
+            )
+            logger.info(
+                "Note: EIA and OE have no materialized views (tables are small enough)"
+            )
             sys.exit(1)
         views = SOURCE_VIEWS[source]
         logger.info(f"Refreshing views for {source}: {views}")
