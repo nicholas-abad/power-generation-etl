@@ -14,7 +14,7 @@ dependencies = [
     "tqdm>=4.67.1",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "iprogress>=0.4",
     "ipykernel>=7.1.0",
