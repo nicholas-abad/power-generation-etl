@@ -1,0 +1,532 @@
+name: Monthly Data Extraction
+
+on:
+  schedule:
+    - cron: '0 6 1 * *'  # 1st of each month, 6am UTC
+  workflow_dispatch:      # Manual trigger from GitHub UI
+    inputs:
+      source:
+        description: 'Source to extract (leave empty for all)'
+        required: false
+        default: ''
+        type: choice
+        options:
+          - ''
+          - eia
+          - entsoe
+          - npp
+          - ons
+          - oe
+          - occto
+
+env:
+  POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
+  POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}
+  POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+  POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+  POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+  POSTGRES_SSLMODE: require
+
+jobs:
+  # ─────────────────────────────────────────────
+  # EIA (USA) — Monthly generator-level data
+  # No API key needed. Uses --start-year/--end-year.
+  # ─────────────────────────────────────────────
+  extract-eia:
+    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'eia' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout ETL repo
+        uses: actions/checkout@v4
+
+      - name: Checkout extractors repo
+        uses: actions/checkout@v4
+        with:
+          repository: nicholas-abad/energy-extractors
+          path: extractors
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install ETL dependencies
+        run: uv sync
+
+      - name: Install extractor dependencies
+        run: |
+          cd extractors
+          uv sync --extra eia
+
+      - name: Get latest date in database
+        id: latest
+        run: |
+          LATEST=$(uv run python src/get_latest_date.py eia)
+          # Extract year from date (YYYY-MM-DD → YYYY)
+          START_YEAR=$(echo "$LATEST" | cut -d'-' -f1)
+          CURRENT_YEAR=$(date +%Y)
+          echo "start_year=$START_YEAR" >> "$GITHUB_OUTPUT"
+          echo "end_year=$CURRENT_YEAR" >> "$GITHUB_OUTPUT"
+          echo "Latest EIA data: $LATEST → extracting $START_YEAR to $CURRENT_YEAR"
+
+      - name: Extract EIA data
+        run: |
+          cd extractors
+          uv run energy-extract eia \
+            --start-year ${{ steps.latest.outputs.start_year }} \
+            --end-year ${{ steps.latest.outputs.end_year }} \
+            --output ../extracted_data \
+            --log-level INFO
+
+      - name: Load EIA data into Neon
+        run: |
+          for f in extracted_data/eia_*_etl.jsonl; do
+            echo "Loading $f..."
+            uv run python src/database_management.py load-data eia "$f"
+          done
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eia-extraction-${{ github.run_id }}
+          path: |
+            extracted_data/*.jsonl
+            extracted_data/logs/
+            extracted_data/extraction_metadata_*.json
+          retention-days: 90
+
+  # ─────────────────────────────────────────────
+  # ONS (Brazil) — Hourly plant-level from S3 Parquet
+  # No API key needed. Uses --start-year/--end-year.
+  # ─────────────────────────────────────────────
+  extract-ons:
+    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'ons' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout ETL repo
+        uses: actions/checkout@v4
+
+      - name: Checkout extractors repo
+        uses: actions/checkout@v4
+        with:
+          repository: nicholas-abad/energy-extractors
+          path: extractors
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install ETL dependencies
+        run: uv sync
+
+      - name: Install extractor dependencies
+        run: |
+          cd extractors
+          uv sync --extra ons
+
+      - name: Get latest date in database
+        id: latest
+        run: |
+          LATEST=$(uv run python src/get_latest_date.py ons)
+          START_YEAR=$(echo "$LATEST" | cut -d'-' -f1)
+          CURRENT_YEAR=$(date +%Y)
+          echo "start_year=$START_YEAR" >> "$GITHUB_OUTPUT"
+          echo "end_year=$CURRENT_YEAR" >> "$GITHUB_OUTPUT"
+          echo "Latest ONS data: $LATEST → extracting $START_YEAR to $CURRENT_YEAR"
+
+      - name: Extract ONS data
+        run: |
+          cd extractors
+          uv run energy-extract ons \
+            --start-year ${{ steps.latest.outputs.start_year }} \
+            --end-year ${{ steps.latest.outputs.end_year }} \
+            --output ../extracted_data \
+            --log-level INFO
+
+      - name: Load ONS data into Neon
+        run: |
+          for f in extracted_data/ons_*_etl.jsonl; do
+            echo "Loading $f..."
+            uv run python src/database_management.py load-data ons "$f"
+          done
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ons-extraction-${{ github.run_id }}
+          path: |
+            extracted_data/*.jsonl
+            extracted_data/logs/
+            extracted_data/extraction_metadata_*.json
+          retention-days: 90
+
+  # ─────────────────────────────────────────────
+  # ENTSOE (Europe) — Hourly plant-level via API
+  # Requires ENTSOE_API_KEY. Date via env vars.
+  # ─────────────────────────────────────────────
+  extract-entsoe:
+    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'entsoe' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout ETL repo
+        uses: actions/checkout@v4
+
+      - name: Checkout extractors repo
+        uses: actions/checkout@v4
+        with:
+          repository: nicholas-abad/energy-extractors
+          path: extractors
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install ETL dependencies
+        run: uv sync
+
+      - name: Install extractor dependencies
+        run: |
+          cd extractors
+          uv sync --extra entsoe
+
+      - name: Get latest date in database
+        id: latest
+        run: |
+          LATEST=$(uv run python src/get_latest_date.py entsoe)
+          START_YEAR=$(echo "$LATEST" | cut -d'-' -f1)
+          CURRENT_YEAR=$(date +%Y)
+          echo "start_year=$START_YEAR" >> "$GITHUB_OUTPUT"
+          echo "end_year=$CURRENT_YEAR" >> "$GITHUB_OUTPUT"
+          echo "Latest ENTSOE data: $LATEST → extracting $START_YEAR to $CURRENT_YEAR"
+
+      - name: Extract ENTSOE data
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          START_YEAR: ${{ steps.latest.outputs.start_year }}
+          END_YEAR: ${{ steps.latest.outputs.end_year }}
+        run: |
+          cd extractors
+          uv run energy-extract entsoe \
+            --output ../extracted_data \
+            --log-level INFO \
+            --yes
+
+      - name: Load ENTSOE data into Neon
+        run: |
+          for f in extracted_data/entsoe_*_etl.jsonl; do
+            echo "Loading $f..."
+            uv run python src/database_management.py load-data entsoe "$f"
+          done
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: entsoe-extraction-${{ github.run_id }}
+          path: |
+            extracted_data/*.jsonl
+            extracted_data/logs/
+            extracted_data/extraction_metadata_*.json
+          retention-days: 90
+
+  # ─────────────────────────────────────────────
+  # NPP (India) — Daily plant-level via HTTP
+  # No API key. Uses --start-date/--end-date.
+  # ─────────────────────────────────────────────
+  extract-npp:
+    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'npp' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout ETL repo
+        uses: actions/checkout@v4
+
+      - name: Checkout extractors repo
+        uses: actions/checkout@v4
+        with:
+          repository: nicholas-abad/energy-extractors
+          path: extractors
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install ETL dependencies
+        run: uv sync
+
+      - name: Install extractor dependencies
+        run: |
+          cd extractors
+          uv sync --extra npp
+
+      - name: Get latest date in database
+        id: latest
+        run: |
+          LATEST=$(uv run python src/get_latest_date.py npp)
+          TODAY=$(date +%Y-%m-%d)
+          echo "start_date=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "end_date=$TODAY" >> "$GITHUB_OUTPUT"
+          echo "Latest NPP data: $LATEST → extracting to $TODAY"
+
+      - name: Extract NPP data
+        run: |
+          cd extractors
+          uv run energy-extract npp \
+            --start-date ${{ steps.latest.outputs.start_date }} \
+            --end-date ${{ steps.latest.outputs.end_date }} \
+            --output ../extracted_data \
+            --log-level INFO
+
+      - name: Load NPP data into Neon
+        run: |
+          for f in extracted_data/npp_*_etl.jsonl; do
+            echo "Loading $f..."
+            uv run python src/database_management.py load-data npp "$f"
+          done
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npp-extraction-${{ github.run_id }}
+          path: |
+            extracted_data/*.jsonl
+            extracted_data/logs/
+            extracted_data/extraction_metadata_*.json
+          retention-days: 90
+
+  # ─────────────────────────────────────────────
+  # OpenElectricity (Australia) — Daily facility data via API
+  # Optional OE_API_KEY. Uses --start-date.
+  # ─────────────────────────────────────────────
+  extract-oe:
+    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'oe' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout ETL repo
+        uses: actions/checkout@v4
+
+      - name: Checkout extractors repo
+        uses: actions/checkout@v4
+        with:
+          repository: nicholas-abad/energy-extractors
+          path: extractors
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install ETL dependencies
+        run: uv sync
+
+      - name: Install extractor dependencies
+        run: |
+          cd extractors
+          uv sync --extra openelectricity
+
+      - name: Get latest date in database
+        id: latest
+        run: |
+          LATEST=$(uv run python src/get_latest_date.py oe)
+          echo "start_date=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "Latest OE data: $LATEST → extracting from $LATEST"
+
+      - name: Extract OpenElectricity data
+        env:
+          OE_API_KEY: ${{ secrets.OE_API_KEY }}
+        run: |
+          cd extractors
+          uv run energy-extract openelectricity \
+            --start-date ${{ steps.latest.outputs.start_date }} \
+            --output ../extracted_data \
+            --facilities \
+            --log-level INFO
+
+      - name: Load OE facility data into Neon
+        run: |
+          for f in extracted_data/*_etl.jsonl; do
+            echo "Loading $f..."
+            uv run python src/database_management.py load-data oe_facility "$f"
+          done
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oe-extraction-${{ github.run_id }}
+          path: |
+            extracted_data/*.jsonl
+            extracted_data/logs/
+            extracted_data/extraction_metadata_*.json
+          retention-days: 90
+
+  # ─────────────────────────────────────────────
+  # OCCTO (Japan) — Half-hourly via Selenium
+  # No API key. Needs headless Chrome.
+  # ─────────────────────────────────────────────
+  extract-occto:
+    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'occto' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout ETL repo
+        uses: actions/checkout@v4
+
+      - name: Checkout extractors repo
+        uses: actions/checkout@v4
+        with:
+          repository: nicholas-abad/energy-extractors
+          path: extractors
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install ETL dependencies
+        run: uv sync
+
+      - name: Install extractor dependencies
+        run: |
+          cd extractors
+          uv sync --extra occto
+
+      - name: Get latest date in database
+        id: latest
+        run: |
+          LATEST=$(uv run python src/get_latest_date.py occto)
+          TODAY=$(date +%Y-%m-%d)
+          echo "start_date=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "end_date=$TODAY" >> "$GITHUB_OUTPUT"
+          echo "Latest OCCTO data: $LATEST → extracting to $TODAY"
+
+      - name: Extract OCCTO data
+        run: |
+          cd extractors
+          uv run energy-extract occto \
+            --start-date ${{ steps.latest.outputs.start_date }} \
+            --end-date ${{ steps.latest.outputs.end_date }} \
+            --output ../extracted_data \
+            --headless \
+            --log-level INFO
+
+      - name: Load OCCTO data into Neon
+        run: |
+          for f in extracted_data/occto_*_etl.jsonl; do
+            echo "Loading $f..."
+            uv run python src/database_management.py load-data occto "$f"
+          done
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: occto-extraction-${{ github.run_id }}
+          path: |
+            extracted_data/*.jsonl
+            extracted_data/logs/
+            extracted_data/extraction_metadata_*.json
+          retention-days: 90
+
+  # ─────────────────────────────────────────────
+  # Refresh materialized views after all loads
+  # ─────────────────────────────────────────────
+  refresh-views:
+    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto]
+    if: ${{ always() && (needs.extract-eia.result == 'success' || needs.extract-ons.result == 'success' || needs.extract-entsoe.result == 'success' || needs.extract-npp.result == 'success' || needs.extract-oe.result == 'success' || needs.extract-occto.result == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout ETL repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Refresh all materialized views
+        run: uv run python src/refresh_views.py
+
+  # ─────────────────────────────────────────────
+  # Notify on failure — create GitHub Issue
+  # ─────────────────────────────────────────────
+  notify-failure:
+    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, refresh-views]
+    if: ${{ always() && contains(needs.*.result, 'failure') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create failure issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const jobs = {
+              'extract-eia': '${{ needs.extract-eia.result }}',
+              'extract-ons': '${{ needs.extract-ons.result }}',
+              'extract-entsoe': '${{ needs.extract-entsoe.result }}',
+              'extract-npp': '${{ needs.extract-npp.result }}',
+              'extract-oe': '${{ needs.extract-oe.result }}',
+              'extract-occto': '${{ needs.extract-occto.result }}',
+              'refresh-views': '${{ needs.refresh-views.result }}',
+            };
+            const failed = Object.entries(jobs)
+              .filter(([_, v]) => v === 'failure')
+              .map(([k, _]) => k);
+
+            const body = [
+              `## Monthly Extraction Failed`,
+              ``,
+              `**Run:** [${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+              `**Trigger:** ${context.eventName}`,
+              `**Date:** ${new Date().toISOString().split('T')[0]}`,
+              ``,
+              `### Failed Jobs`,
+              ...failed.map(j => `- ❌ \`${j}\``),
+              ``,
+              `### All Job Results`,
+              ...Object.entries(jobs).map(([k, v]) => `- ${v === 'success' ? '✅' : v === 'failure' ? '❌' : '⏭️'} \`${k}\`: ${v}`),
+              ``,
+              `Please check the [workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for error details.`,
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Monthly extraction failed: ${failed.join(', ')}`,
+              body: body,
+              labels: ['extraction-failure', 'automated'],
+            });
