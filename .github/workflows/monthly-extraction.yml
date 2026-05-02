@@ -367,7 +367,7 @@ jobs:
 
       - name: Extract OpenElectricity data
         env:
-          OE_API_KEY: ${{ secrets.OE_API_KEY }}
+          OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
         run: |
           cd extractors
           uv run energy-extract openelectricity \
