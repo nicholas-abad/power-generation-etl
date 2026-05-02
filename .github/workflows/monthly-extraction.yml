@@ -493,10 +493,87 @@ jobs:
         run: uv run python src/refresh_views.py
 
   # ─────────────────────────────────────────────
+  # Drift check — detect plants in raw tables not in plant_crosswalk
+  # Informational only; opens an issue if new plants need mapping
+  # ─────────────────────────────────────────────
+  check-crosswalk-drift:
+    needs: refresh-views
+    if: ${{ needs.refresh-views.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout ETL repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Check for crosswalk drift
+        run: uv run python src/check_crosswalk_drift.py
+
+      - name: Open issue if drift detected
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('drift_report.json', 'utf8'));
+            if (report.total_missing === 0) {
+              core.info('No drift — skipping issue creation');
+              return;
+            }
+
+            const lines = [
+              `## Plant Crosswalk Drift Detected`,
+              ``,
+              `**Run:** [${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+              `**Date:** ${new Date().toISOString().split('T')[0]}`,
+              `**Total unmapped plants:** ${report.total_missing}`,
+              ``,
+              `These plants appear in raw generation tables but have no entry in \`plant_crosswalk\`. They will display in the dashboard with NULL coordinates until the crosswalk is rebuilt.`,
+              ``,
+              `### By Source`,
+              ``,
+              `| Source | Missing | Sample (first 20) |`,
+              `|---|---|---|`,
+            ];
+            for (const [src, info] of Object.entries(report.by_source)) {
+              const sample = info.sample.length > 0
+                ? info.sample.map(s => `\`${s}\``).join(', ')
+                : '—';
+              lines.push(`| ${src} | ${info.count} | ${sample} |`);
+            }
+            lines.push(``);
+            lines.push(`### To Fix`);
+            lines.push(``);
+            lines.push(`Rebuild the crosswalk in the \`plant-data\` repo:`);
+            lines.push(`\`\`\`bash`);
+            lines.push(`cd data/plant-data`);
+            lines.push(`uv run python -m src.build_crosswalk --no-llm  # try fuzzy matching first`);
+            lines.push(`uv run python -m src.build_crosswalk           # fallback to LLM if needed`);
+            lines.push(`uv run python scripts/bootstrap_neon_db.py --data-only`);
+            lines.push(`\`\`\``);
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Plant crosswalk drift: ${report.total_missing} unmapped plants`,
+              body: lines.join('\n'),
+              labels: ['crosswalk-drift', 'automated'],
+            });
+
+  # ─────────────────────────────────────────────
   # Notify on failure — create GitHub Issue
   # ─────────────────────────────────────────────
   notify-failure:
-    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, refresh-views]
+    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, refresh-views, check-crosswalk-drift]
     if: ${{ always() && contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     steps:
@@ -512,6 +589,7 @@ jobs:
               'extract-oe': '${{ needs.extract-oe.result }}',
               'extract-occto': '${{ needs.extract-occto.result }}',
               'refresh-views': '${{ needs.refresh-views.result }}',
+              'check-crosswalk-drift': '${{ needs.check-crosswalk-drift.result }}',
             };
             const failed = Object.entries(jobs)
               .filter(([_, v]) => v === 'failure')

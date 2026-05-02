@@ -1,5 +1,7 @@
 .DS_Store
 data/
+drift_report.json
+extracted_data/
 
 # Do not ignore README.md or other documentation files
 !data/README.md
