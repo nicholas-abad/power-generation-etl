@@ -664,8 +664,7 @@ class PowerGenerationDatabase:
 
             # Create aggregate validation report
             report = ValidationReport(
-                source_type="entsoe",
-                file_path=jsonl_file_path,
+                source_file=jsonl_file_path,
                 total_count=total_valid + total_invalid + total_duplicate,
                 valid_count=total_valid,
                 invalid_count=total_invalid,
@@ -698,8 +697,8 @@ class PowerGenerationDatabase:
             return True, report
 
         except Exception as e:
-            logger.error(
-                "Failed to insert ENTSO-E data", file=jsonl_file_path, error=str(e)
+            logger.opt(exception=True).error(
+                f"Failed to insert ENTSO-E data from {jsonl_file_path}: {e}"
             )
             return False, None
 
