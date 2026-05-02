@@ -19,6 +19,10 @@ on:
           - oe
           - occto
 
+permissions:
+  contents: read
+  issues: write
+
 env:
   POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
   POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}
