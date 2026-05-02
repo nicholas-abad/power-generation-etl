@@ -505,10 +505,13 @@ class PowerGenerationDatabase:
 
                 # Record extraction metadata
                 run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
+                start_date, end_date = self._get_date_range_for_run("npp_generation", run_id)
                 self.insert_extraction_metadata(
                     extraction_run_id=run_id,
                     source="npp",
                     extraction_timestamp=datetime.now(),
+                    start_date=start_date,
+                    end_date=end_date,
                     total_records=inserted,
                     failed_count=report.invalid_count,
                     success=True,
@@ -680,10 +683,14 @@ class PowerGenerationDatabase:
                 save_report(report, validation_report_path)
 
             # Record extraction metadata
+            entsoe_run_id = first_run_id or extraction_run_id
+            start_date, end_date = self._get_date_range_for_run("entsoe_generation_data", entsoe_run_id)
             self.insert_extraction_metadata(
-                extraction_run_id=first_run_id or extraction_run_id,
+                extraction_run_id=entsoe_run_id,
                 source="entsoe",
                 extraction_timestamp=datetime.now(),
+                start_date=start_date,
+                end_date=end_date,
                 total_records=total_valid,
                 failed_count=total_invalid,
                 success=True,
@@ -967,10 +974,13 @@ class PowerGenerationDatabase:
 
                 # Record extraction metadata
                 run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
+                start_date, end_date = self._get_date_range_for_run("eia_generation_data", run_id)
                 self.insert_extraction_metadata(
                     extraction_run_id=run_id,
                     source="eia",
                     extraction_timestamp=datetime.now(),
+                    start_date=start_date,
+                    end_date=end_date,
                     total_records=inserted,
                     failed_count=report.invalid_count,
                     success=True,
@@ -1087,10 +1097,13 @@ class PowerGenerationDatabase:
                 logger.warning("Skipped duplicate records", count=total_duplicates)
 
             if total_inserted > 0:
+                start_date, end_date = self._get_date_range_for_run("ons_generation_data", extraction_run_id)
                 self.insert_extraction_metadata(
                     extraction_run_id=extraction_run_id,
                     source="ons",
                     extraction_timestamp=datetime.now(),
+                    start_date=start_date,
+                    end_date=end_date,
                     total_records=total_valid,
                     failed_count=total_invalid,
                     success=True,
@@ -1212,10 +1225,13 @@ class PowerGenerationDatabase:
 
                 # Record extraction metadata
                 run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
+                start_date, end_date = self._get_date_range_for_run("occto_generation_data", run_id)
                 self.insert_extraction_metadata(
                     extraction_run_id=run_id,
                     source="occto",
                     extraction_timestamp=datetime.now(),
+                    start_date=start_date,
+                    end_date=end_date,
                     total_records=inserted,
                     failed_count=report.invalid_count,
                     success=True,
@@ -1304,10 +1320,13 @@ class PowerGenerationDatabase:
 
                 # Record extraction metadata
                 run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
+                start_date, end_date = self._get_date_range_for_run("oe_generation_data", run_id)
                 self.insert_extraction_metadata(
                     extraction_run_id=run_id,
                     source="oe",
                     extraction_timestamp=datetime.now(),
+                    start_date=start_date,
+                    end_date=end_date,
                     total_records=inserted,
                     failed_count=report.invalid_count,
                     success=True,
@@ -1398,10 +1417,13 @@ class PowerGenerationDatabase:
 
                 # Record extraction metadata
                 run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
+                start_date, end_date = self._get_date_range_for_run("oe_facility_generation_data", run_id)
                 self.insert_extraction_metadata(
                     extraction_run_id=run_id,
                     source="oe_facility",
                     extraction_timestamp=datetime.now(),
+                    start_date=start_date,
+                    end_date=end_date,
                     total_records=inserted,
                     failed_count=report.invalid_count,
                     success=True,
@@ -1450,6 +1472,32 @@ class PowerGenerationDatabase:
                 counts[table] = 0
 
         return counts
+
+    def _get_date_range_for_run(self, table: str, run_id: str) -> tuple:
+        """Return (start_date, end_date) as YYYY-MM-DD strings for a given
+        extraction_run_id, or (None, None) if no rows match.
+
+        Used to populate extraction_metadata.start_date/end_date from the
+        actual min/max timestamp_ms of records inserted in this run.
+        """
+        sql = text(
+            f"""
+            SELECT
+                TO_CHAR(TO_TIMESTAMP(MIN(timestamp_ms) / 1000), 'YYYY-MM-DD'),
+                TO_CHAR(TO_TIMESTAMP(MAX(timestamp_ms) / 1000), 'YYYY-MM-DD')
+            FROM {table}
+            WHERE extraction_run_id = :run_id
+            """
+        )
+        try:
+            with self.engine.connect() as conn:
+                row = conn.execute(sql, {"run_id": run_id}).fetchone()
+        except Exception as e:
+            logger.warning(f"Could not compute date range for {table}: {e}")
+            return (None, None)
+        if row is None or row[0] is None:
+            return (None, None)
+        return (row[0], row[1])
 
     def insert_extraction_metadata(
         self,
@@ -1502,7 +1550,9 @@ class PowerGenerationDatabase:
                     total_records = EXCLUDED.total_records,
                     failed_count = EXCLUDED.failed_count,
                     success = EXCLUDED.success,
-                    failed_details = EXCLUDED.failed_details
+                    failed_details = EXCLUDED.failed_details,
+                    start_date = EXCLUDED.start_date,
+                    end_date = EXCLUDED.end_date
             """)
 
             with self.engine.connect() as conn:
