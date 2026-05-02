@@ -94,8 +94,8 @@ jobs:
             uv run python src/database_management.py load-data eia "$f"
           done
 
-      - name: Upload artifacts
-        if: always()
+      - name: Upload artifacts (on failure only)
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: eia-extraction-${{ github.run_id }}
@@ -103,7 +103,7 @@ jobs:
             extracted_data/*.jsonl
             extracted_data/logs/
             extracted_data/extraction_metadata_*.json
-          retention-days: 90
+          retention-days: 14
 
   # ─────────────────────────────────────────────
   # ONS (Brazil) — Hourly plant-level from S3 Parquet
@@ -166,8 +166,8 @@ jobs:
             uv run python src/database_management.py load-data ons "$f"
           done
 
-      - name: Upload artifacts
-        if: always()
+      - name: Upload artifacts (on failure only)
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: ons-extraction-${{ github.run_id }}
@@ -175,7 +175,7 @@ jobs:
             extracted_data/*.jsonl
             extracted_data/logs/
             extracted_data/extraction_metadata_*.json
-          retention-days: 90
+          retention-days: 14
 
   # ─────────────────────────────────────────────
   # ENTSOE (Europe) — Hourly plant-level via API
@@ -241,8 +241,8 @@ jobs:
             uv run python src/database_management.py load-data entsoe "$f"
           done
 
-      - name: Upload artifacts
-        if: always()
+      - name: Upload artifacts (on failure only)
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: entsoe-extraction-${{ github.run_id }}
@@ -250,7 +250,7 @@ jobs:
             extracted_data/*.jsonl
             extracted_data/logs/
             extracted_data/extraction_metadata_*.json
-          retention-days: 90
+          retention-days: 14
 
   # ─────────────────────────────────────────────
   # NPP (India) — Daily plant-level via HTTP
@@ -312,8 +312,8 @@ jobs:
             uv run python src/database_management.py load-data npp "$f"
           done
 
-      - name: Upload artifacts
-        if: always()
+      - name: Upload artifacts (on failure only)
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: npp-extraction-${{ github.run_id }}
@@ -321,7 +321,7 @@ jobs:
             extracted_data/*.jsonl
             extracted_data/logs/
             extracted_data/extraction_metadata_*.json
-          retention-days: 90
+          retention-days: 14
 
   # ─────────────────────────────────────────────
   # OpenElectricity (Australia) — Daily facility data via API
@@ -383,8 +383,8 @@ jobs:
             uv run python src/database_management.py load-data oe_facility "$f"
           done
 
-      - name: Upload artifacts
-        if: always()
+      - name: Upload artifacts (on failure only)
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: oe-extraction-${{ github.run_id }}
@@ -392,7 +392,7 @@ jobs:
             extracted_data/*.jsonl
             extracted_data/logs/
             extracted_data/extraction_metadata_*.json
-          retention-days: 90
+          retention-days: 14
 
   # ─────────────────────────────────────────────
   # OCCTO (Japan) — Half-hourly via Selenium
@@ -455,8 +455,8 @@ jobs:
             uv run python src/database_management.py load-data occto "$f"
           done
 
-      - name: Upload artifacts
-        if: always()
+      - name: Upload artifacts (on failure only)
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: occto-extraction-${{ github.run_id }}
@@ -464,7 +464,7 @@ jobs:
             extracted_data/*.jsonl
             extracted_data/logs/
             extracted_data/extraction_metadata_*.json
-          retention-days: 90
+          retention-days: 14
 
   # ─────────────────────────────────────────────
   # Refresh materialized views after all loads
