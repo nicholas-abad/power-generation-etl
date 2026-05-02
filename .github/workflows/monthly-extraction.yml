@@ -45,6 +45,7 @@ jobs:
         with:
           repository: nicholas-abad/energy-extractors
           path: extractors
+          token: ${{ secrets.EXTRACTORS_REPO_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -117,6 +118,7 @@ jobs:
         with:
           repository: nicholas-abad/energy-extractors
           path: extractors
+          token: ${{ secrets.EXTRACTORS_REPO_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -188,6 +190,7 @@ jobs:
         with:
           repository: nicholas-abad/energy-extractors
           path: extractors
+          token: ${{ secrets.EXTRACTORS_REPO_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -262,6 +265,7 @@ jobs:
         with:
           repository: nicholas-abad/energy-extractors
           path: extractors
+          token: ${{ secrets.EXTRACTORS_REPO_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -332,6 +336,7 @@ jobs:
         with:
           repository: nicholas-abad/energy-extractors
           path: extractors
+          token: ${{ secrets.EXTRACTORS_REPO_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -402,6 +407,7 @@ jobs:
         with:
           repository: nicholas-abad/energy-extractors
           path: extractors
+          token: ${{ secrets.EXTRACTORS_REPO_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
