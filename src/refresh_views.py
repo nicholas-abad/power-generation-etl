@@ -17,12 +17,17 @@ from sqlalchemy import create_engine, text
 
 load_dotenv()
 
-# Source → list of materialized views to refresh
+# Source → list of materialized views to refresh.
+# `mv_<source>_row_counts` powers the dashboard's /data-quality coverage matrix.
+# EIA and OE only have row-count views (their raw tables are small enough that
+# the dashboard reads them directly for everything else).
 SOURCE_VIEWS = {
-    "entsoe": ["mv_entsoe_monthly", "mv_entsoe_plant_monthly"],
-    "ons": ["mv_ons_monthly", "mv_ons_plant_monthly"],
-    "npp": ["mv_npp_monthly", "mv_npp_plant_monthly"],
-    "occto": ["mv_occto_monthly", "mv_occto_plant_monthly"],
+    "eia": ["mv_eia_row_counts"],
+    "entsoe": ["mv_entsoe_monthly", "mv_entsoe_plant_monthly", "mv_entsoe_row_counts"],
+    "ons": ["mv_ons_monthly", "mv_ons_plant_monthly", "mv_ons_row_counts"],
+    "npp": ["mv_npp_monthly", "mv_npp_plant_monthly", "mv_npp_row_counts"],
+    "oe": ["mv_oe_row_counts"],
+    "occto": ["mv_occto_monthly", "mv_occto_plant_monthly", "mv_occto_row_counts"],
 }
 
 ALL_VIEWS = [v for views in SOURCE_VIEWS.values() for v in views]
@@ -72,9 +77,6 @@ if __name__ == "__main__":
         if source not in SOURCE_VIEWS:
             logger.error(
                 f"Unknown source: {source}. Valid: {', '.join(SOURCE_VIEWS.keys())}"
-            )
-            logger.info(
-                "Note: EIA and OE have no materialized views (tables are small enough)"
             )
             sys.exit(1)
         views = SOURCE_VIEWS[source]
