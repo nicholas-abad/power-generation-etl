@@ -1,0 +1,82 @@
+name: 'Resolve extraction window'
+description: >-
+  Resolve start/end dates for an extraction job: honor start_override /
+  end_override inputs if set, otherwise fall through to "latest_date in DB
+  → today". Validates override format (YYYY-MM-DD) and exposes both
+  date-precision (start_date, end_date) and year-precision (start_year,
+  end_year) outputs so year-based extractors (EIA, ONS) and date-based
+  extractors (NPP, OE) can both consume it.
+
+inputs:
+  source:
+    description: 'Source key passed to get_latest_date.py (eia / ons / npp / oe)'
+    required: true
+  start_override:
+    description: 'Re-run window start (YYYY-MM-DD) — empty string falls through'
+    required: false
+    default: ''
+  end_override:
+    description: 'Re-run window end (YYYY-MM-DD) — empty string falls through'
+    required: false
+    default: ''
+
+outputs:
+  start_date:
+    description: 'Resolved start date (YYYY-MM-DD)'
+    value: ${{ steps.resolve.outputs.start_date }}
+  end_date:
+    description: 'Resolved end date (YYYY-MM-DD)'
+    value: ${{ steps.resolve.outputs.end_date }}
+  start_year:
+    description: 'Resolved start year (YYYY)'
+    value: ${{ steps.resolve.outputs.start_year }}
+  end_year:
+    description: 'Resolved end year (YYYY)'
+    value: ${{ steps.resolve.outputs.end_year }}
+
+runs:
+  using: 'composite'
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        START_OVERRIDE: ${{ inputs.start_override }}
+        END_OVERRIDE: ${{ inputs.end_override }}
+        SOURCE: ${{ inputs.source }}
+      run: |
+        set -euo pipefail
+        date_re='^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+
+        if [ -n "$START_OVERRIDE" ]; then
+          if ! [[ "$START_OVERRIDE" =~ $date_re ]]; then
+            echo "::error::start_override must be YYYY-MM-DD, got: $START_OVERRIDE"
+            exit 1
+          fi
+          START_DATE="$START_OVERRIDE"
+          echo "Using start_override: $START_DATE"
+        else
+          START_DATE=$(uv run python src/get_latest_date.py "$SOURCE")
+          echo "Latest $SOURCE data in DB: $START_DATE"
+        fi
+
+        if [ -n "$END_OVERRIDE" ]; then
+          if ! [[ "$END_OVERRIDE" =~ $date_re ]]; then
+            echo "::error::end_override must be YYYY-MM-DD, got: $END_OVERRIDE"
+            exit 1
+          fi
+          END_DATE="$END_OVERRIDE"
+        else
+          END_DATE=$(date +%Y-%m-%d)
+        fi
+
+        START_YEAR="${START_DATE%%-*}"
+        END_YEAR="${END_DATE%%-*}"
+
+        {
+          echo "start_date=$START_DATE"
+          echo "end_date=$END_DATE"
+          echo "start_year=$START_YEAR"
+          echo "end_year=$END_YEAR"
+        } >> "$GITHUB_OUTPUT"
+
+        echo "$SOURCE extraction window: $START_DATE → $END_DATE"
