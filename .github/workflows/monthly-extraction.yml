@@ -1,4 +1,10 @@
 name: Monthly Data Extraction
+run-name: >-
+  Monthly Data Extraction —
+  ${{
+    (inputs.source == '' || inputs.source == 'all') && 'all sources'
+    || inputs.source
+  }}
 
 on:
   schedule:
@@ -6,18 +12,18 @@ on:
   workflow_dispatch:      # Manual trigger from GitHub UI
     inputs:
       source:
-        description: 'Source to extract (leave empty for all)'
+        description: 'Source to extract'
         required: false
-        default: ''
+        default: 'all'
         type: choice
         options:
-          - ''
-          - eia
-          - entsoe
-          - npp
-          - ons
-          - oe
-          - occto
+          - 'all'
+          - 'EIA (USA)'
+          - 'ENTSOE (Europe)'
+          - 'NPP (India)'
+          - 'ONS (Brazil)'
+          - 'OE (Australia)'
+          - 'OCCTO (Japan)'
 
 permissions:
   contents: read
@@ -37,7 +43,7 @@ jobs:
   # No API key needed. Uses --start-year/--end-year.
   # ─────────────────────────────────────────────
   extract-eia:
-    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'eia' }}
+    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'EIA (USA)' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -110,7 +116,7 @@ jobs:
   # No API key needed. Uses --start-year/--end-year.
   # ─────────────────────────────────────────────
   extract-ons:
-    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'ons' }}
+    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'ONS (Brazil)' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -182,7 +188,7 @@ jobs:
   # Requires ENTSOE_API_KEY. Date via env vars.
   # ─────────────────────────────────────────────
   extract-entsoe:
-    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'entsoe' }}
+    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'ENTSOE (Europe)' }}
     runs-on: ubuntu-latest
     timeout-minutes: 350
     steps:
@@ -233,7 +239,7 @@ jobs:
   # No API key. Uses --start-date/--end-date.
   # ─────────────────────────────────────────────
   extract-npp:
-    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'npp' }}
+    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'NPP (India)' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -304,7 +310,7 @@ jobs:
   # Optional OE_API_KEY. Uses --start-date.
   # ─────────────────────────────────────────────
   extract-oe:
-    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'oe' }}
+    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'OE (Australia)' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -375,7 +381,7 @@ jobs:
   # No API key. Needs headless Chrome.
   # ─────────────────────────────────────────────
   extract-occto:
-    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'occto' }}
+    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'OCCTO (Japan)' }}
     runs-on: ubuntu-latest
     timeout-minutes: 350
     steps:
