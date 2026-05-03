@@ -68,6 +68,19 @@ def resume_from(source: str) -> date:
     return latest + timedelta(days=1)
 
 
+def window_start(source: str) -> date:
+    """Honor START_OVERRIDE env var if set (for historical re-runs from the
+    GitHub Actions UI); otherwise fall through to incremental resume."""
+    override = os.environ.get("START_OVERRIDE")
+    return date.fromisoformat(override) if override else resume_from(source)
+
+
+def window_end(today: date) -> date:
+    """Honor END_OVERRIDE env var if set; otherwise default to today."""
+    override = os.environ.get("END_OVERRIDE")
+    return date.fromisoformat(override) if override else today
+
+
 def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     """subprocess.run with check=True; force unbuffered Python in children."""
     logger.info(f"$ {' '.join(cmd)}")
@@ -93,9 +106,8 @@ def load_and_remove(source: str, jsonl: Path) -> None:
 
 def extract_entsoe() -> int:
     today = date.today()
-    resume = resume_from("entsoe")
-    start = resume.replace(day=1)
-    end = today.replace(day=1)
+    start = window_start("entsoe").replace(day=1)
+    end = window_end(today).replace(day=1)
     if start > end:
         logger.info("ENTSOE up to date — 0 iterations")
         return 0
@@ -132,18 +144,19 @@ def extract_entsoe() -> int:
 
 def extract_occto() -> int:
     today = date.today()
-    resume = resume_from("occto")
-    if resume > today:
+    resume = window_start("occto")
+    end_date = window_end(today)
+    if resume > end_date:
         logger.info("OCCTO up to date — 0 iterations")
         return 0
 
     n = 0
     current = resume.replace(day=1)
-    end_month = today.replace(day=1)
+    end_month = end_date.replace(day=1)
     while current <= end_month:
         next_first = add_months(current, 1)
         iter_start = max(current, resume)
-        iter_end = min(next_first - timedelta(days=1), today)
+        iter_end = min(next_first - timedelta(days=1), end_date)
         gh_group(f"Extract OCCTO {iter_start} → {iter_end}")
         run(
             [

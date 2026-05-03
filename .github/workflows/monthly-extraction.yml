@@ -4,6 +4,10 @@ run-name: >-
   ${{
     (inputs.source == '' || inputs.source == 'all') && 'all sources'
     || inputs.source
+  }}${{
+    inputs.start_override != ''
+    && format(' · {0} → {1}', inputs.start_override, inputs.end_override != '' && inputs.end_override || 'today')
+    || ''
   }}
 
 on:
@@ -24,10 +28,24 @@ on:
           - 'ONS (Brazil)'
           - 'OE (Australia)'
           - 'OCCTO (Japan)'
+      start_override:
+        description: 'Re-run window start (YYYY-MM-DD). Leave blank for default (latest in DB).'
+        required: false
+        default: ''
+      end_override:
+        description: 'Re-run window end (YYYY-MM-DD). Leave blank for default (today).'
+        required: false
+        default: ''
 
 permissions:
   contents: read
   issues: write
+
+# Serialize per-source so re-runs don't race the scheduled cron's UPSERT.
+# Different sources still extract in parallel.
+concurrency:
+  group: extraction-${{ inputs.source || 'all' }}
+  cancel-in-progress: false
 
 env:
   POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
@@ -73,16 +91,29 @@ jobs:
           cd extractors
           uv sync --extra eia
 
-      - name: Get latest date in database
+      - name: Resolve extraction window
         id: latest
+        env:
+          START_OVERRIDE: ${{ inputs.start_override }}
+          END_OVERRIDE: ${{ inputs.end_override }}
         run: |
-          LATEST=$(uv run python src/get_latest_date.py eia)
-          # Extract year from date (YYYY-MM-DD → YYYY)
-          START_YEAR=$(echo "$LATEST" | cut -d'-' -f1)
-          CURRENT_YEAR=$(date +%Y)
+          if [ -n "$START_OVERRIDE" ]; then
+            START_DATE="$START_OVERRIDE"
+            echo "Using start_override: $START_DATE"
+          else
+            START_DATE=$(uv run python src/get_latest_date.py eia)
+            echo "Latest EIA data in DB: $START_DATE"
+          fi
+          if [ -n "$END_OVERRIDE" ]; then
+            END_DATE="$END_OVERRIDE"
+          else
+            END_DATE=$(date +%Y-%m-%d)
+          fi
+          START_YEAR=$(echo "$START_DATE" | cut -d'-' -f1)
+          END_YEAR=$(echo "$END_DATE" | cut -d'-' -f1)
           echo "start_year=$START_YEAR" >> "$GITHUB_OUTPUT"
-          echo "end_year=$CURRENT_YEAR" >> "$GITHUB_OUTPUT"
-          echo "Latest EIA data: $LATEST → extracting $START_YEAR to $CURRENT_YEAR"
+          echo "end_year=$END_YEAR" >> "$GITHUB_OUTPUT"
+          echo "EIA extraction window: $START_YEAR to $END_YEAR (year-precision)"
 
       - name: Extract EIA data
         run: |
@@ -146,15 +177,29 @@ jobs:
           cd extractors
           uv sync --extra ons
 
-      - name: Get latest date in database
+      - name: Resolve extraction window
         id: latest
+        env:
+          START_OVERRIDE: ${{ inputs.start_override }}
+          END_OVERRIDE: ${{ inputs.end_override }}
         run: |
-          LATEST=$(uv run python src/get_latest_date.py ons)
-          START_YEAR=$(echo "$LATEST" | cut -d'-' -f1)
-          CURRENT_YEAR=$(date +%Y)
+          if [ -n "$START_OVERRIDE" ]; then
+            START_DATE="$START_OVERRIDE"
+            echo "Using start_override: $START_DATE"
+          else
+            START_DATE=$(uv run python src/get_latest_date.py ons)
+            echo "Latest ONS data in DB: $START_DATE"
+          fi
+          if [ -n "$END_OVERRIDE" ]; then
+            END_DATE="$END_OVERRIDE"
+          else
+            END_DATE=$(date +%Y-%m-%d)
+          fi
+          START_YEAR=$(echo "$START_DATE" | cut -d'-' -f1)
+          END_YEAR=$(echo "$END_DATE" | cut -d'-' -f1)
           echo "start_year=$START_YEAR" >> "$GITHUB_OUTPUT"
-          echo "end_year=$CURRENT_YEAR" >> "$GITHUB_OUTPUT"
-          echo "Latest ONS data: $LATEST → extracting $START_YEAR to $CURRENT_YEAR"
+          echo "end_year=$END_YEAR" >> "$GITHUB_OUTPUT"
+          echo "ONS extraction window: $START_YEAR to $END_YEAR (year-precision)"
 
       - name: Extract ONS data
         run: |
@@ -221,6 +266,8 @@ jobs:
       - name: Extract ENTSOE month-by-month
         env:
           ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          START_OVERRIDE: ${{ inputs.start_override }}
+          END_OVERRIDE: ${{ inputs.end_override }}
         run: uv run python src/incremental_extract.py entsoe
 
       - name: Upload artifacts (on failure only)
@@ -269,14 +316,27 @@ jobs:
           cd extractors
           uv sync --extra npp
 
-      - name: Get latest date in database
+      - name: Resolve extraction window
         id: latest
+        env:
+          START_OVERRIDE: ${{ inputs.start_override }}
+          END_OVERRIDE: ${{ inputs.end_override }}
         run: |
-          LATEST=$(uv run python src/get_latest_date.py npp)
-          TODAY=$(date +%Y-%m-%d)
-          echo "start_date=$LATEST" >> "$GITHUB_OUTPUT"
-          echo "end_date=$TODAY" >> "$GITHUB_OUTPUT"
-          echo "Latest NPP data: $LATEST → extracting to $TODAY"
+          if [ -n "$START_OVERRIDE" ]; then
+            START_DATE="$START_OVERRIDE"
+            echo "Using start_override: $START_DATE"
+          else
+            START_DATE=$(uv run python src/get_latest_date.py npp)
+            echo "Latest NPP data in DB: $START_DATE"
+          fi
+          if [ -n "$END_OVERRIDE" ]; then
+            END_DATE="$END_OVERRIDE"
+          else
+            END_DATE=$(date +%Y-%m-%d)
+          fi
+          echo "start_date=$START_DATE" >> "$GITHUB_OUTPUT"
+          echo "end_date=$END_DATE" >> "$GITHUB_OUTPUT"
+          echo "NPP extraction window: $START_DATE → $END_DATE"
 
       - name: Extract NPP data
         run: |
@@ -340,12 +400,27 @@ jobs:
           cd extractors
           uv sync --extra openelectricity
 
-      - name: Get latest date in database
+      - name: Resolve extraction window
         id: latest
+        env:
+          START_OVERRIDE: ${{ inputs.start_override }}
+          END_OVERRIDE: ${{ inputs.end_override }}
         run: |
-          LATEST=$(uv run python src/get_latest_date.py oe)
-          echo "start_date=$LATEST" >> "$GITHUB_OUTPUT"
-          echo "Latest OE data: $LATEST → extracting from $LATEST"
+          if [ -n "$START_OVERRIDE" ]; then
+            START_DATE="$START_OVERRIDE"
+            echo "Using start_override: $START_DATE"
+          else
+            START_DATE=$(uv run python src/get_latest_date.py oe)
+            echo "Latest OE data in DB: $START_DATE"
+          fi
+          if [ -n "$END_OVERRIDE" ]; then
+            END_DATE="$END_OVERRIDE"
+          else
+            END_DATE=$(date +%Y-%m-%d)
+          fi
+          echo "start_date=$START_DATE" >> "$GITHUB_OUTPUT"
+          echo "end_date=$END_DATE" >> "$GITHUB_OUTPUT"
+          echo "OE extraction window: $START_DATE → $END_DATE"
 
       - name: Extract OpenElectricity data
         env:
@@ -354,6 +429,7 @@ jobs:
           cd extractors
           uv run energy-extract openelectricity \
             --start-date ${{ steps.latest.outputs.start_date }} \
+            --end-date ${{ steps.latest.outputs.end_date }} \
             --output ../extracted_data \
             --facilities \
             --log-level INFO
@@ -412,6 +488,9 @@ jobs:
           uv sync --extra occto
 
       - name: Extract OCCTO month-by-month
+        env:
+          START_OVERRIDE: ${{ inputs.start_override }}
+          END_OVERRIDE: ${{ inputs.end_override }}
         run: uv run python src/incremental_extract.py occto
 
       - name: Upload artifacts (on failure only)
