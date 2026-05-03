@@ -81,6 +81,24 @@ def window_end(today: date) -> date:
     return date.fromisoformat(override) if override else today
 
 
+# 350-min job timeout / ~5min per ENTSOE month / ~6min per OCCTO month
+# both work out to ~12-month soft ceiling before risking a timeout.
+LONG_WINDOW_MONTHS = 12
+
+
+def warn_if_long_window(source: str, start: date, end: date) -> None:
+    """Warn (don't fail) when an override window is large enough to risk
+    hitting the 350-minute job timeout. The user can still proceed — this
+    is a heads-up, not a guardrail."""
+    months = (end.year - start.year) * 12 + (end.month - start.month) + 1
+    if months > LONG_WINDOW_MONTHS:
+        logger.warning(
+            f"{source}: extracting {months} months ({start} → {end}) "
+            f"may exceed the 350-min job timeout — consider splitting into "
+            f"smaller windows."
+        )
+
+
 def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     """subprocess.run with check=True; force unbuffered Python in children."""
     logger.info(f"$ {' '.join(cmd)}")
@@ -111,6 +129,7 @@ def extract_entsoe() -> int:
     if start > end:
         logger.info("ENTSOE up to date — 0 iterations")
         return 0
+    warn_if_long_window("entsoe", start, end)
 
     n = 0
     current = start
@@ -149,6 +168,7 @@ def extract_occto() -> int:
     if resume > end_date:
         logger.info("OCCTO up to date — 0 iterations")
         return 0
+    warn_if_long_window("occto", resume, end_date)
 
     n = 0
     current = resume.replace(day=1)

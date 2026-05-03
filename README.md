@@ -411,6 +411,23 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) runs on push/PR:
 - **Test**: Pytest with PostgreSQL service container
 - **Type Check**: Optional mypy analysis
 
+### Manual Re-runs (Historical Backfill / Verification)
+
+`monthly-extraction.yml` exposes two optional `workflow_dispatch` inputs for re-running a source against a specific historical window — useful when investigating suspect data quality cells on the dashboard's `/data-quality` matrix:
+
+- `start_override` (YYYY-MM-DD) — start of the re-run window. Leave blank to resume from the latest date already in the DB.
+- `end_override` (YYYY-MM-DD) — end of the window. Leave blank to default to today.
+
+Re-runs are inherently safe: every source upserts via `INSERT ... ON CONFLICT DO NOTHING`, so existing rows are never modified. A re-run only fills gaps. Read out the result on the `/data-quality` page:
+
+- **Row count grew** → there was a real ETL gap that's now filled.
+- **Row count unchanged** → upstream truly published only that many rows; the cell reflects an upstream regime shift, not a pipeline bug.
+
+Notes:
+- EIA and ONS extractors only accept year precision, so a Jan–Mar window will pull all of that year (idempotent, just slower).
+- ENTSOE/OCCTO re-runs are paced month-by-month and warn if the window exceeds 12 months (350-min job timeout risk).
+- Per-source `concurrency:` blocks ensure two runs targeting the same source queue rather than racing.
+
 ---
 
 ## Future Improvements

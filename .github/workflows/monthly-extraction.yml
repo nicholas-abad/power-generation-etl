@@ -41,12 +41,6 @@ permissions:
   contents: read
   issues: write
 
-# Serialize per-source so re-runs don't race the scheduled cron's UPSERT.
-# Different sources still extract in parallel.
-concurrency:
-  group: extraction-${{ inputs.source || 'all' }}
-  cancel-in-progress: false
-
 env:
   POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
   POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}
@@ -64,6 +58,11 @@ jobs:
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'EIA (USA)' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Per-source serialization: any second run targeting EIA (cron, "all",
+    # or explicit "EIA (USA)") queues behind the in-flight one.
+    concurrency:
+      group: extract-eia
+      cancel-in-progress: false
     steps:
       - name: Checkout ETL repo
         uses: actions/checkout@v4
@@ -93,34 +92,18 @@ jobs:
 
       - name: Resolve extraction window
         id: latest
-        env:
-          START_OVERRIDE: ${{ inputs.start_override }}
-          END_OVERRIDE: ${{ inputs.end_override }}
-        run: |
-          if [ -n "$START_OVERRIDE" ]; then
-            START_DATE="$START_OVERRIDE"
-            echo "Using start_override: $START_DATE"
-          else
-            START_DATE=$(uv run python src/get_latest_date.py eia)
-            echo "Latest EIA data in DB: $START_DATE"
-          fi
-          if [ -n "$END_OVERRIDE" ]; then
-            END_DATE="$END_OVERRIDE"
-          else
-            END_DATE=$(date +%Y-%m-%d)
-          fi
-          START_YEAR=$(echo "$START_DATE" | cut -d'-' -f1)
-          END_YEAR=$(echo "$END_DATE" | cut -d'-' -f1)
-          echo "start_year=$START_YEAR" >> "$GITHUB_OUTPUT"
-          echo "end_year=$END_YEAR" >> "$GITHUB_OUTPUT"
-          echo "EIA extraction window: $START_YEAR to $END_YEAR (year-precision)"
+        uses: ./.github/actions/resolve-window
+        with:
+          source: eia
+          start_override: ${{ inputs.start_override }}
+          end_override: ${{ inputs.end_override }}
 
       - name: Extract EIA data
         run: |
           cd extractors
           uv run energy-extract eia \
-            --start-year ${{ steps.latest.outputs.start_year }} \
-            --end-year ${{ steps.latest.outputs.end_year }} \
+            --start-year "${{ steps.latest.outputs.start_year }}" \
+            --end-year "${{ steps.latest.outputs.end_year }}" \
             --output ../extracted_data \
             --log-level INFO
 
@@ -150,6 +133,9 @@ jobs:
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'ONS (Brazil)' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    concurrency:
+      group: extract-ons
+      cancel-in-progress: false
     steps:
       - name: Checkout ETL repo
         uses: actions/checkout@v4
@@ -179,34 +165,18 @@ jobs:
 
       - name: Resolve extraction window
         id: latest
-        env:
-          START_OVERRIDE: ${{ inputs.start_override }}
-          END_OVERRIDE: ${{ inputs.end_override }}
-        run: |
-          if [ -n "$START_OVERRIDE" ]; then
-            START_DATE="$START_OVERRIDE"
-            echo "Using start_override: $START_DATE"
-          else
-            START_DATE=$(uv run python src/get_latest_date.py ons)
-            echo "Latest ONS data in DB: $START_DATE"
-          fi
-          if [ -n "$END_OVERRIDE" ]; then
-            END_DATE="$END_OVERRIDE"
-          else
-            END_DATE=$(date +%Y-%m-%d)
-          fi
-          START_YEAR=$(echo "$START_DATE" | cut -d'-' -f1)
-          END_YEAR=$(echo "$END_DATE" | cut -d'-' -f1)
-          echo "start_year=$START_YEAR" >> "$GITHUB_OUTPUT"
-          echo "end_year=$END_YEAR" >> "$GITHUB_OUTPUT"
-          echo "ONS extraction window: $START_YEAR to $END_YEAR (year-precision)"
+        uses: ./.github/actions/resolve-window
+        with:
+          source: ons
+          start_override: ${{ inputs.start_override }}
+          end_override: ${{ inputs.end_override }}
 
       - name: Extract ONS data
         run: |
           cd extractors
           uv run energy-extract ons \
-            --start-year ${{ steps.latest.outputs.start_year }} \
-            --end-year ${{ steps.latest.outputs.end_year }} \
+            --start-year "${{ steps.latest.outputs.start_year }}" \
+            --end-year "${{ steps.latest.outputs.end_year }}" \
             --output ../extracted_data \
             --log-level INFO
 
@@ -236,6 +206,9 @@ jobs:
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'ENTSOE (Europe)' }}
     runs-on: ubuntu-latest
     timeout-minutes: 350
+    concurrency:
+      group: extract-entsoe
+      cancel-in-progress: false
     steps:
       - name: Checkout ETL repo
         uses: actions/checkout@v4
@@ -289,6 +262,9 @@ jobs:
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'NPP (India)' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    concurrency:
+      group: extract-npp
+      cancel-in-progress: false
     steps:
       - name: Checkout ETL repo
         uses: actions/checkout@v4
@@ -318,32 +294,18 @@ jobs:
 
       - name: Resolve extraction window
         id: latest
-        env:
-          START_OVERRIDE: ${{ inputs.start_override }}
-          END_OVERRIDE: ${{ inputs.end_override }}
-        run: |
-          if [ -n "$START_OVERRIDE" ]; then
-            START_DATE="$START_OVERRIDE"
-            echo "Using start_override: $START_DATE"
-          else
-            START_DATE=$(uv run python src/get_latest_date.py npp)
-            echo "Latest NPP data in DB: $START_DATE"
-          fi
-          if [ -n "$END_OVERRIDE" ]; then
-            END_DATE="$END_OVERRIDE"
-          else
-            END_DATE=$(date +%Y-%m-%d)
-          fi
-          echo "start_date=$START_DATE" >> "$GITHUB_OUTPUT"
-          echo "end_date=$END_DATE" >> "$GITHUB_OUTPUT"
-          echo "NPP extraction window: $START_DATE → $END_DATE"
+        uses: ./.github/actions/resolve-window
+        with:
+          source: npp
+          start_override: ${{ inputs.start_override }}
+          end_override: ${{ inputs.end_override }}
 
       - name: Extract NPP data
         run: |
           cd extractors
           uv run energy-extract npp \
-            --start-date ${{ steps.latest.outputs.start_date }} \
-            --end-date ${{ steps.latest.outputs.end_date }} \
+            --start-date "${{ steps.latest.outputs.start_date }}" \
+            --end-date "${{ steps.latest.outputs.end_date }}" \
             --output ../extracted_data \
             --log-level INFO
 
@@ -373,6 +335,9 @@ jobs:
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'OE (Australia)' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    concurrency:
+      group: extract-oe
+      cancel-in-progress: false
     steps:
       - name: Checkout ETL repo
         uses: actions/checkout@v4
@@ -402,25 +367,11 @@ jobs:
 
       - name: Resolve extraction window
         id: latest
-        env:
-          START_OVERRIDE: ${{ inputs.start_override }}
-          END_OVERRIDE: ${{ inputs.end_override }}
-        run: |
-          if [ -n "$START_OVERRIDE" ]; then
-            START_DATE="$START_OVERRIDE"
-            echo "Using start_override: $START_DATE"
-          else
-            START_DATE=$(uv run python src/get_latest_date.py oe)
-            echo "Latest OE data in DB: $START_DATE"
-          fi
-          if [ -n "$END_OVERRIDE" ]; then
-            END_DATE="$END_OVERRIDE"
-          else
-            END_DATE=$(date +%Y-%m-%d)
-          fi
-          echo "start_date=$START_DATE" >> "$GITHUB_OUTPUT"
-          echo "end_date=$END_DATE" >> "$GITHUB_OUTPUT"
-          echo "OE extraction window: $START_DATE → $END_DATE"
+        uses: ./.github/actions/resolve-window
+        with:
+          source: oe
+          start_override: ${{ inputs.start_override }}
+          end_override: ${{ inputs.end_override }}
 
       - name: Extract OpenElectricity data
         env:
@@ -428,8 +379,8 @@ jobs:
         run: |
           cd extractors
           uv run energy-extract openelectricity \
-            --start-date ${{ steps.latest.outputs.start_date }} \
-            --end-date ${{ steps.latest.outputs.end_date }} \
+            --start-date "${{ steps.latest.outputs.start_date }}" \
+            --end-date "${{ steps.latest.outputs.end_date }}" \
             --output ../extracted_data \
             --facilities \
             --log-level INFO
@@ -460,6 +411,9 @@ jobs:
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'OCCTO (Japan)' }}
     runs-on: ubuntu-latest
     timeout-minutes: 350
+    concurrency:
+      group: extract-occto
+      cancel-in-progress: false
     steps:
       - name: Checkout ETL repo
         uses: actions/checkout@v4
