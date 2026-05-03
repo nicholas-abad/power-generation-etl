@@ -193,7 +193,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: nicholas-abad/energy-extractors
-          ref: feature/incremental-extraction
           path: extractors
           token: ${{ secrets.EXTRACTORS_REPO_TOKEN }}
 
@@ -387,7 +386,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: nicholas-abad/energy-extractors
-          ref: feature/incremental-extraction
           path: extractors
           token: ${{ secrets.EXTRACTORS_REPO_TOKEN }}
 
