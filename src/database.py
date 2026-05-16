@@ -110,6 +110,12 @@ logger.add(
 
 _VALID_SQL_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 
+# Database names may be mixed-case in practice (e.g. PowerGeneration), but we
+# still restrict to standard SQL-identifier characters to prevent f-string
+# injection in the CREATE DATABASE statement (parameterized queries don't
+# work for DDL).
+_VALID_PG_DATABASE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+
 # All tables this ETL is allowed to operate on.
 _KNOWN_TABLES = frozenset(
     {
@@ -240,10 +246,12 @@ class PowerGenerationDatabase:
         Returns:
             Number of rows actually inserted (excluding duplicates).
         """
-        if bool(conflict_columns) == bool(conflict_expr):
+        if (conflict_columns is None) == (conflict_expr is None):
             raise ValueError(
                 "_upsert_via_staging requires exactly one of "
-                "conflict_columns or conflict_expr"
+                "conflict_columns or conflict_expr (got "
+                f"conflict_columns={conflict_columns!r}, "
+                f"conflict_expr={conflict_expr!r})"
             )
         _validate_table(target_table)
         staging = f"_staging_{target_table}"
@@ -314,7 +322,15 @@ class PowerGenerationDatabase:
         CREATE DATABASE cannot run inside a transaction in Postgres, so the
         connection is opened in AUTOCOMMIT isolation instead of bracketing
         the statement with conn.commit() calls.
+
+        Raises ValueError if self.database isn't a safe SQL identifier
+        (parameterized queries don't work for DDL, so the name is
+        interpolated and must be validated up-front).
         """
+        if not _VALID_PG_DATABASE_NAME.match(self.database):
+            raise ValueError(
+                f"Refusing to CREATE DATABASE with unsafe name: {self.database!r}"
+            )
         try:
             default_conn_string = f"postgresql://{self.username}:{self.password}@{self.host}:{self.port}/postgres"
             if self.sslmode:
@@ -632,6 +648,11 @@ class PowerGenerationDatabase:
                             record["timestamp_ms"] = int(dt.timestamp() * 1000)
                         elif ts is not None:
                             record["timestamp_ms"] = int(ts)
+                        else:
+                            logger.warning(
+                                f"Line {line_num}: timestamp_ms is null — skipping record"
+                            )
+                            continue
 
                     # Fix fuel_type: derive from psr_type (always correct)
                     psr = record.get("psr_type", "")
