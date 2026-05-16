@@ -110,6 +110,12 @@ logger.add(
 
 _VALID_SQL_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 
+# Database names may be mixed-case in practice (e.g. PowerGeneration), but we
+# still restrict to standard SQL-identifier characters to prevent f-string
+# injection in the CREATE DATABASE statement (parameterized queries don't
+# work for DDL).
+_VALID_PG_DATABASE_NAME = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]{0,62}\Z")
+
 # All tables this ETL is allowed to operate on.
 _KNOWN_TABLES = frozenset(
     {
@@ -216,7 +222,7 @@ class PowerGenerationDatabase:
         self,
         df: pd.DataFrame,
         target_table: str,
-        conflict_columns: list,
+        conflict_columns: list = None,
         conflict_expr: str = None,
     ) -> int:
         """Insert rows via a staging table, skipping duplicates on conflict.
@@ -224,18 +230,29 @@ class PowerGenerationDatabase:
         Uses CREATE TEMP TABLE + COPY + INSERT ... ON CONFLICT DO NOTHING
         for efficient bulk upsert.
 
+        Exactly one of ``conflict_columns`` or ``conflict_expr`` must be
+        provided. Passing both raises ValueError to prevent the silent-ignore
+        bug where the caller assumes the column list applies but the SQL
+        expression silently overrides it.
+
         Args:
             df: DataFrame of rows to insert.
             target_table: Destination table name.
             conflict_columns: List of column names forming the natural key
                 (used when the conflict target is plain columns).
             conflict_expr: Raw SQL expression for the ON CONFLICT target when
-                the unique index uses expressions (e.g. COALESCE). When set,
-                this is used instead of conflict_columns in the ON CONFLICT clause.
+                the unique index uses expressions (e.g. COALESCE).
 
         Returns:
             Number of rows actually inserted (excluding duplicates).
         """
+        if (conflict_columns is None) == (conflict_expr is None):
+            raise ValueError(
+                "_upsert_via_staging requires exactly one of "
+                "conflict_columns or conflict_expr (got "
+                f"conflict_columns={conflict_columns!r}, "
+                f"conflict_expr={conflict_expr!r})"
+            )
         _validate_table(target_table)
         staging = f"_staging_{target_table}"
         columns = list(df.columns)
@@ -300,31 +317,41 @@ class PowerGenerationDatabase:
             return False
 
     def create_database_if_not_exists(self) -> bool:
-        """Create the database if it doesn't exist."""
+        """Create the database if it doesn't exist.
+
+        CREATE DATABASE cannot run inside a transaction in Postgres, so the
+        connection is opened in AUTOCOMMIT isolation instead of bracketing
+        the statement with conn.commit() calls.
+
+        Raises ValueError if self.database isn't a safe SQL identifier
+        (parameterized queries don't work for DDL, so the name is
+        interpolated and must be validated up-front).
+        """
+        if not _VALID_PG_DATABASE_NAME.match(self.database):
+            raise ValueError(
+                f"Refusing to CREATE DATABASE with unsafe name: {self.database!r}"
+            )
         try:
-            # Connect to default postgres database to create target database
             default_conn_string = f"postgresql://{self.username}:{self.password}@{self.host}:{self.port}/postgres"
             if self.sslmode:
                 default_conn_string += f"?sslmode={self.sslmode}"
             default_engine = create_engine(default_conn_string)
 
-            with default_engine.connect() as conn:
-                # Check if database exists
-                result = conn.execute(
-                    text("SELECT 1 FROM pg_database WHERE datname = :db_name"),
-                    {"db_name": self.database},
-                )
-
-                if result.fetchone() is None:
-                    # Database doesn't exist, create it
-                    conn.commit()
-                    conn.execute(text(f'CREATE DATABASE "{self.database}"'))
-                    conn.commit()
-                    logger.info("Created database", database=self.database)
-                else:
-                    logger.info("Database already exists", database=self.database)
-
-            default_engine.dispose()
+            try:
+                with default_engine.connect().execution_options(
+                    isolation_level="AUTOCOMMIT"
+                ) as conn:
+                    result = conn.execute(
+                        text("SELECT 1 FROM pg_database WHERE datname = :db_name"),
+                        {"db_name": self.database},
+                    )
+                    if result.fetchone() is None:
+                        conn.execute(text(f'CREATE DATABASE "{self.database}"'))
+                        logger.info("Created database", database=self.database)
+                    else:
+                        logger.info("Database already exists", database=self.database)
+            finally:
+                default_engine.dispose()
             return True
 
         except Exception as e:
@@ -505,7 +532,9 @@ class PowerGenerationDatabase:
 
                 # Record extraction metadata
                 run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
-                start_date, end_date = self._get_date_range_for_run("npp_generation", run_id)
+                start_date, end_date = self._get_date_range_for_run(
+                    "npp_generation", run_id
+                )
                 self.insert_extraction_metadata(
                     extraction_run_id=run_id,
                     source="npp",
@@ -595,20 +624,35 @@ class PowerGenerationDatabase:
                             "extraction_run_id", extraction_run_id
                         )
 
-                    # Convert datetime strings to Unix timestamps in milliseconds
+                    # Convert datetime strings to Unix timestamps in milliseconds.
+                    # Records with unparseable timestamps are skipped with a
+                    # warning — otherwise they'd be coerced to NULL and fail
+                    # the NOT NULL constraint on entsoe_generation_data.
                     if "timestamp_ms" in record:
                         ts = record["timestamp_ms"]
                         if isinstance(ts, str):
                             try:
                                 dt = pd.to_datetime(ts, errors="coerce")
-                                if pd.isnull(dt):
-                                    record["timestamp_ms"] = None
-                                else:
-                                    record["timestamp_ms"] = int(dt.timestamp() * 1000)
-                            except Exception:
-                                record["timestamp_ms"] = None
+                            except Exception as e:
+                                logger.warning(
+                                    f"Line {line_num}: timestamp_ms parse raised "
+                                    f"{type(e).__name__} for value {ts!r} — skipping record"
+                                )
+                                continue
+                            if pd.isnull(dt):
+                                logger.warning(
+                                    f"Line {line_num}: timestamp_ms {ts!r} could not "
+                                    "be parsed — skipping record"
+                                )
+                                continue
+                            record["timestamp_ms"] = int(dt.timestamp() * 1000)
                         elif ts is not None:
                             record["timestamp_ms"] = int(ts)
+                        else:
+                            logger.warning(
+                                f"Line {line_num}: timestamp_ms is null — skipping record"
+                            )
+                            continue
 
                     # Fix fuel_type: derive from psr_type (always correct)
                     psr = record.get("psr_type", "")
@@ -683,7 +727,9 @@ class PowerGenerationDatabase:
 
             # Record extraction metadata
             entsoe_run_id = first_run_id or extraction_run_id
-            start_date, end_date = self._get_date_range_for_run("entsoe_generation_data", entsoe_run_id)
+            start_date, end_date = self._get_date_range_for_run(
+                "entsoe_generation_data", entsoe_run_id
+            )
             self.insert_extraction_metadata(
                 extraction_run_id=entsoe_run_id,
                 source="entsoe",
@@ -973,7 +1019,9 @@ class PowerGenerationDatabase:
 
                 # Record extraction metadata
                 run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
-                start_date, end_date = self._get_date_range_for_run("eia_generation_data", run_id)
+                start_date, end_date = self._get_date_range_for_run(
+                    "eia_generation_data", run_id
+                )
                 self.insert_extraction_metadata(
                     extraction_run_id=run_id,
                     source="eia",
@@ -1066,7 +1114,6 @@ class PowerGenerationDatabase:
                             return self._upsert_via_staging(
                                 df,
                                 "ons_generation_data",
-                                ["timestamp_ms", "plant", "ons_plant_id"],
                                 conflict_expr="timestamp_ms, plant, COALESCE(ons_plant_id, '')",
                             )
 
@@ -1096,7 +1143,9 @@ class PowerGenerationDatabase:
                 logger.warning("Skipped duplicate records", count=total_duplicates)
 
             if total_inserted > 0:
-                start_date, end_date = self._get_date_range_for_run("ons_generation_data", extraction_run_id)
+                start_date, end_date = self._get_date_range_for_run(
+                    "ons_generation_data", extraction_run_id
+                )
                 self.insert_extraction_metadata(
                     extraction_run_id=extraction_run_id,
                     source="ons",
@@ -1212,7 +1261,6 @@ class PowerGenerationDatabase:
                     return self._upsert_via_staging(
                         df,
                         "occto_generation_data",
-                        conflict_columns=["timestamp_ms", "plant"],
                         conflict_expr="timestamp_ms, plant, COALESCE(unit, '')",
                     )
 
@@ -1224,7 +1272,9 @@ class PowerGenerationDatabase:
 
                 # Record extraction metadata
                 run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
-                start_date, end_date = self._get_date_range_for_run("occto_generation_data", run_id)
+                start_date, end_date = self._get_date_range_for_run(
+                    "occto_generation_data", run_id
+                )
                 self.insert_extraction_metadata(
                     extraction_run_id=run_id,
                     source="occto",
@@ -1319,7 +1369,9 @@ class PowerGenerationDatabase:
 
                 # Record extraction metadata
                 run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
-                start_date, end_date = self._get_date_range_for_run("oe_generation_data", run_id)
+                start_date, end_date = self._get_date_range_for_run(
+                    "oe_generation_data", run_id
+                )
                 self.insert_extraction_metadata(
                     extraction_run_id=run_id,
                     source="oe",
@@ -1416,7 +1468,9 @@ class PowerGenerationDatabase:
 
                 # Record extraction metadata
                 run_id = valid_records[0].get("extraction_run_id", extraction_run_id)
-                start_date, end_date = self._get_date_range_for_run("oe_facility_generation_data", run_id)
+                start_date, end_date = self._get_date_range_for_run(
+                    "oe_facility_generation_data", run_id
+                )
                 self.insert_extraction_metadata(
                     extraction_run_id=run_id,
                     source="oe_facility",
@@ -1604,24 +1658,3 @@ class PowerGenerationDatabase:
 def create_power_generation_database() -> PowerGenerationDatabase:
     """Create database instance using environment variables."""
     return PowerGenerationDatabase()
-
-
-if __name__ == "__main__":
-    # Example usage for NPP data ingestion
-    db = create_power_generation_database()
-
-    # Test connection and setup
-    if not db.test_connection():
-        db.create_database_if_not_exists()
-
-    # Create NPP table
-    db.create_npp_table()
-
-    # Example file paths
-    jsonl_file = "/Users/nicholasabad/Desktop/workspace/consulting-christine/india-generation-npp/output/test/npp_test_extraction_2025-12-29_12-21-26.jsonl"
-    metadata_file = "/Users/nicholasabad/Desktop/workspace/consulting-christine/india-generation-npp/output/scrape_metadata_7b7bb7a0-52d7-4241-9fe2-45e852175ade.json"
-
-    # Insert data
-    db.insert_npp_jsonl_data(jsonl_file, metadata_file)
-
-    db.close()
