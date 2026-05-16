@@ -114,7 +114,7 @@ _VALID_SQL_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 # still restrict to standard SQL-identifier characters to prevent f-string
 # injection in the CREATE DATABASE statement (parameterized queries don't
 # work for DDL).
-_VALID_PG_DATABASE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+_VALID_PG_DATABASE_NAME = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]{0,62}\Z")
 
 # All tables this ETL is allowed to operate on.
 _KNOWN_TABLES = frozenset(
