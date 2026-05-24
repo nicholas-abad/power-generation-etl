@@ -13,13 +13,10 @@ from database import create_power_generation_database
 from sqlalchemy import text
 
 
-# Configure loguru for CLI output
-logger.remove()
-logger.add(
-    sys.stderr,
-    format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
-    level="INFO",
-)
+# NOTE: do NOT call logger.remove() / logger.add() here. database.py (imported
+# above) already configures a stderr handler AND a daily-rotated file sink at
+# logs/etl_{date}.log. Reconfiguring here wipes both — including the file sink
+# the README documents at the CLI section.
 
 
 def setup_database(table_type: str = "all"):

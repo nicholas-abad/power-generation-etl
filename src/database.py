@@ -632,7 +632,11 @@ class PowerGenerationDatabase:
                         ts = record["timestamp_ms"]
                         if isinstance(ts, str):
                             try:
-                                dt = pd.to_datetime(ts, errors="coerce")
+                                # utc=True: tz-naive inputs are treated as UTC
+                                # rather than the runner's local time, which
+                                # would shift naive ENTSOE strings by the
+                                # GHA runner offset.
+                                dt = pd.to_datetime(ts, utc=True, errors="coerce")
                             except Exception as e:
                                 logger.warning(
                                     f"Line {line_num}: timestamp_ms parse raised "
@@ -645,7 +649,7 @@ class PowerGenerationDatabase:
                                     "be parsed — skipping record"
                                 )
                                 continue
-                            record["timestamp_ms"] = int(dt.timestamp() * 1000)
+                            record["timestamp_ms"] = int(dt.value // 1_000_000)
                         elif ts is not None:
                             record["timestamp_ms"] = int(ts)
                         else:
