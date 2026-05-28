@@ -48,12 +48,14 @@ def main():
     engine = get_engine()
 
     with engine.connect() as conn:
-        rows = conn.execute(text("""
+        rows = conn.execute(
+            text("""
             SELECT extraction_run_id::text, source
             FROM extraction_metadata
             WHERE start_date IS NULL OR end_date IS NULL
             ORDER BY extraction_timestamp DESC
-        """)).fetchall()
+        """)
+        ).fetchall()
 
     logger.info(f"{len(rows)} extraction_metadata rows to backfill")
 

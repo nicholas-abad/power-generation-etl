@@ -290,7 +290,17 @@ Examples:
     )
     setup_parser.add_argument(
         "table_type",
-        choices=["all", "npp", "entsoe", "eia", "ons", "oe", "oe_facility", "occto", "chile"],
+        choices=[
+            "all",
+            "npp",
+            "entsoe",
+            "eia",
+            "ons",
+            "oe",
+            "oe_facility",
+            "occto",
+            "chile",
+        ],
         default="all",
         nargs="?",
         help="Type of tables to create (default: all)",
@@ -302,7 +312,17 @@ Examples:
     )
     update_parser.add_argument(
         "table_type",
-        choices=["all", "npp", "entsoe", "eia", "ons", "oe", "oe_facility", "occto", "chile"],
+        choices=[
+            "all",
+            "npp",
+            "entsoe",
+            "eia",
+            "ons",
+            "oe",
+            "oe_facility",
+            "occto",
+            "chile",
+        ],
         default="entsoe",
         nargs="?",
         help="Schema to update (default: entsoe)",
