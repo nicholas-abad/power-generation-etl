@@ -257,6 +257,24 @@ OE_FACILITY_SCHEMA = {
     "duplicate_key": ("timestamp_ms", "facility_code", "fueltech"),
 }
 
+CHILE_SCHEMA = {
+    "required_fields": {
+        "extraction_run_id": {"type": "str", "validation": "uuid"},
+        "created_at_ms": {"type": "int", "validation": "positive_timestamp"},
+        "timestamp_ms": {"type": "int", "validation": "positive_timestamp"},
+        "plant": {"type": "str", "validation": "non_empty"},
+        "generation_mwh": {"type": "float", "validation": "non_negative"},
+    },
+    "optional_fields": {
+        "chile_plant_id": {"type": "str_or_null", "validation": None},
+        "fuel_type": {"type": "str_or_null", "validation": None},
+        "region": {"type": "str_or_null", "validation": None},
+        "comuna": {"type": "str_or_null", "validation": None},
+        "resolution_minutes": {"type": "int_or_null", "validation": None},
+    },
+    "duplicate_key": ("timestamp_ms", "plant", "chile_plant_id"),
+}
+
 
 class DataValidator:
     """Validates power generation data records."""
@@ -270,6 +288,7 @@ class DataValidator:
             "oe": OE_SCHEMA,
             "oe_facility": OE_FACILITY_SCHEMA,
             "occto": OCCTO_SCHEMA,
+            "chile": CHILE_SCHEMA,
         }
 
     def _is_valid_uuid(self, value: str) -> bool:
@@ -433,6 +452,10 @@ class DataValidator:
     def validate_oe_facility_record(self, record: Dict[str, Any]) -> ValidationResult:
         """Validate a single OpenElectricity Australia facility record."""
         return self._validate_record(record, OE_FACILITY_SCHEMA)
+
+    def validate_chile_record(self, record: Dict[str, Any]) -> ValidationResult:
+        """Validate a single Chile (Coordinador) record."""
+        return self._validate_record(record, CHILE_SCHEMA)
 
     def _get_duplicate_key(
         self, record: Dict[str, Any], key_fields: Tuple[str, ...]

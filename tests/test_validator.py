@@ -130,6 +130,51 @@ class TestDataValidatorNPP:
         assert result.valid is True
 
 
+class TestDataValidatorChile:
+    """Tests for Chile (Coordinador) data validation."""
+
+    def setup_method(self):
+        self.validator = DataValidator()
+        self.current_time_ms = int(time.time() * 1000)
+        self.valid_record = {
+            "extraction_run_id": "550e8400-e29b-41d4-a716-446655440000",
+            "created_at_ms": self.current_time_ms,
+            "timestamp_ms": self.current_time_ms - 1000,
+            "plant": "TER HORNITOS",
+            "chile_plant_id": "395",
+            "fuel_type": "Carbón",
+            "region": "Antofagasta",
+            "comuna": "Mejillones",
+            "generation_mwh": 163.13,
+            "resolution_minutes": 60,
+        }
+
+    def test_valid_record(self):
+        result = self.validator.validate_chile_record(self.valid_record)
+        assert result.valid is True
+        assert result.errors == []
+
+    def test_missing_required_field(self):
+        record = self.valid_record.copy()
+        del record["plant"]
+        result = self.validator.validate_chile_record(record)
+        assert result.valid is False
+        assert any("missing required field: plant" in e for e in result.errors)
+
+    def test_negative_generation(self):
+        record = self.valid_record.copy()
+        record["generation_mwh"] = -50.0
+        result = self.validator.validate_chile_record(record)
+        assert result.valid is False
+        assert any("non-negative" in e for e in result.errors)
+
+    def test_optional_chile_plant_id_missing(self):
+        record = self.valid_record.copy()
+        del record["chile_plant_id"]
+        result = self.validator.validate_chile_record(record)
+        assert result.valid is True
+
+
 class TestDataValidatorEIA:
     """Tests for EIA data validation."""
 

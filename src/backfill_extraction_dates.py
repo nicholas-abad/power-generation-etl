@@ -11,7 +11,6 @@ Usage:
 """
 
 import os
-import sys
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -28,6 +27,7 @@ SOURCE_TABLE = {
     "oe": "oe_generation_data",
     "oe_facility": "oe_facility_generation_data",
     "occto": "occto_generation_data",
+    "chile": "chile_generation_data",
 }
 
 

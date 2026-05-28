@@ -77,8 +77,11 @@ power-generation-etl/
 │   ├── ons_generation.sql
 │   ├── oe_generation.sql
 │   ├── oe_facility_generation.sql
-│   ├── materialized_views.sql
+│   ├── occto_generation.sql
+│   ├── chile_generation.sql
 │   ├── extraction_metadata.sql
+│   ├── materialized_views.sql
+│   ├── row_count_views.sql
 │   └── migrations/       # Schema migrations
 │       └── 001_add_unique_constraints.sql
 ├── docs/                 # Documentation
@@ -124,10 +127,10 @@ Each source runs independently and can be retried or backfilled safely.
 
 The pipelines load into **PostgreSQL** (currently Neon, with `sslmode=require`).
 
-- **Source-specific tables**: `eia_generation_data`, `npp_generation_data`, `entsoe_generation_data`, `ons_generation_data`, `oe_generation_data`
-- **Natural key UNIQUE constraints** on each table prevent duplicate rows across re-runs (e.g. `uq_entsoe_natural_key`, `uq_npp_natural_key`)
+- **Source-specific tables**: `eia_generation_data`, `npp_generation`, `entsoe_generation_data`, `ons_generation_data`, `oe_generation_data`, `oe_facility_generation_data`, `occto_generation_data`, `chile_generation_data`
+- **Natural key UNIQUE constraints** on each table prevent duplicate rows across re-runs (e.g. `uq_entsoe_natural_key`, `uq_npp_natural_key`, `uq_ons_natural_key`, `uq_occto_natural_key`, `uq_chile_natural_key`)
 - **Staging table upsert**: data is loaded into a temp staging table, then `INSERT ... ON CONFLICT DO NOTHING` merges into the main table — safe for re-runs and partial overlaps
-- **Materialized views**: `mv_entsoe_monthly`, `mv_entsoe_plant_monthly`, `mv_ons_monthly`, `mv_ons_plant_monthly`, `mv_npp_monthly`, `mv_npp_plant_monthly` pre-aggregate large tables for dashboard performance
+- **Materialized views**: per-source `mv_<source>_monthly` and `mv_<source>_plant_monthly` pre-aggregate the large hourly tables (ENTSOE, ONS, NPP, OCCTO, Chile) for dashboard performance; per-source `mv_<source>_row_counts` power the data-quality coverage matrix
 - **Streaming ingestion**: JSONL files are read line-by-line and inserted in configurable batch sizes to keep memory usage low
 
 Downstream consumers (e.g. Streamlit) **read only from the database**.

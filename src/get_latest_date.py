@@ -29,6 +29,7 @@ SOURCE_CONFIG = {
         "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date",
     ),
     "occto": ("occto_generation_data", "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date"),
+    "chile": ("chile_generation_data", "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date"),
 }
 
 FALLBACK_DATE = "1970-01-01"

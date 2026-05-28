@@ -126,6 +126,7 @@ _KNOWN_TABLES = frozenset(
         "oe_generation_data",
         "oe_facility_generation_data",
         "occto_generation_data",
+        "chile_generation_data",
         "extraction_metadata",
         "plant_crosswalk",
         "eia_generator_info",
@@ -410,6 +411,10 @@ class PowerGenerationDatabase:
         """Create OpenElectricity Australia facility generation table."""
         return self._execute_schema_file("oe_facility_generation.sql")
 
+    def create_chile_table(self) -> bool:
+        """Create Chile (Coordinador) generation table."""
+        return self._execute_schema_file("chile_generation.sql")
+
     def create_extraction_metadata_table(self) -> bool:
         """Create extraction metadata table."""
         return self._execute_schema_file("extraction_metadata.sql")
@@ -425,6 +430,7 @@ class PowerGenerationDatabase:
             "oe",
             "oe_facility",
             "occto",
+            "chile",
             "extraction_metadata",
         ]:
             try:
@@ -632,7 +638,11 @@ class PowerGenerationDatabase:
                         ts = record["timestamp_ms"]
                         if isinstance(ts, str):
                             try:
-                                dt = pd.to_datetime(ts, errors="coerce")
+                                # utc=True: tz-naive inputs are treated as UTC
+                                # rather than the runner's local time, which
+                                # would shift naive ENTSOE strings by the
+                                # GHA runner offset.
+                                dt = pd.to_datetime(ts, utc=True, errors="coerce")
                             except Exception as e:
                                 logger.warning(
                                     f"Line {line_num}: timestamp_ms parse raised "
@@ -645,7 +655,7 @@ class PowerGenerationDatabase:
                                     "be parsed — skipping record"
                                 )
                                 continue
-                            record["timestamp_ms"] = int(dt.timestamp() * 1000)
+                            record["timestamp_ms"] = int(dt.value // 1_000_000)
                         elif ts is not None:
                             record["timestamp_ms"] = int(ts)
                         else:
@@ -1551,6 +1561,171 @@ class PowerGenerationDatabase:
         if row is None or row[0] is None:
             return (None, None)
         return (row[0], row[1])
+
+    def insert_chile_jsonl_data(
+        self,
+        jsonl_file_path: str,
+        extraction_run_id: str = None,
+        validation_report_path: str = None,
+        chunk_lines: int = 50_000,
+    ) -> Tuple[bool, Optional[ValidationReport]]:
+        """Insert Chile (Coordinador) data from JSONL file with validation.
+
+        Processes the file in streaming chunks. Tolerates both the post-fixup
+        extractor JSONL (with `chile_plant_id`) and legacy JSONL produced
+        before the convention-alignment commit (with `plant_id`, plus
+        `country_code`/`latitude`/`longitude`) — the legacy id is renamed and
+        the extras are dropped to match the table schema. Coordinates live in
+        plant_crosswalk, not in chile_generation_data, mirroring ONS.
+
+        Returns:
+            Tuple of (success, validation_report)
+        """
+        try:
+            if extraction_run_id is None:
+                extraction_run_id = str(uuid.uuid4())
+            created_at_ms = int(datetime.now().timestamp() * 1000)
+
+            # Columns kept on insert (anything else from the JSONL is dropped).
+            keep_cols = [
+                "extraction_run_id",
+                "created_at_ms",
+                "plant",
+                "chile_plant_id",
+                "fuel_type",
+                "region",
+                "comuna",
+                "timestamp_ms",
+                "generation_mwh",
+                "resolution_minutes",
+            ]
+
+            validator = DataValidator()
+            total_inserted = 0
+            total_valid = 0
+            total_invalid = 0
+            total_duplicates = 0
+            total_records = 0
+            chunk_num = 0
+
+            with open(jsonl_file_path, "r") as f:
+                while True:
+                    # Read a chunk of lines
+                    chunk = []
+                    for _ in range(chunk_lines):
+                        line = f.readline()
+                        if not line:
+                            break
+                        line = line.strip()
+                        if line:
+                            chunk.append(json.loads(line))
+
+                    if not chunk:
+                        break
+
+                    chunk_num += 1
+
+                    # Normalize legacy column name from pre-fixup extractor runs.
+                    for record in chunk:
+                        if "chile_plant_id" not in record and "plant_id" in record:
+                            record["chile_plant_id"] = record.pop("plant_id")
+
+                    # Add extraction metadata if absent
+                    has_extraction_run_id = "extraction_run_id" in chunk[0]
+                    has_created_at_ms = "created_at_ms" in chunk[0]
+
+                    for record in chunk:
+                        if not has_extraction_run_id:
+                            record["extraction_run_id"] = extraction_run_id
+                        if not has_created_at_ms:
+                            record["created_at_ms"] = created_at_ms
+
+                    # Validate chunk
+                    valid_records, report = validator.validate_file(
+                        chunk, "chile", jsonl_file_path
+                    )
+
+                    total_records += report.total_count
+                    total_valid += report.valid_count
+                    total_invalid += report.invalid_count
+                    total_duplicates += report.duplicate_count
+
+                    # Insert valid records via upsert (skips duplicates)
+                    if valid_records:
+                        df = pd.DataFrame(valid_records)
+                        # Drop columns the extractor emits but the table doesn't
+                        # store (country_code, latitude, longitude). The staging
+                        # table is LIKE chile_generation_data, so unknown columns
+                        # would fail the COPY.
+                        df = df[[c for c in keep_cols if c in df.columns]]
+
+                        def _upsert_chunk():
+                            return self._upsert_via_staging(
+                                df,
+                                "chile_generation_data",
+                                conflict_expr="timestamp_ms, plant, COALESCE(chile_plant_id, '')",
+                            )
+
+                        inserted = self._execute_with_retry(_upsert_chunk)
+                        total_inserted += inserted
+
+                    logger.info(
+                        f"Chunk {chunk_num} done",
+                        chunk_valid=report.valid_count,
+                        total_inserted=total_inserted,
+                    )
+
+                    # Free memory
+                    del chunk, valid_records
+
+            # Log final summary
+            logger.info(
+                "Validation complete",
+                valid=total_valid,
+                invalid=total_invalid,
+                duplicates=total_duplicates,
+                total=total_records,
+            )
+            if total_invalid > 0:
+                logger.warning("Skipped invalid records", count=total_invalid)
+            if total_duplicates > 0:
+                logger.warning("Skipped duplicate records", count=total_duplicates)
+
+            if total_inserted > 0:
+                start_date, end_date = self._get_date_range_for_run(
+                    "chile_generation_data", extraction_run_id
+                )
+                self.insert_extraction_metadata(
+                    extraction_run_id=extraction_run_id,
+                    source="chile",
+                    extraction_timestamp=datetime.now(),
+                    start_date=start_date,
+                    end_date=end_date,
+                    total_records=total_valid,
+                    failed_count=total_invalid,
+                    success=True,
+                )
+                logger.success("Inserted Chile records", count=total_inserted)
+            else:
+                logger.warning("No valid records to insert")
+
+            # Build an aggregate report for the return value
+            aggregate_report = ValidationReport(
+                source_file=jsonl_file_path,
+                total_count=total_records,
+                valid_count=total_valid,
+                invalid_count=total_invalid,
+                duplicate_count=total_duplicates,
+            )
+
+            if validation_report_path:
+                save_report(aggregate_report, validation_report_path)
+
+            return True, aggregate_report
+
+        except Exception as e:
+            logger.error("Failed to insert Chile data", error=str(e))
+            return False, None
 
     def insert_extraction_metadata(
         self,

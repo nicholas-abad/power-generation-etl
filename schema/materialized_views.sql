@@ -12,6 +12,8 @@
 --   REFRESH MATERIALIZED VIEW CONCURRENTLY mv_ons_plant_monthly;
 --   REFRESH MATERIALIZED VIEW CONCURRENTLY mv_npp_monthly;
 --   REFRESH MATERIALIZED VIEW CONCURRENTLY mv_npp_plant_monthly;
+--   REFRESH MATERIALIZED VIEW CONCURRENTLY mv_chile_monthly;
+--   REFRESH MATERIALIZED VIEW CONCURRENTLY mv_chile_plant_monthly;
 
 -- ============================================================================
 -- ENTSOE MATERIALIZED VIEWS
@@ -138,6 +140,41 @@ ORDER BY 1, 2, 3, 4;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_occto_plant_monthly
 ON mv_occto_plant_monthly (month, plant, area_name, fuel_type);
+
+-- ============================================================================
+-- CHILE MATERIALIZED VIEWS
+-- ============================================================================
+
+-- Aggregated by month + fuel_type (for time-series chart)
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_chile_monthly AS
+SELECT
+    DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)) AS month,
+    fuel_type,
+    SUM(generation_mwh) AS generation_mwh
+FROM chile_generation_data
+GROUP BY 1, 2
+ORDER BY 1, 2;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_chile_monthly
+ON mv_chile_monthly (month, fuel_type);
+
+-- Aggregated by month + plant + region + comuna + fuel_type (for map).
+-- Coords are NOT carried here — the dashboard joins plant_crosswalk via
+-- get_plant_coordinates('CHILE'), matching the ONS/NPP/OCCTO pattern.
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_chile_plant_monthly AS
+SELECT
+    DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)) AS month,
+    plant,
+    region,
+    comuna,
+    fuel_type,
+    SUM(generation_mwh) AS generation_mwh
+FROM chile_generation_data
+GROUP BY 1, 2, 3, 4, 5
+ORDER BY 1, 2, 3, 4, 5;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_chile_plant_monthly
+ON mv_chile_plant_monthly (month, plant, region, comuna, fuel_type);
 
 -- ============================================================================
 SELECT 'Materialized views created successfully!' AS status;

@@ -13,13 +13,10 @@ from database import create_power_generation_database
 from sqlalchemy import text
 
 
-# Configure loguru for CLI output
-logger.remove()
-logger.add(
-    sys.stderr,
-    format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
-    level="INFO",
-)
+# NOTE: do NOT call logger.remove() / logger.add() here. database.py (imported
+# above) already configures a stderr handler AND a daily-rotated file sink at
+# logs/etl_{date}.log. Reconfiguring here wipes both — including the file sink
+# the README documents at the CLI section.
 
 
 def setup_database(table_type: str = "all"):
@@ -58,6 +55,8 @@ def setup_database(table_type: str = "all"):
         success = db.create_oe_facility_table()
     elif table_type == "occto":
         success = db.create_occto_table()
+    elif table_type == "chile":
+        success = db.create_chile_table()
     else:
         logger.error(f"Unknown table type: {table_type}")
         return False
@@ -158,6 +157,10 @@ def load_data(
         )
     elif data_source == "occto":
         success, report = db.insert_occto_jsonl_data(
+            jsonl_file, validation_report_path=validation_report
+        )
+    elif data_source == "chile":
+        success, report = db.insert_chile_jsonl_data(
             jsonl_file, validation_report_path=validation_report
         )
     else:
@@ -287,7 +290,7 @@ Examples:
     )
     setup_parser.add_argument(
         "table_type",
-        choices=["all", "npp", "entsoe", "eia", "ons", "oe", "oe_facility", "occto"],
+        choices=["all", "npp", "entsoe", "eia", "ons", "oe", "oe_facility", "occto", "chile"],
         default="all",
         nargs="?",
         help="Type of tables to create (default: all)",
@@ -299,7 +302,7 @@ Examples:
     )
     update_parser.add_argument(
         "table_type",
-        choices=["all", "npp", "entsoe", "eia", "ons", "oe", "oe_facility", "occto"],
+        choices=["all", "npp", "entsoe", "eia", "ons", "oe", "oe_facility", "occto", "chile"],
         default="entsoe",
         nargs="?",
         help="Schema to update (default: entsoe)",
@@ -311,7 +314,7 @@ Examples:
     )
     load_parser.add_argument(
         "data_source",
-        choices=["npp", "entsoe", "eia", "ons", "oe", "oe_facility", "occto"],
+        choices=["npp", "entsoe", "eia", "ons", "oe", "oe_facility", "occto", "chile"],
         help="Type of data source",
     )
     load_parser.add_argument("jsonl_file", help="Path to JSONL file")
