@@ -28,6 +28,7 @@ on:
           - 'ONS (Brazil)'
           - 'OE (Australia)'
           - 'OCCTO (Japan)'
+          - 'Chile (Coordinador)'
       start_override:
         description: 'Re-run window start (YYYY-MM-DD). Leave blank for default (latest in DB).'
         required: false
@@ -459,11 +460,88 @@ jobs:
           retention-days: 14
 
   # ─────────────────────────────────────────────
+  # Chile (Coordinador) — Hourly plant-level coal via SIP API
+  # Requires CL_API_KEY (Coordinador SIP token). Date via resolve-window.
+  # Default quota is 60 req/hr — monthly increment for 12 coal plants is
+  # roughly 12–36 requests, well within the timeout below.
+  # ─────────────────────────────────────────────
+  extract-chile:
+    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'Chile (Coordinador)' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    concurrency:
+      group: extract-chile
+      cancel-in-progress: false
+    steps:
+      - name: Checkout ETL repo
+        uses: actions/checkout@v4
+
+      - name: Checkout extractors repo
+        uses: actions/checkout@v4
+        with:
+          repository: nicholas-abad/energy-extractors
+          path: extractors
+          token: ${{ secrets.EXTRACTORS_REPO_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install ETL dependencies
+        run: uv sync
+
+      - name: Install extractor dependencies
+        run: |
+          cd extractors
+          uv sync --extra chile
+
+      - name: Resolve extraction window
+        id: latest
+        uses: ./.github/actions/resolve-window
+        with:
+          source: chile
+          start_override: ${{ inputs.start_override }}
+          end_override: ${{ inputs.end_override }}
+
+      - name: Extract Chile data
+        env:
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: |
+          cd extractors
+          uv run energy-extract chile \
+            --start-date "${{ steps.latest.outputs.start_date }}" \
+            --end-date "${{ steps.latest.outputs.end_date }}" \
+            --output ../extracted_data \
+            --log-level INFO
+
+      - name: Load Chile data into Neon
+        run: |
+          for f in extracted_data/chile_*_etl.jsonl; do
+            echo "Loading $f..."
+            uv run python src/database_management.py load-data chile "$f"
+          done
+
+      - name: Upload artifacts (on failure only)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chile-extraction-${{ github.run_id }}
+          path: |
+            extracted_data/*.jsonl
+            extracted_data/logs/
+            extracted_data/extraction_metadata_*.json
+          retention-days: 14
+
+  # ─────────────────────────────────────────────
   # Refresh materialized views after all loads
   # ─────────────────────────────────────────────
   refresh-views:
-    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto]
-    if: ${{ always() && (needs.extract-eia.result == 'success' || needs.extract-ons.result == 'success' || needs.extract-entsoe.result == 'success' || needs.extract-npp.result == 'success' || needs.extract-oe.result == 'success' || needs.extract-occto.result == 'success') }}
+    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile]
+    if: ${{ always() && (needs.extract-eia.result == 'success' || needs.extract-ons.result == 'success' || needs.extract-entsoe.result == 'success' || needs.extract-npp.result == 'success' || needs.extract-oe.result == 'success' || needs.extract-occto.result == 'success' || needs.extract-chile.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -565,7 +643,7 @@ jobs:
   # Notify on failure — create GitHub Issue
   # ─────────────────────────────────────────────
   notify-failure:
-    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, refresh-views, check-crosswalk-drift]
+    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, refresh-views, check-crosswalk-drift]
     if: ${{ always() && contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     steps:
