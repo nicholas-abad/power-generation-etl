@@ -102,7 +102,9 @@ def main():
         json.dump({"total_missing": total_missing, "by_source": report}, f, indent=2)
 
     if total_missing > 0:
-        logger.warning(f"Drift detected: {total_missing} plants total — see drift_report.json")
+        logger.warning(
+            f"Drift detected: {total_missing} plants total — see drift_report.json"
+        )
     else:
         logger.info("No drift — all plants mapped in crosswalk")
 
