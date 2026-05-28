@@ -28,6 +28,7 @@ SOURCE_VIEWS = {
     "npp": ["mv_npp_monthly", "mv_npp_plant_monthly", "mv_npp_row_counts"],
     "oe": ["mv_oe_row_counts"],
     "occto": ["mv_occto_monthly", "mv_occto_plant_monthly", "mv_occto_row_counts"],
+    "chile": ["mv_chile_monthly", "mv_chile_plant_monthly", "mv_chile_row_counts"],
 }
 
 ALL_VIEWS = [v for views in SOURCE_VIEWS.values() for v in views]

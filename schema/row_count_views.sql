@@ -90,4 +90,17 @@ ORDER BY 1;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_occto_row_counts ON mv_occto_row_counts (month);
 
+-- ============================================================================
+-- CHILE (Coordinador)
+-- ============================================================================
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_chile_row_counts AS
+SELECT
+    DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000))::date AS month,
+    COUNT(*) AS row_count
+FROM chile_generation_data
+GROUP BY 1
+ORDER BY 1;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_chile_row_counts ON mv_chile_row_counts (month);
+
 SELECT 'Row-count materialized views created successfully!' AS status;
