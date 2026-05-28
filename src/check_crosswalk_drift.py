@@ -34,6 +34,7 @@ SOURCE_CHECKS = [
     ("ONS", "ons_generation_data", "plant", "plant_name"),
     ("OE", "oe_facility_generation_data", "facility_code", "plant_code"),
     ("OCCTO", "occto_generation_data", "plant", "plant_name"),
+    ("CHILE", "chile_generation_data", "plant", "plant_name"),
 ]
 
 
