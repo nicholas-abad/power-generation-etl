@@ -537,6 +537,78 @@ jobs:
           retention-days: 14
 
   # ─────────────────────────────────────────────
+  # Rebuild the NPP plant_crosswalk after extraction so newly-appearing plants
+  # get coal_type / coordinates. The dashboard classifies NPP coal via
+  # plant_crosswalk.coal_type (joined by plant name), so without this a new coal
+  # plant shows as non-coal until a manual rebuild. build_crosswalk needs the
+  # GEM + GPPD reference CSVs, which are gitignored (~72 MB, too large for the
+  # repo); provide them via the CROSSWALK_REF_DATA_URL secret — a gzipped tar
+  # unpacking into data/crosswalks/ ("GEM database_*.csv",
+  # global_power_plant_database.csv, eia_plant_lookup.csv). If the secret is
+  # unset the job skips cleanly and check-crosswalk-drift still flags new plants
+  # for a manual rebuild — so this never breaks the monthly run.
+  #
+  # Prereqs: CROSSWALK_REF_DATA_URL secret; EXTRACTORS_REPO_TOKEN must also grant
+  # read access to the plant-data repo.
+  # ─────────────────────────────────────────────
+  rebuild-npp-crosswalk:
+    needs: extract-npp
+    if: ${{ always() && needs.extract-npp.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout ETL repo
+        uses: actions/checkout@v4
+
+      - name: Checkout plant-data repo
+        uses: actions/checkout@v4
+        with:
+          repository: nicholas-abad/plant-data
+          path: plant-data
+          token: ${{ secrets.EXTRACTORS_REPO_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Fetch crosswalk reference data
+        id: refdata
+        env:
+          CROSSWALK_REF_DATA_URL: ${{ secrets.CROSSWALK_REF_DATA_URL }}
+        run: |
+          if [ -z "$CROSSWALK_REF_DATA_URL" ]; then
+            echo "CROSSWALK_REF_DATA_URL not set — skipping crosswalk rebuild."
+            echo "(check-crosswalk-drift will still flag any new plants for a manual rebuild.)"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          curl -fsSL "$CROSSWALK_REF_DATA_URL" -o /tmp/refdata.tar.gz
+          tar -xzf /tmp/refdata.tar.gz -C plant-data/data/crosswalks/
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - name: Rebuild NPP crosswalk rows
+        if: ${{ steps.refdata.outputs.ok == 'true' }}
+        run: |
+          cd plant-data
+          uv sync
+          uv run python -m src.build_crosswalk --sources NPP --no-llm --yes
+
+      - name: Load updated crosswalk into Neon
+        if: ${{ steps.refdata.outputs.ok == 'true' }}
+        run: |
+          cd plant-data
+          uv run python - <<'PY'
+          import sys
+          sys.path.insert(0, "scripts")
+          from bootstrap_neon_db import get_engine, load_unified_crosswalk
+          load_unified_crosswalk(get_engine())
+          PY
+
+  # ─────────────────────────────────────────────
   # Refresh materialized views after all loads
   # ─────────────────────────────────────────────
   refresh-views:
