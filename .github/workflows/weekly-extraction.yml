@@ -1,6 +1,6 @@
-name: Monthly Data Extraction
+name: Weekly Data Extraction
 run-name: >-
-  Monthly Data Extraction —
+  Weekly Data Extraction —
   ${{
     (inputs.source == '' || inputs.source == 'all') && 'all sources'
     || inputs.source
@@ -12,7 +12,11 @@ run-name: >-
 
 on:
   schedule:
-    - cron: '0 6 1 * *'  # 1st of each month, 6am UTC
+    # Weekly: Sundays 06:23 UTC. The off-:00 minute reduces the top-of-hour
+    # scheduling congestion that made the old monthly run fire ~5h late.
+    # Each extractor is incremental (last-loaded date → today), so a weekly
+    # cadence just keeps the per-run window small (~7 days).
+    - cron: '23 6 * * 0'
   workflow_dispatch:      # Manual trigger from GitHub UI
     inputs:
       source:
@@ -462,8 +466,8 @@ jobs:
   # ─────────────────────────────────────────────
   # Chile (Coordinador) — Hourly plant-level coal via SIP API
   # Requires CL_API_KEY (Coordinador SIP token). Date via resolve-window.
-  # Default quota is 60 req/hr — monthly increment for 12 coal plants is
-  # roughly 12–36 requests, well within the timeout below.
+  # Default quota is 60 req/hr — a weekly increment for 12 coal plants is
+  # roughly 12 requests, well within the timeout below.
   # ─────────────────────────────────────────────
   extract-chile:
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'Chile (Coordinador)' }}
@@ -546,7 +550,7 @@ jobs:
   # unpacking into data/crosswalks/ ("GEM database_*.csv",
   # global_power_plant_database.csv, eia_plant_lookup.csv). If the secret is
   # unset the job skips cleanly and check-crosswalk-drift still flags new plants
-  # for a manual rebuild — so this never breaks the monthly run.
+  # for a manual rebuild — so this never breaks the weekly run.
   #
   # Prereqs: CROSSWALK_REF_DATA_URL secret; EXTRACTORS_REPO_TOKEN must also grant
   # read access to the plant-data repo.
@@ -762,6 +766,7 @@ jobs:
               'extract-npp': '${{ needs.extract-npp.result }}',
               'extract-oe': '${{ needs.extract-oe.result }}',
               'extract-occto': '${{ needs.extract-occto.result }}',
+              'extract-chile': '${{ needs.extract-chile.result }}',
               'refresh-views': '${{ needs.refresh-views.result }}',
               'check-crosswalk-drift': '${{ needs.check-crosswalk-drift.result }}',
             };
@@ -770,7 +775,7 @@ jobs:
               .map(([k, _]) => k);
 
             const body = [
-              `## Monthly Extraction Failed`,
+              `## Weekly Extraction Failed`,
               ``,
               `**Run:** [${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
               `**Trigger:** ${context.eventName}`,
@@ -788,7 +793,7 @@ jobs:
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `🚨 Monthly extraction failed: ${failed.join(', ')}`,
+              title: `🚨 Weekly extraction failed: ${failed.join(', ')}`,
               body: body,
               labels: ['extraction-failure', 'automated'],
             });

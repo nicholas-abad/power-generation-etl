@@ -416,7 +416,7 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) runs on push/PR:
 
 ### Manual Re-runs (Historical Backfill / Verification)
 
-`monthly-extraction.yml` exposes two optional `workflow_dispatch` inputs for re-running a source against a specific historical window — useful when investigating suspect data quality cells on the dashboard's `/data-quality` matrix:
+`weekly-extraction.yml` exposes two optional `workflow_dispatch` inputs for re-running a source against a specific historical window — useful when investigating suspect data quality cells on the dashboard's `/data-quality` matrix:
 
 - `start_override` (YYYY-MM-DD) — start of the re-run window. Leave blank to resume from the latest date already in the DB.
 - `end_override` (YYYY-MM-DD) — end of the window. Leave blank to default to today.
