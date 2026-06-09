@@ -1144,9 +1144,8 @@ class PowerGenerationDatabase:
                         total_inserted += inserted
 
                     logger.info(
-                        f"Chunk {chunk_num} done",
-                        chunk_valid=report.valid_count,
-                        total_inserted=total_inserted,
+                        f"Chunk {chunk_num} done: {report.valid_count} valid, "
+                        f"{total_inserted} inserted so far"
                     )
 
                     # Free memory
@@ -1154,11 +1153,8 @@ class PowerGenerationDatabase:
 
             # Log final summary
             logger.info(
-                "Validation complete",
-                valid=total_valid,
-                invalid=total_invalid,
-                duplicates=total_duplicates,
-                total=total_records,
+                f"Validation complete: {total_valid}/{total_records} valid, "
+                f"{total_invalid} invalid, {total_duplicates} duplicates"
             )
             if total_invalid > 0:
                 logger.warning(f"Skipped invalid records: {total_invalid}")
@@ -1696,9 +1692,8 @@ class PowerGenerationDatabase:
                         total_inserted += inserted
 
                     logger.info(
-                        f"Chunk {chunk_num} done",
-                        chunk_valid=report.valid_count,
-                        total_inserted=total_inserted,
+                        f"Chunk {chunk_num} done: {report.valid_count} valid, "
+                        f"{total_inserted} inserted so far"
                     )
 
                     # Free memory
@@ -1706,11 +1701,8 @@ class PowerGenerationDatabase:
 
             # Log final summary
             logger.info(
-                "Validation complete",
-                valid=total_valid,
-                invalid=total_invalid,
-                duplicates=total_duplicates,
-                total=total_records,
+                f"Validation complete: {total_valid}/{total_records} valid, "
+                f"{total_invalid} invalid, {total_duplicates} duplicates"
             )
             if total_invalid > 0:
                 logger.warning(f"Skipped invalid records: {total_invalid}")
@@ -1841,18 +1833,14 @@ class PowerGenerationDatabase:
                 conn.commit()
 
             logger.info(
-                "Extraction metadata inserted",
-                extraction_run_id=extraction_run_id,
-                source=source,
-                total_records=total_records,
+                f"Extraction metadata inserted: {source} "
+                f"run={extraction_run_id} records={total_records}"
             )
             return True
 
         except Exception as e:
             logger.error(
-                "Failed to insert extraction metadata",
-                extraction_run_id=extraction_run_id,
-                error=str(e),
+                f"Failed to insert extraction metadata (run={extraction_run_id}): {e}"
             )
             return False
 
