@@ -35,6 +35,14 @@ SOURCE_CONFIG = {
 FALLBACK_DATE = "1970-01-01"
 
 
+class LatestDateQueryError(RuntimeError):
+    """The latest-date query failed (DB unreachable, auth, timeout, ...).
+
+    Distinct from an empty table: callers must NOT treat this as "no data"
+    or a transient outage triggers a from-scratch re-extraction window.
+    """
+
+
 def get_connection_url() -> str:
     user = os.environ["POSTGRES_USER"]
     password = os.environ["POSTGRES_PASSWORD"]
@@ -63,11 +71,13 @@ def get_latest_date(source: str) -> str:
         with engine.connect() as conn:
             result = conn.execute(text(f"SELECT {expr} AS latest FROM {table}"))
             row = result.fetchone()
-            if row and row[0]:
-                return str(row[0])
     except Exception as e:
-        print(f"Warning: could not query {table}: {e}", file=sys.stderr)
+        raise LatestDateQueryError(f"could not query {table}: {e}") from e
 
+    if row and row[0]:
+        return str(row[0])
+    # Successful query, genuinely empty table — only here is the epoch
+    # fallback correct.
     return FALLBACK_DATE
 
 
@@ -76,5 +86,9 @@ if __name__ == "__main__":
         print(f"Usage: python {sys.argv[0]} <source>", file=sys.stderr)
         sys.exit(1)
 
-    date = get_latest_date(sys.argv[1])
+    try:
+        date = get_latest_date(sys.argv[1])
+    except LatestDateQueryError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(2)
     print(date)

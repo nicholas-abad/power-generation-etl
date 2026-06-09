@@ -191,11 +191,26 @@ def extract_occto() -> int:
                 str(EXTRACTED_DATA),
             ],
         )
-        jsonl = EXTRACTED_DATA / (
-            f"occto_generation_{iter_start.isoformat()}_{iter_end.isoformat()}_etl.jsonl"
-        )
-        if jsonl.exists():
-            load_and_remove("occto", jsonl)
+        # Glob instead of guessing the exact filename (like the ENTSOE branch)
+        # — a silent naming-convention change in the extractor must not mean
+        # "extraction green, nothing loaded, forever".
+        occto_files = sorted(EXTRACTED_DATA.glob("occto_*_etl.jsonl"))
+        if occto_files:
+            for f in occto_files:
+                load_and_remove("occto", f)
+        elif iter_end < today - timedelta(days=2):
+            # A fully-past chunk should always produce a file; only very
+            # recent windows can legitimately be empty (publication lag).
+            raise RuntimeError(
+                f"OCCTO extraction for {iter_start} → {iter_end} succeeded "
+                f"but produced no occto_*_etl.jsonl in {EXTRACTED_DATA} — "
+                f"output naming may have changed"
+            )
+        else:
+            logger.warning(
+                f"No OCCTO output for {iter_start} → {iter_end} "
+                f"(recent window — likely publication lag)"
+            )
         gh_endgroup()
         n += 1
         current = next_first
