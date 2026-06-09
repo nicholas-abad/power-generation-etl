@@ -311,10 +311,10 @@ class PowerGenerationDatabase:
                 return True
 
             self._execute_with_retry(_test)
-            logger.info("Database connection successful", database=self.database)
+            logger.info(f"Database connection successful: {self.database}")
             return True
         except Exception as e:
-            logger.error("Database connection failed", error=str(e))
+            logger.error(f"Database connection failed: {e}")
             return False
 
     def create_database_if_not_exists(self) -> bool:
@@ -348,15 +348,15 @@ class PowerGenerationDatabase:
                     )
                     if result.fetchone() is None:
                         conn.execute(text(f'CREATE DATABASE "{self.database}"'))
-                        logger.info("Created database", database=self.database)
+                        logger.info(f"Created database: {self.database}")
                     else:
-                        logger.info("Database already exists", database=self.database)
+                        logger.info(f"Database already exists: {self.database}")
             finally:
                 default_engine.dispose()
             return True
 
         except Exception as e:
-            logger.error("Failed to create database", error=str(e))
+            logger.error(f"Failed to create database: {e}")
             return False
 
     def _execute_schema_file(self, schema_filename: str) -> bool:
@@ -370,17 +370,15 @@ class PowerGenerationDatabase:
             with self.engine.connect() as conn:
                 conn.execute(text(schema_sql))
                 conn.commit()
-                logger.info("Schema executed successfully", schema=schema_filename)
+                logger.info(f"Schema executed successfully: {schema_filename}")
 
             return True
 
         except FileNotFoundError:
-            logger.error("Schema file not found", path=str(schema_path))
+            logger.error(f"Schema file not found: {schema_path}")
             return False
         except Exception as e:
-            logger.error(
-                "Failed to execute schema", schema=schema_filename, error=str(e)
-            )
+            logger.error(f"Failed to execute schema {schema_filename}: {e}")
             return False
 
     def create_npp_table(self) -> bool:
@@ -437,11 +435,9 @@ class PowerGenerationDatabase:
                 method = getattr(self, f"create_{table_type}_table")
                 if not method():
                     success = False
-                    logger.error("Failed to create table", table_type=table_type)
+                    logger.error(f"Failed to create table: {table_type}")
             except Exception as e:
-                logger.error(
-                    "Error creating table", table_type=table_type, error=str(e)
-                )
+                logger.error(f"Error creating table {table_type}: {e}")
                 success = False
 
         if success:
@@ -506,16 +502,12 @@ class PowerGenerationDatabase:
 
             # Log validation summary
             logger.info(
-                "Validation complete",
-                valid=report.valid_count,
-                total=report.total_count,
+                f"Validation complete: {report.valid_count}/{report.total_count} valid"
             )
             if report.invalid_count > 0:
-                logger.warning("Skipped invalid records", count=report.invalid_count)
+                logger.warning(f"Skipped invalid records: {report.invalid_count}")
             if report.duplicate_count > 0:
-                logger.warning(
-                    "Skipped duplicate records", count=report.duplicate_count
-                )
+                logger.warning(f"Skipped duplicate records: {report.duplicate_count}")
 
             # Save validation report if requested
             if validation_report_path:
@@ -552,12 +544,18 @@ class PowerGenerationDatabase:
                     success=True,
                 )
             else:
-                logger.warning("No valid records to insert")
+                if report.total_count > 0 and report.invalid_count > 0:
+                    logger.error(
+                        f"All {report.total_count} records failed validation - "
+                        "treating load as FAILED (extractor schema drift?)"
+                    )
+                    return False, report
+                logger.warning("No valid records to insert (empty input)")
 
             return True, report
 
         except Exception as e:
-            logger.error("Failed to insert NPP data", error=str(e))
+            logger.error(f"Failed to insert NPP data: {e}")
             return False, None
 
     def insert_entsoe_jsonl_data(
@@ -724,6 +722,19 @@ class PowerGenerationDatabase:
                 invalid_count=total_invalid,
                 duplicate_count=total_duplicate,
             )
+
+            if (
+                report.total_count > 0
+                and report.valid_count == 0
+                and report.invalid_count > 0
+            ):
+                logger.error(
+                    f"All {report.total_count:,} ENTSO-E records failed validation - "
+                    "treating load as FAILED (extractor schema drift?)"
+                )
+                if validation_report_path:
+                    save_report(report, validation_report_path)
+                return False, report
 
             # Log final summary
             logger.success(
@@ -995,16 +1006,12 @@ class PowerGenerationDatabase:
 
             # Log validation summary
             logger.info(
-                "Validation complete",
-                valid=report.valid_count,
-                total=report.total_count,
+                f"Validation complete: {report.valid_count}/{report.total_count} valid"
             )
             if report.invalid_count > 0:
-                logger.warning("Skipped invalid records", count=report.invalid_count)
+                logger.warning(f"Skipped invalid records: {report.invalid_count}")
             if report.duplicate_count > 0:
-                logger.warning(
-                    "Skipped duplicate records", count=report.duplicate_count
-                )
+                logger.warning(f"Skipped duplicate records: {report.duplicate_count}")
 
             # Save validation report if requested
             if validation_report_path:
@@ -1043,12 +1050,18 @@ class PowerGenerationDatabase:
                     success=True,
                 )
             else:
-                logger.warning("No valid records to insert")
+                if report.total_count > 0 and report.invalid_count > 0:
+                    logger.error(
+                        f"All {report.total_count} records failed validation - "
+                        "treating load as FAILED (extractor schema drift?)"
+                    )
+                    return False, report
+                logger.warning("No valid records to insert (empty input)")
 
             return True, report
 
         except Exception as e:
-            logger.error("Failed to insert EIA data", error=str(e))
+            logger.error(f"Failed to insert EIA data: {e}")
             return False, None
 
     def insert_ons_jsonl_data(
@@ -1148,9 +1161,9 @@ class PowerGenerationDatabase:
                 total=total_records,
             )
             if total_invalid > 0:
-                logger.warning("Skipped invalid records", count=total_invalid)
+                logger.warning(f"Skipped invalid records: {total_invalid}")
             if total_duplicates > 0:
-                logger.warning("Skipped duplicate records", count=total_duplicates)
+                logger.warning(f"Skipped duplicate records: {total_duplicates}")
 
             if total_inserted > 0:
                 start_date, end_date = self._get_date_range_for_run(
@@ -1166,7 +1179,7 @@ class PowerGenerationDatabase:
                     failed_count=total_invalid,
                     success=True,
                 )
-                logger.success("Inserted ONS records", count=total_inserted)
+                logger.success(f"Inserted ONS records: {total_inserted}")
             else:
                 logger.warning("No valid records to insert")
 
@@ -1182,10 +1195,17 @@ class PowerGenerationDatabase:
             if validation_report_path:
                 save_report(aggregate_report, validation_report_path)
 
+            if total_records > 0 and total_valid == 0 and total_invalid > 0:
+                logger.error(
+                    f"All {total_records} records failed validation - "
+                    "treating load as FAILED (extractor schema drift?)"
+                )
+                return False, aggregate_report
+
             return True, aggregate_report
 
         except Exception as e:
-            logger.error("Failed to insert ONS data", error=str(e))
+            logger.error(f"Failed to insert ONS data: {e}")
             return False, None
 
     def insert_occto_jsonl_data(
@@ -1231,16 +1251,12 @@ class PowerGenerationDatabase:
 
             # Log validation summary
             logger.info(
-                "Validation complete",
-                valid=report.valid_count,
-                total=report.total_count,
+                f"Validation complete: {report.valid_count}/{report.total_count} valid"
             )
             if report.invalid_count > 0:
-                logger.warning("Skipped invalid records", count=report.invalid_count)
+                logger.warning(f"Skipped invalid records: {report.invalid_count}")
             if report.duplicate_count > 0:
-                logger.warning(
-                    "Skipped duplicate records", count=report.duplicate_count
-                )
+                logger.warning(f"Skipped duplicate records: {report.duplicate_count}")
 
             # Save validation report if requested
             if validation_report_path:
@@ -1296,12 +1312,18 @@ class PowerGenerationDatabase:
                     success=True,
                 )
             else:
-                logger.warning("No valid records to insert")
+                if report.total_count > 0 and report.invalid_count > 0:
+                    logger.error(
+                        f"All {report.total_count} records failed validation - "
+                        "treating load as FAILED (extractor schema drift?)"
+                    )
+                    return False, report
+                logger.warning("No valid records to insert (empty input)")
 
             return True, report
 
         except Exception as e:
-            logger.error("Failed to insert OCCTO data", error=str(e))
+            logger.error(f"Failed to insert OCCTO data: {e}")
             return False, None
 
     def insert_oe_jsonl_data(
@@ -1345,16 +1367,12 @@ class PowerGenerationDatabase:
 
             # Log validation summary
             logger.info(
-                "Validation complete",
-                valid=report.valid_count,
-                total=report.total_count,
+                f"Validation complete: {report.valid_count}/{report.total_count} valid"
             )
             if report.invalid_count > 0:
-                logger.warning("Skipped invalid records", count=report.invalid_count)
+                logger.warning(f"Skipped invalid records: {report.invalid_count}")
             if report.duplicate_count > 0:
-                logger.warning(
-                    "Skipped duplicate records", count=report.duplicate_count
-                )
+                logger.warning(f"Skipped duplicate records: {report.duplicate_count}")
 
             # Save validation report if requested
             if validation_report_path:
@@ -1393,12 +1411,18 @@ class PowerGenerationDatabase:
                     success=True,
                 )
             else:
-                logger.warning("No valid records to insert")
+                if report.total_count > 0 and report.invalid_count > 0:
+                    logger.error(
+                        f"All {report.total_count} records failed validation - "
+                        "treating load as FAILED (extractor schema drift?)"
+                    )
+                    return False, report
+                logger.warning("No valid records to insert (empty input)")
 
             return True, report
 
         except Exception as e:
-            logger.error("Failed to insert OE data", error=str(e))
+            logger.error(f"Failed to insert OE data: {e}")
             return False, None
 
     def insert_oe_facility_jsonl_data(
@@ -1444,16 +1468,12 @@ class PowerGenerationDatabase:
 
             # Log validation summary
             logger.info(
-                "Validation complete",
-                valid=report.valid_count,
-                total=report.total_count,
+                f"Validation complete: {report.valid_count}/{report.total_count} valid"
             )
             if report.invalid_count > 0:
-                logger.warning("Skipped invalid records", count=report.invalid_count)
+                logger.warning(f"Skipped invalid records: {report.invalid_count}")
             if report.duplicate_count > 0:
-                logger.warning(
-                    "Skipped duplicate records", count=report.duplicate_count
-                )
+                logger.warning(f"Skipped duplicate records: {report.duplicate_count}")
 
             # Save validation report if requested
             if validation_report_path:
@@ -1492,12 +1512,18 @@ class PowerGenerationDatabase:
                     success=True,
                 )
             else:
-                logger.warning("No valid records to insert")
+                if report.total_count > 0 and report.invalid_count > 0:
+                    logger.error(
+                        f"All {report.total_count} records failed validation - "
+                        "treating load as FAILED (extractor schema drift?)"
+                    )
+                    return False, report
+                logger.warning("No valid records to insert (empty input)")
 
             return True, report
 
         except Exception as e:
-            logger.error("Failed to insert OE facility data", error=str(e))
+            logger.error(f"Failed to insert OE facility data: {e}")
             return False, None
 
     def get_record_count(self, table_name: str) -> int:
@@ -1507,10 +1533,10 @@ class PowerGenerationDatabase:
             with self.engine.connect() as conn:
                 result = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
                 count = result.scalar()
-                logger.info("Record count", table=table_name, count=count)
+                logger.info(f"Record count: {table_name}={count}")
                 return count
         except Exception as e:
-            logger.error("Failed to get record count", table=table_name, error=str(e))
+            logger.error(f"Failed to get record count for {table_name}: {e}")
             return 0
 
     def get_all_record_counts(self) -> Dict[str, int]:
@@ -1687,9 +1713,9 @@ class PowerGenerationDatabase:
                 total=total_records,
             )
             if total_invalid > 0:
-                logger.warning("Skipped invalid records", count=total_invalid)
+                logger.warning(f"Skipped invalid records: {total_invalid}")
             if total_duplicates > 0:
-                logger.warning("Skipped duplicate records", count=total_duplicates)
+                logger.warning(f"Skipped duplicate records: {total_duplicates}")
 
             if total_inserted > 0:
                 start_date, end_date = self._get_date_range_for_run(
@@ -1705,7 +1731,7 @@ class PowerGenerationDatabase:
                     failed_count=total_invalid,
                     success=True,
                 )
-                logger.success("Inserted Chile records", count=total_inserted)
+                logger.success(f"Inserted Chile records: {total_inserted}")
             else:
                 logger.warning("No valid records to insert")
 
@@ -1721,10 +1747,17 @@ class PowerGenerationDatabase:
             if validation_report_path:
                 save_report(aggregate_report, validation_report_path)
 
+            if total_records > 0 and total_valid == 0 and total_invalid > 0:
+                logger.error(
+                    f"All {total_records} records failed validation - "
+                    "treating load as FAILED (extractor schema drift?)"
+                )
+                return False, aggregate_report
+
             return True, aggregate_report
 
         except Exception as e:
-            logger.error("Failed to insert Chile data", error=str(e))
+            logger.error(f"Failed to insert Chile data: {e}")
             return False, None
 
     def insert_extraction_metadata(
