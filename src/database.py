@@ -610,11 +610,26 @@ class PowerGenerationDatabase:
             # Process file in batches
             with open(jsonl_file_path, "r") as f:
                 batch = []
+                consumption_skipped = 0
                 for line_num, line in enumerate(f, 1):
                     if not line.strip():
                         continue
 
                     record = json.loads(line)
+
+                    # This is a GENERATION table. ENTSO-E per-plant responses
+                    # also carry 'Actual Consumption' series (a plant's own
+                    # draw / pumping load, ~0 for fossil), and the natural key
+                    # (ts, country, psr, plant) does NOT include data_type —
+                    # so a consumption row that arrives first permanently
+                    # displaces the real generation row at the same key
+                    # (in-batch dedup keeps first; ON CONFLICT DO NOTHING
+                    # keeps existing). Observed: IE/GB_NIR/PT histories were
+                    # consumption-dominated zeros. Drop them at the door.
+                    # Legacy values ('Unknown', fuel names) pass through.
+                    if record.get("data_type") == "Actual Consumption":
+                        consumption_skipped += 1
+                        continue
 
                     # Add extraction metadata if not present
                     if "extraction_run_id" not in record:
@@ -713,6 +728,12 @@ class PowerGenerationDatabase:
                     total_valid += valid
                     total_invalid += invalid
                     total_duplicate += dup
+
+            if consumption_skipped:
+                logger.info(
+                    f"Dropped {consumption_skipped:,} 'Actual Consumption' "
+                    f"records (generation table stores 'Actual Aggregated' only)"
+                )
 
             # Create aggregate validation report
             report = ValidationReport(
