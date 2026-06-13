@@ -1579,7 +1579,7 @@ class PowerGenerationDatabase:
             logger.error(f"Failed to get record count for {table_name}: {e}")
             return 0
 
-    def get_all_record_counts(self) -> Dict[str, int]:
+    def get_all_record_counts(self) -> Dict[str, Optional[int]]:
         """Get record counts for all main tables."""
         tables = [
             "npp_generation",

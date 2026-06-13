@@ -103,3 +103,23 @@ def test_get_all_record_counts_includes_chile():
 
     src = inspect.getsource(PowerGenerationDatabase.get_all_record_counts)
     assert "chile_generation_data" in src
+
+
+def test_stats_survives_none_count(monkeypatch):
+    """A failed per-table count is None; the `stats` command must not crash
+    on sum()/format (the change that introduced None shipped without this)."""
+    import database_management as dm
+
+    db = PowerGenerationDatabase(
+        host="localhost", port=5432, database="x", username="x", password="x"
+    )
+    monkeypatch.setattr(db, "test_connection", lambda: True)
+    monkeypatch.setattr(db, "close", lambda: None)
+    monkeypatch.setattr(
+        db,
+        "get_all_record_counts",
+        lambda: {"npp_generation": 5, "chile_generation_data": None},
+    )
+    monkeypatch.setattr(dm, "create_power_generation_database", lambda: db)
+    # must return True without raising TypeError on the None count
+    assert dm.show_database_stats() is True
