@@ -192,11 +192,14 @@ def show_database_stats():
         return False
 
     counts = db.get_all_record_counts()
-    total_records = sum(counts.values())
+    # A failed count is None (distinct from an empty table's 0) — skip it in
+    # the total and show ERROR rather than crashing sum()/format on None.
+    total_records = sum(c for c in counts.values() if c is not None)
 
     logger.info(f"Total records across all tables: {total_records:,}")
     for table, count in counts.items():
-        logger.info(f"  {table}: {count:,} records")
+        shown = "ERROR" if count is None else f"{count:,}"
+        logger.info(f"  {table}: {shown} records")
 
     db.close()
     return True

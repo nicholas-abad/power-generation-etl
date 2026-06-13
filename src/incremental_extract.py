@@ -153,8 +153,26 @@ def extract_entsoe() -> int:
             ],
             env=env,
         )
-        for f in sorted(EXTRACTED_DATA.glob("entsoe_*_etl.jsonl")):
-            load_and_remove("entsoe", f)
+        entsoe_files = sorted(EXTRACTED_DATA.glob("entsoe_*_etl.jsonl"))
+        if entsoe_files:
+            for f in entsoe_files:
+                load_and_remove("entsoe", f)
+        elif current < today.replace(day=1):
+            # Same guard as the OCCTO branch: a fully-past month must produce
+            # output. An empty glob there means extraction went green but
+            # loaded nothing — latest_date never advances and the same month
+            # re-extracts forever, silently. Only the current month may be
+            # legitimately empty (publication lag / month just started).
+            raise RuntimeError(
+                f"ENTSOE extraction for {current.year}-{current.month:02d} "
+                f"succeeded but produced no entsoe_*_etl.jsonl in "
+                f"{EXTRACTED_DATA} — output naming may have changed"
+            )
+        else:
+            logger.warning(
+                f"No ENTSOE output for {current.year}-{current.month:02d} "
+                f"(current month — likely publication lag)"
+            )
         gh_endgroup()
         n += 1
         current = add_months(current, 1)

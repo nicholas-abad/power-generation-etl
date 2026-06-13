@@ -98,3 +98,33 @@ class TestWarnIfLongWindow:
     def test_threshold_constant_is_12(self):
         # Sanity check the documented soft ceiling.
         assert LONG_WINDOW_MONTHS == 12
+
+
+class TestEntsoeEmptyOutputGuard:
+    """A fully-past ENTSOE month that produces no JSONL must raise, mirroring
+    the OCCTO guard — otherwise the job goes green, latest_date never advances,
+    and the same month re-extracts forever loading nothing."""
+
+    def _run_entsoe(self, monkeypatch, tmp_path, start, end):
+        import incremental_extract as ie
+
+        monkeypatch.setenv("START_OVERRIDE", start)
+        monkeypatch.setenv("END_OVERRIDE", end)
+        monkeypatch.setattr(ie, "EXTRACTED_DATA", tmp_path)
+        # subprocess is a no-op: simulates extraction that writes nothing
+        monkeypatch.setattr(ie, "run", lambda *a, **k: None)
+        return ie.extract_entsoe()
+
+    def test_past_month_with_no_output_raises(self, monkeypatch, tmp_path):
+        with pytest.raises(RuntimeError, match="produced no entsoe_"):
+            self._run_entsoe(monkeypatch, tmp_path, "2025-01-01", "2025-01-01")
+
+    def test_current_month_with_no_output_only_warns(
+        self, monkeypatch, tmp_path, loguru_messages
+    ):
+        today = date.today()
+        first = today.replace(day=1).isoformat()
+        # current month, empty output → warn, no raise, returns 1 iteration
+        n = self._run_entsoe(monkeypatch, tmp_path, first, first)
+        assert n == 1
+        assert any("publication lag" in m for m in loguru_messages)

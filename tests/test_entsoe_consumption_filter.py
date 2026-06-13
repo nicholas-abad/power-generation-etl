@@ -98,3 +98,26 @@ def test_legacy_data_types_pass_through(monkeypatch):
     ok, _ = db.insert_entsoe_jsonl_data(path)
     assert ok is True
     assert len(captured) == 1 and captured[0]["data_type"] == "Unknown"
+
+
+def test_legacy_consumption_suffix_is_dropped(monkeypatch):
+    """Legacy format: data_type leaked into plant_name as a suffix while the
+    data_type FIELD is 'Unknown'. The field-level filter misses it, but
+    stripping '_Actual Consumption' would collapse it onto the generation
+    sibling's key and displace it. It must be dropped at the suffix step."""
+    db, captured = _db_with_captured_batches(monkeypatch)
+    records = [
+        # legacy rows: field says 'Unknown', metric is in the plant_name suffix
+        {**_record("Plant A_Actual Consumption", "Unknown"), "generation_mw": 0.0},
+        {**_record("Plant A_Actual Aggregated", "Unknown"), "generation_mw": 123.0},
+    ]
+    with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
+        for r in records:
+            f.write(json.dumps(r) + "\n")
+        path = f.name
+
+    ok, _ = db.insert_entsoe_jsonl_data(path)
+    assert ok is True
+    assert len(captured) == 1, "only the aggregated row survives"
+    assert captured[0]["plant_name"] == "Plant A", "suffix stripped to bare name"
+    assert captured[0]["generation_mw"] == 123.0, "real generation kept, not the zero"
