@@ -371,5 +371,5 @@ After loading data:
 
 1. **Verify data:** `uv run src/database_management.py stats`
 2. **Query data:** Use SQL client or pandas
-3. **Build dashboards:** Connect Streamlit or other viz tools
+3. **Build dashboards:** Connect the dashboard or other viz tools
 4. **Set up Airflow:** Automate data loading with DAGs

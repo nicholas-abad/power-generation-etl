@@ -14,7 +14,7 @@ The system is designed to be:
 - **Idempotent** — safe to rerun and backfill
 - **Source-independent** — each data source updates on its own cadence
 - **Database-driven** — PostgreSQL is the source of truth
-- **Dashboard-friendly** — consumed by a Streamlit application
+- **Dashboard-friendly** — consumed by the Next.js dashboard
 
 ---
 
@@ -56,7 +56,7 @@ High-level flow:
         |
         v
 +----------------------------------+
-|  Streamlit Dashboard             |
+|  Next.js Dashboard               |
 +----------------------------------+
 ```
 
@@ -133,7 +133,7 @@ The pipelines load into **PostgreSQL** (currently Neon, with `sslmode=require`).
 - **Materialized views**: per-source `mv_<source>_monthly` and `mv_<source>_plant_monthly` pre-aggregate the large hourly tables (ENTSOE, ONS, NPP, OCCTO, Chile) for dashboard performance; per-source `mv_<source>_row_counts` power the data-quality coverage matrix
 - **Streaming ingestion**: JSONL files are read line-by-line and inserted in configurable batch sizes to keep memory usage low
 
-Downstream consumers (e.g. Streamlit) **read only from the database**.
+Downstream consumers (e.g. the Next.js dashboard) **read only from the database**.
 
 ---
 
@@ -354,7 +354,7 @@ Different sources use different units. See [docs/DATA_UNITS.md](./docs/DATA_UNIT
 ⸻
 
 ## Downstream Consumers
-	•	Streamlit dashboard (visualization & analysis)
+	•	Next.js dashboard (visualization & analysis)
 	•	Ad-hoc SQL queries
 	•	Future analytics or modeling pipelines
 
