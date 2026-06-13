@@ -1125,6 +1125,11 @@ class PowerGenerationDatabase:
             total_duplicates = 0
             total_records = 0
             chunk_num = 0
+            # The id the INSERTED rows actually carry: *_etl.jsonl files include
+            # their own extraction_run_id (kept below), so metadata must be
+            # keyed to it, not the local uuid4 — otherwise
+            # _get_date_range_for_run matches 0 rows and start/end go NULL.
+            file_run_id = None
 
             with open(jsonl_file_path, "r") as f:
                 while True:
@@ -1146,6 +1151,10 @@ class PowerGenerationDatabase:
                     # Add extraction metadata
                     has_extraction_run_id = "extraction_run_id" in chunk[0]
                     has_created_at_ms = "created_at_ms" in chunk[0]
+                    if file_run_id is None:
+                        file_run_id = chunk[0].get(
+                            "extraction_run_id", extraction_run_id
+                        )
 
                     for record in chunk:
                         if not has_extraction_run_id:
@@ -1196,11 +1205,12 @@ class PowerGenerationDatabase:
                 logger.warning(f"Skipped duplicate records: {total_duplicates}")
 
             if total_inserted > 0:
+                data_run_id = file_run_id or extraction_run_id
                 start_date, end_date = self._get_date_range_for_run(
-                    "ons_generation_data", extraction_run_id
+                    "ons_generation_data", data_run_id
                 )
                 self.insert_extraction_metadata(
-                    extraction_run_id=extraction_run_id,
+                    extraction_run_id=data_run_id,
                     source="ons",
                     extraction_timestamp=datetime.now(),
                     start_date=start_date,
@@ -1579,6 +1589,7 @@ class PowerGenerationDatabase:
             "oe_generation_data",
             "oe_facility_generation_data",
             "occto_generation_data",
+            "chile_generation_data",
         ]
         counts = {}
 
@@ -1587,8 +1598,11 @@ class PowerGenerationDatabase:
                 with self.engine.connect() as conn:
                     result = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
                     counts[table] = result.scalar()
-            except Exception:
-                counts[table] = 0
+            except Exception as e:
+                # None, not 0: a query failure must be distinguishable from a
+                # genuinely empty table in `stats` output.
+                logger.error(f"Failed to count {table}: {e}")
+                counts[table] = None
 
         return counts
 
@@ -1663,6 +1677,9 @@ class PowerGenerationDatabase:
             total_duplicates = 0
             total_records = 0
             chunk_num = 0
+            # See ONS: metadata must key to the run id the inserted rows carry
+            # (from the *_etl.jsonl file), not the local uuid4.
+            file_run_id = None
 
             with open(jsonl_file_path, "r") as f:
                 while True:
@@ -1689,6 +1706,10 @@ class PowerGenerationDatabase:
                     # Add extraction metadata if absent
                     has_extraction_run_id = "extraction_run_id" in chunk[0]
                     has_created_at_ms = "created_at_ms" in chunk[0]
+                    if file_run_id is None:
+                        file_run_id = chunk[0].get(
+                            "extraction_run_id", extraction_run_id
+                        )
 
                     for record in chunk:
                         if not has_extraction_run_id:
@@ -1744,11 +1765,12 @@ class PowerGenerationDatabase:
                 logger.warning(f"Skipped duplicate records: {total_duplicates}")
 
             if total_inserted > 0:
+                data_run_id = file_run_id or extraction_run_id
                 start_date, end_date = self._get_date_range_for_run(
-                    "chile_generation_data", extraction_run_id
+                    "chile_generation_data", data_run_id
                 )
                 self.insert_extraction_metadata(
-                    extraction_run_id=extraction_run_id,
+                    extraction_run_id=data_run_id,
                     source="chile",
                     extraction_timestamp=datetime.now(),
                     start_date=start_date,
