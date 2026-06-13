@@ -684,10 +684,23 @@ class PowerGenerationDatabase:
 
                     # Clean plant_name: strip leaked fuel-type and data-type suffixes
                     plant_name = record.get("plant_name", "")
+                    consumption_via_suffix = False
                     for suffix in _DATA_TYPE_SUFFIXES:
                         if plant_name.endswith("_" + suffix):
+                            # Legacy format: data_type leaked into plant_name and
+                            # the data_type field is "Unknown"/a fuel name, so the
+                            # line-630 filter misses it. Stripping "_Actual
+                            # Consumption" here would collapse the name onto its
+                            # "_Actual Aggregated" sibling and displace real
+                            # generation at the shared natural key — the same bug
+                            # the field-level filter above prevents. Drop it too.
+                            if suffix == "Actual Consumption":
+                                consumption_via_suffix = True
                             plant_name = plant_name[: -(len(suffix) + 1)]
                             break
+                    if consumption_via_suffix:
+                        consumption_skipped += 1
+                        continue
                     for suffix in _FUEL_TYPE_SUFFIXES:
                         if plant_name.endswith("_" + suffix):
                             plant_name = plant_name[: -(len(suffix) + 1)]
