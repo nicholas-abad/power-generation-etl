@@ -57,6 +57,8 @@ def setup_database(table_type: str = "all"):
         success = db.create_occto_table()
     elif table_type == "chile":
         success = db.create_chile_table()
+    elif table_type == "climatetrace":
+        success = db.create_climatetrace_table()
     else:
         logger.error(f"Unknown table type: {table_type}")
         return False
@@ -161,6 +163,10 @@ def load_data(
         )
     elif data_source == "chile":
         success, report = db.insert_chile_jsonl_data(
+            jsonl_file, validation_report_path=validation_report
+        )
+    elif data_source == "climatetrace":
+        success, report = db.insert_climatetrace_jsonl_data(
             jsonl_file, validation_report_path=validation_report
         )
     else:
@@ -303,6 +309,7 @@ Examples:
             "oe_facility",
             "occto",
             "chile",
+            "climatetrace",
         ],
         default="all",
         nargs="?",
@@ -337,7 +344,17 @@ Examples:
     )
     load_parser.add_argument(
         "data_source",
-        choices=["npp", "entsoe", "eia", "ons", "oe", "oe_facility", "occto", "chile"],
+        choices=[
+            "npp",
+            "entsoe",
+            "eia",
+            "ons",
+            "oe",
+            "oe_facility",
+            "occto",
+            "chile",
+            "climatetrace",
+        ],
         help="Type of data source",
     )
     load_parser.add_argument("jsonl_file", help="Path to JSONL file")

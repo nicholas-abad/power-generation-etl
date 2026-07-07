@@ -275,6 +275,32 @@ CHILE_SCHEMA = {
     "duplicate_key": ("timestamp_ms", "plant", "chile_plant_id"),
 }
 
+CLIMATETRACE_SCHEMA = {
+    "required_fields": {
+        "extraction_run_id": {"type": "str", "validation": "uuid"},
+        "created_at_ms": {"type": "int", "validation": "positive_timestamp"},
+        "timestamp_ms": {"type": "int", "validation": "positive_timestamp"},
+        "climatetrace_id": {"type": "str", "validation": "non_empty"},
+        "plant_name": {"type": "str", "validation": "non_empty"},
+        "country_code": {"type": "str", "validation": "non_empty"},
+        "generation_mwh": {"type": "float", "validation": "non_negative"},
+    },
+    "optional_fields": {
+        "fuel_type": {"type": "str_or_null", "validation": None},
+        "latitude": {"type": "float_or_null", "validation": None},
+        "longitude": {"type": "float_or_null", "validation": None},
+        "capacity_mw": {"type": "float_or_null", "validation": None},
+        "capacity_factor": {"type": "float_or_null", "validation": None},
+        "activity_confidence": {"type": "str_or_null", "validation": None},
+        "emissions_tonnes": {"type": "float_or_null", "validation": None},
+        "emissions_factor": {"type": "float_or_null", "validation": None},
+        "gas": {"type": "str_or_null", "validation": None},
+        "ct_version": {"type": "str_or_null", "validation": None},
+    },
+    # Matches uq_climatetrace_natural_key — the upsert conflict target.
+    "duplicate_key": ("climatetrace_id", "timestamp_ms"),
+}
+
 
 class DataValidator:
     """Validates power generation data records."""
@@ -289,6 +315,7 @@ class DataValidator:
             "oe_facility": OE_FACILITY_SCHEMA,
             "occto": OCCTO_SCHEMA,
             "chile": CHILE_SCHEMA,
+            "climatetrace": CLIMATETRACE_SCHEMA,
         }
 
     def _is_valid_uuid(self, value: str) -> bool:
@@ -456,6 +483,10 @@ class DataValidator:
     def validate_chile_record(self, record: Dict[str, Any]) -> ValidationResult:
         """Validate a single Chile (Coordinador) record."""
         return self._validate_record(record, CHILE_SCHEMA)
+
+    def validate_climatetrace_record(self, record: Dict[str, Any]) -> ValidationResult:
+        """Validate a single Climate TRACE (global, modeled) record."""
+        return self._validate_record(record, CLIMATETRACE_SCHEMA)
 
     def _get_duplicate_key(
         self, record: Dict[str, Any], key_fields: Tuple[str, ...]

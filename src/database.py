@@ -127,6 +127,7 @@ _KNOWN_TABLES = frozenset(
         "oe_facility_generation_data",
         "occto_generation_data",
         "chile_generation_data",
+        "climatetrace_generation_data",
         "extraction_metadata",
         "plant_crosswalk",
         "eia_generator_info",
@@ -225,6 +226,7 @@ class PowerGenerationDatabase:
         target_table: str,
         conflict_columns: list = None,
         conflict_expr: str = None,
+        update_columns: list = None,
     ) -> int:
         """Insert rows via a staging table, skipping duplicates on conflict.
 
@@ -243,9 +245,17 @@ class PowerGenerationDatabase:
                 (used when the conflict target is plain columns).
             conflict_expr: Raw SQL expression for the ON CONFLICT target when
                 the unique index uses expressions (e.g. COALESCE).
+            update_columns: If given, conflicts DO UPDATE these columns from
+                the incoming row instead of being skipped — for sources that
+                REVISE history (Climate TRACE re-states past months every
+                release; DO NOTHING would freeze the first-loaded values
+                forever). Rows whose incoming values are identical are left
+                untouched (IS DISTINCT FROM guard), so a re-load of unchanged
+                data writes nothing and the return value stays meaningful.
 
         Returns:
-            Number of rows actually inserted (excluding duplicates).
+            Number of rows written: inserted (plus genuinely updated when
+            ``update_columns`` is set); no-op duplicates are never counted.
         """
         if (conflict_columns is None) == (conflict_expr is None):
             raise ValueError(
@@ -268,6 +278,21 @@ class PowerGenerationDatabase:
                 _validate_identifier(col)
             conflict_target = f"({', '.join(conflict_columns)})"
 
+        if update_columns:
+            for col in update_columns:
+                _validate_identifier(col)
+            set_list = ", ".join(f"{c} = EXCLUDED.{c}" for c in update_columns)
+            t_tuple = ", ".join(f"t.{c}" for c in update_columns)
+            e_tuple = ", ".join(f"EXCLUDED.{c}" for c in update_columns)
+            conflict_action = (
+                f"DO UPDATE SET {set_list} "
+                f"WHERE ({t_tuple}) IS DISTINCT FROM ({e_tuple})"
+            )
+            insert_target = f"{target_table} AS t"
+        else:
+            conflict_action = "DO NOTHING"
+            insert_target = target_table
+
         conn = self.engine.raw_connection()
         try:
             cursor = conn.cursor()
@@ -285,11 +310,12 @@ class PowerGenerationDatabase:
             output.seek(0)
             cursor.copy_from(output, staging, columns=columns, sep="\t", null="\\N")
 
-            # 3. INSERT from staging into target, skipping duplicates
+            # 3. INSERT from staging into target; conflicts are skipped
+            # (DO NOTHING) or, with update_columns, revised in place.
             cursor.execute(
-                f"INSERT INTO {target_table} ({col_list}) "
+                f"INSERT INTO {insert_target} ({col_list}) "
                 f"SELECT {col_list} FROM {staging} "
-                f"ON CONFLICT {conflict_target} DO NOTHING"
+                f"ON CONFLICT {conflict_target} {conflict_action}"
             )
             inserted = cursor.rowcount
 
@@ -413,6 +439,10 @@ class PowerGenerationDatabase:
         """Create Chile (Coordinador) generation table."""
         return self._execute_schema_file("chile_generation.sql")
 
+    def create_climatetrace_table(self) -> bool:
+        """Create the Climate TRACE (global, modeled) generation table."""
+        return self._execute_schema_file("climatetrace_generation.sql")
+
     def create_extraction_metadata_table(self) -> bool:
         """Create extraction metadata table."""
         return self._execute_schema_file("extraction_metadata.sql")
@@ -429,6 +459,7 @@ class PowerGenerationDatabase:
             "oe_facility",
             "occto",
             "chile",
+            "climatetrace",
             "extraction_metadata",
         ]:
             try:
@@ -1590,6 +1621,7 @@ class PowerGenerationDatabase:
             "oe_facility_generation_data",
             "occto_generation_data",
             "chile_generation_data",
+            "climatetrace_generation_data",
         ]
         counts = {}
 
@@ -1806,6 +1838,201 @@ class PowerGenerationDatabase:
 
         except Exception as e:
             logger.error(f"Failed to insert Chile data: {e}")
+            return False, None
+
+    def insert_climatetrace_jsonl_data(
+        self,
+        jsonl_file_path: str,
+        extraction_run_id: str = None,
+        validation_report_path: str = None,
+        chunk_lines: int = 50_000,
+    ) -> Tuple[bool, Optional[ValidationReport]]:
+        """Insert Climate TRACE data from JSONL file with validation.
+
+        Unlike every other source, this UPSERTS (ON CONFLICT DO UPDATE):
+        Climate TRACE revises past months between package releases, and each
+        weekly run re-states the full history — DO NOTHING would freeze the
+        first-loaded estimates forever. Unchanged rows are not rewritten
+        (IS DISTINCT FROM guard), so the weekly steady state writes only
+        genuinely new months and genuine revisions; ct_version records which
+        release each row currently reflects.
+
+        Returns:
+            Tuple of (success, validation_report)
+        """
+        try:
+            if extraction_run_id is None:
+                extraction_run_id = str(uuid.uuid4())
+            created_at_ms = int(datetime.now().timestamp() * 1000)
+
+            # Columns kept on insert (anything else from the JSONL is dropped).
+            keep_cols = [
+                "extraction_run_id",
+                "created_at_ms",
+                "climatetrace_id",
+                "plant_name",
+                "country_code",
+                "fuel_type",
+                "latitude",
+                "longitude",
+                "timestamp_ms",
+                "generation_mwh",
+                "capacity_mw",
+                "capacity_factor",
+                "activity_confidence",
+                "emissions_tonnes",
+                "emissions_factor",
+                "gas",
+                "ct_version",
+            ]
+            # Data columns revised in place on conflict. Deliberately NOT
+            # extraction_run_id/created_at_ms: an unchanged row keeps the
+            # provenance of the run that last CHANGED it, and including
+            # always-fresh bookkeeping fields in the update set would defeat
+            # the IS DISTINCT FROM no-op guard (every row would rewrite on
+            # every weekly run).
+            update_cols = [
+                "plant_name",
+                "country_code",
+                "fuel_type",
+                "latitude",
+                "longitude",
+                "generation_mwh",
+                "capacity_mw",
+                "capacity_factor",
+                "activity_confidence",
+                "emissions_tonnes",
+                "emissions_factor",
+                "gas",
+                "ct_version",
+            ]
+
+            validator = DataValidator()
+            total_inserted = 0
+            total_valid = 0
+            total_invalid = 0
+            total_duplicates = 0
+            total_records = 0
+            chunk_num = 0
+            # See ONS: metadata must key to the run id the inserted rows carry
+            # (from the *_etl.jsonl file), not the local uuid4.
+            file_run_id = None
+
+            with open(jsonl_file_path, "r") as f:
+                while True:
+                    chunk = []
+                    for _ in range(chunk_lines):
+                        line = f.readline()
+                        if not line:
+                            break
+                        line = line.strip()
+                        if line:
+                            chunk.append(json.loads(line))
+
+                    if not chunk:
+                        break
+
+                    chunk_num += 1
+
+                    if file_run_id is None:
+                        file_run_id = chunk[0].get(
+                            "extraction_run_id", extraction_run_id
+                        )
+
+                    for record in chunk:
+                        if "extraction_run_id" not in record:
+                            record["extraction_run_id"] = extraction_run_id
+                        if "created_at_ms" not in record:
+                            record["created_at_ms"] = created_at_ms
+
+                    # Validate chunk
+                    valid_records, report = validator.validate_file(
+                        chunk, "climatetrace", jsonl_file_path
+                    )
+
+                    total_records += report.total_count
+                    total_valid += report.valid_count
+                    total_invalid += report.invalid_count
+                    total_duplicates += report.duplicate_count
+
+                    # Upsert valid records (revisions update in place)
+                    if valid_records:
+                        df = pd.DataFrame(valid_records)
+                        df = df[[c for c in keep_cols if c in df.columns]]
+
+                        def _upsert_chunk():
+                            return self._upsert_via_staging(
+                                df,
+                                "climatetrace_generation_data",
+                                conflict_columns=["climatetrace_id", "timestamp_ms"],
+                                update_columns=update_cols,
+                            )
+
+                        inserted = self._execute_with_retry(_upsert_chunk)
+                        total_inserted += inserted
+
+                    logger.info(
+                        f"Chunk {chunk_num} done: {report.valid_count} valid, "
+                        f"{total_inserted} written so far (inserts + revisions)"
+                    )
+
+                    del chunk, valid_records
+
+            logger.info(
+                f"Validation complete: {total_valid}/{total_records} valid, "
+                f"{total_invalid} invalid, {total_duplicates} duplicates"
+            )
+            if total_invalid > 0:
+                logger.warning(f"Skipped invalid records: {total_invalid}")
+            if total_duplicates > 0:
+                logger.warning(f"Skipped duplicate records: {total_duplicates}")
+
+            if total_inserted > 0:
+                data_run_id = file_run_id or extraction_run_id
+                start_date, end_date = self._get_date_range_for_run(
+                    "climatetrace_generation_data", data_run_id
+                )
+                self.insert_extraction_metadata(
+                    extraction_run_id=data_run_id,
+                    source="climatetrace",
+                    extraction_timestamp=datetime.now(),
+                    start_date=start_date,
+                    end_date=end_date,
+                    total_records=total_valid,
+                    failed_count=total_invalid,
+                    success=True,
+                )
+                logger.success(
+                    f"Written Climate TRACE records (inserts + revisions): "
+                    f"{total_inserted}"
+                )
+            else:
+                # With the no-op guard, a re-load of an unchanged package
+                # legitimately writes 0 rows — that is success, not failure.
+                logger.info("No new or revised records (data unchanged)")
+
+            aggregate_report = ValidationReport(
+                source_file=jsonl_file_path,
+                total_count=total_records,
+                valid_count=total_valid,
+                invalid_count=total_invalid,
+                duplicate_count=total_duplicates,
+            )
+
+            if validation_report_path:
+                save_report(aggregate_report, validation_report_path)
+
+            if total_records > 0 and total_valid == 0 and total_invalid > 0:
+                logger.error(
+                    f"All {total_records} records failed validation - "
+                    "treating load as FAILED (extractor schema drift?)"
+                )
+                return False, aggregate_report
+
+            return True, aggregate_report
+
+        except Exception as e:
+            logger.error(f"Failed to insert Climate TRACE data: {e}")
             return False, None
 
     def insert_extraction_metadata(
