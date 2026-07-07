@@ -33,6 +33,7 @@ on:
           - 'OE (Australia)'
           - 'OCCTO (Japan)'
           - 'Chile (Coordinador)'
+          - 'Climate TRACE (global)'
       start_override:
         description: 'Re-run window start (YYYY-MM-DD). Leave blank for default (latest in DB).'
         required: false
@@ -541,6 +542,74 @@ jobs:
           retention-days: 14
 
   # ─────────────────────────────────────────────
+  # Climate TRACE (global, MODELED generation). No incremental window: the
+  # source ships one bulk package covering 2021→now (~8s to process), and it
+  # REVISES past months between releases — so every run re-extracts the full
+  # history and the loader upserts (ON CONFLICT DO UPDATE) so revisions
+  # propagate. Steady state writes only new months + genuine revisions.
+  # High-confidence-only by default (extractor --min-confidence high).
+  # No credentials required — the download bucket is public.
+  # ─────────────────────────────────────────────
+  extract-climatetrace:
+    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'Climate TRACE (global)' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: extract-climatetrace
+      cancel-in-progress: false
+    steps:
+      - name: Checkout ETL repo
+        uses: actions/checkout@v4
+
+      - name: Checkout extractors repo
+        uses: actions/checkout@v4
+        with:
+          repository: nicholas-abad/energy-extractors
+          path: extractors
+          token: ${{ secrets.EXTRACTORS_REPO_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install ETL dependencies
+        run: uv sync
+
+      - name: Install extractor dependencies
+        run: |
+          cd extractors
+          uv sync
+
+      - name: Extract Climate TRACE data (full history, high confidence)
+        run: |
+          cd extractors
+          uv run energy-extract climatetrace \
+            --output ../extracted_data \
+            --log-level INFO
+
+      - name: Load Climate TRACE data into Neon
+        run: |
+          for f in extracted_data/climatetrace_*_etl.jsonl; do
+            echo "Loading $f..."
+            uv run python src/database_management.py load-data climatetrace "$f"
+          done
+
+      - name: Upload artifacts (on failure only)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: climatetrace-extraction-${{ github.run_id }}
+          path: |
+            extracted_data/*.jsonl
+            extracted_data/logs/
+            extracted_data/extraction_metadata_*.json
+          retention-days: 14
+
+  # ─────────────────────────────────────────────
   # Rebuild the NPP plant_crosswalk after extraction so newly-appearing plants
   # get coal_type / coordinates. The dashboard classifies NPP coal via
   # plant_crosswalk.coal_type (joined by plant name), so without this a new coal
@@ -751,7 +820,7 @@ jobs:
   # Notify on failure — create GitHub Issue
   # ─────────────────────────────────────────────
   notify-failure:
-    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, rebuild-npp-crosswalk, refresh-views, check-crosswalk-drift]
+    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-climatetrace, rebuild-npp-crosswalk, refresh-views, check-crosswalk-drift]
     if: ${{ always() && contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     steps:
@@ -767,8 +836,10 @@ jobs:
               'extract-oe': '${{ needs.extract-oe.result }}',
               'extract-occto': '${{ needs.extract-occto.result }}',
               'extract-chile': '${{ needs.extract-chile.result }}',
+              'extract-climatetrace': '${{ needs.extract-climatetrace.result }}',
               'refresh-views': '${{ needs.refresh-views.result }}',
               'check-crosswalk-drift': '${{ needs.check-crosswalk-drift.result }}',
+              'rebuild-npp-crosswalk': '${{ needs.rebuild-npp-crosswalk.result }}',
             };
             const failed = Object.entries(jobs)
               .filter(([_, v]) => v === 'failure')
