@@ -598,6 +598,29 @@ jobs:
             uv run python src/database_management.py load-data climatetrace "$f"
           done
 
+      # These 9 coal countries have no metered grid-operator source AND are
+      # almost entirely MEDIUM confidence in Climate TRACE (high-only leaves
+      # them empty). They're loaded at medium+ so the dashboard's gap-country
+      # regions stay fresh — a deliberate, tightly-scoped exception to the
+      # global high-only default above. Separate output dir so this doesn't
+      # re-process the global file. Upsert makes the overlap with the global
+      # high load a no-op.
+      - name: Extract Climate TRACE gap countries (medium confidence)
+        run: |
+          cd extractors
+          uv run energy-extract climatetrace \
+            --countries IDN ZAF MEX CAN ARG PHL VNM MNG TWN \
+            --min-confidence medium \
+            --output ../extracted_data_ct_gap \
+            --log-level INFO
+
+      - name: Load Climate TRACE gap countries into Neon
+        run: |
+          for f in extracted_data_ct_gap/climatetrace_*_etl.jsonl; do
+            echo "Loading $f..."
+            uv run python src/database_management.py load-data climatetrace "$f"
+          done
+
       - name: Upload artifacts (on failure only)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -605,7 +628,9 @@ jobs:
           name: climatetrace-extraction-${{ github.run_id }}
           path: |
             extracted_data/*.jsonl
+            extracted_data_ct_gap/*.jsonl
             extracted_data/logs/
+            extracted_data_ct_gap/logs/
             extracted_data/extraction_metadata_*.json
           retention-days: 14
 
