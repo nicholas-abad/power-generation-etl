@@ -592,10 +592,10 @@ jobs:
       # medium for a hand-picked list. `activity_confidence` rides along on every
       # row, which is what the dashboard filters on.
       #
-      # "medium" is a deliberate FLOOR, not a no-op: Climate TRACE's activity
-      # scale does include "very low", and unrated plant-months rank below every
-      # minimum, so both are excluded here. That is the intent — every figure the
-      # dashboard shows is at least medium confidence.
+      # "medium" is a deliberate FLOOR, not a no-op. It excludes three things:
+      # "very low" and "low" ratings (both are on Climate TRACE's activity scale),
+      # and unrated plant-months, which rank below every minimum. That is the
+      # intent — every figure the dashboard shows is at least medium confidence.
       #
       # Do NOT rewrite this as `--min-confidence none` on the assumption that it
       # is equivalent. It happened to drop no rows as of release v5.8.0, where
