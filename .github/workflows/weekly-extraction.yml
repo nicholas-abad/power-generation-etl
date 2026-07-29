@@ -547,7 +547,8 @@ jobs:
   # REVISES past months between releases — so every run re-extracts the full
   # history and the loader upserts (ON CONFLICT DO UPDATE) so revisions
   # propagate. Steady state writes only new months + genuine revisions.
-  # High-confidence-only by default (extractor --min-confidence high).
+  # Loaded at medium+ confidence for ALL countries (see the extract step) so the
+  # dashboard can offer confidence as a reader-selectable filter.
   # No credentials required — the download bucket is public.
   # ─────────────────────────────────────────────
   extract-climatetrace:
@@ -584,39 +585,36 @@ jobs:
           cd extractors
           uv sync
 
-      - name: Extract Climate TRACE data (full history, high confidence)
+      # ONE global extract at medium confidence, replacing the former
+      # global-high + 9-hardcoded-countries-at-medium pair. The dashboard exposes
+      # confidence as a reader-selectable filter across all Climate TRACE
+      # countries, so the load has to carry both tiers everywhere rather than
+      # medium for a hand-picked list. `activity_confidence` rides along on every
+      # row, which is what the dashboard filters on.
+      #
+      # "medium" is a deliberate FLOOR, not a no-op: Climate TRACE's activity
+      # scale does include "very low", and unrated plant-months rank below every
+      # minimum, so both are excluded here. That is the intent — every figure the
+      # dashboard shows is at least medium confidence.
+      #
+      # Do NOT rewrite this as `--min-confidence none` on the assumption that it
+      # is equivalent. It happened to drop no rows as of release v5.8.0, where
+      # Climate TRACE rated 23,212 plant-months "very low" but published activity
+      # data for none of them (765,996 ratings vs 742,784 data rows). No
+      # `--release` is pinned below and the extractor default is the moving
+      # `latest` alias, so treat those counts as a v5.8.0 observation, not a
+      # standing property.
+      - name: Extract Climate TRACE data (full history, medium+ confidence)
         run: |
           cd extractors
           uv run energy-extract climatetrace \
+            --min-confidence medium \
             --output ../extracted_data \
             --log-level INFO
 
       - name: Load Climate TRACE data into Neon
         run: |
           for f in extracted_data/climatetrace_*_etl.jsonl; do
-            echo "Loading $f..."
-            uv run python src/database_management.py load-data climatetrace "$f"
-          done
-
-      # These 9 coal countries have no metered grid-operator source AND are
-      # almost entirely MEDIUM confidence in Climate TRACE (high-only leaves
-      # them empty). They're loaded at medium+ so the dashboard's gap-country
-      # regions stay fresh — a deliberate, tightly-scoped exception to the
-      # global high-only default above. Separate output dir so this doesn't
-      # re-process the global file. Upsert makes the overlap with the global
-      # high load a no-op.
-      - name: Extract Climate TRACE gap countries (medium confidence)
-        run: |
-          cd extractors
-          uv run energy-extract climatetrace \
-            --countries IDN ZAF MEX CAN ARG PHL VNM MNG TWN \
-            --min-confidence medium \
-            --output ../extracted_data_ct_gap \
-            --log-level INFO
-
-      - name: Load Climate TRACE gap countries into Neon
-        run: |
-          for f in extracted_data_ct_gap/climatetrace_*_etl.jsonl; do
             echo "Loading $f..."
             uv run python src/database_management.py load-data climatetrace "$f"
           done
@@ -628,9 +626,7 @@ jobs:
           name: climatetrace-extraction-${{ github.run_id }}
           path: |
             extracted_data/*.jsonl
-            extracted_data_ct_gap/*.jsonl
             extracted_data/logs/
-            extracted_data_ct_gap/logs/
             extracted_data/extraction_metadata_*.json
           retention-days: 14
 

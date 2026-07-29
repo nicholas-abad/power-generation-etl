@@ -1,9 +1,12 @@
 -- Climate TRACE Power Generation Data (global, MODELED)
 -- Monthly per-plant generation + emissions estimates from the Climate TRACE
 -- bulk download packages (satellite + ML estimates, NOT metered readings —
--- unlike every other source table). By default only plant-months whose
--- generation estimate Climate TRACE rates 'high'+ are extracted (~2.5K
--- plants globally, the reported-data-backed subset).
+-- unlike every other source table). The weekly job loads plant-months whose
+-- generation estimate Climate TRACE rates 'medium' or better, for all
+-- countries; `activity_confidence` records the rating per row, and the
+-- dashboard lets the reader restrict the view to the 'high' (reported-data-
+-- backed) subset. Ratings below medium, and unrated plant-months, are excluded
+-- at extraction.
 -- One table for ALL countries (country_code column), mirroring how
 -- entsoe_generation holds ~30 countries — do not split per country.
 -- Data source: https://downloads.climatetrace.org
