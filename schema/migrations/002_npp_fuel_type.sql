@@ -27,8 +27,9 @@ COMMIT;
 
 -- Rebuild the plant-monthly view with fuel_type (MAX keeps the (month, plant)
 -- key stable across months that mix backfilled and pre-backfill rows).
--- Outside the transaction: DROP ... CASCADE + CREATE cannot run inside one on
--- some managed Postgres setups, and the dashboard tolerates the brief gap.
+-- Outside the transaction: DROP + CREATE MATERIALIZED VIEW can deadlock or be
+-- rejected inside one on some managed Postgres setups, and the dashboard
+-- tolerates the brief gap.
 DROP MATERIALIZED VIEW IF EXISTS mv_npp_plant_monthly;
 
 CREATE MATERIALIZED VIEW mv_npp_plant_monthly AS
