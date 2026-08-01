@@ -132,6 +132,10 @@ NPP_SCHEMA = {
     "optional_fields": {
         "unit": {"type": "str_or_null_or_number", "validation": None},
         "resolution_minutes": {"type": "int_or_null", "validation": None},
+        # From the DGR-2 TYPE: dividers: THERMAL (coal/lignite), HYDRO, NUCLEAR,
+        # "THER (GT)" (gas), "THER (DG)" (diesel). Null = type-less section in
+        # the source (Bhutan hydro imports) or pre-backfill history.
+        "fuel_type": {"type": "str_or_null", "validation": None},
     },
     "duplicate_key": ("timestamp_ms", "plant_and_unit"),
 }

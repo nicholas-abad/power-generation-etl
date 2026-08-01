@@ -544,13 +544,25 @@ class PowerGenerationDatabase:
             if validation_report_path:
                 save_report(report, validation_report_path)
 
-            # Insert only valid records via upsert (skips duplicates)
+            # Insert only valid records via upsert (skips duplicates).
+            # fuel_type-bearing loads may also UPDATE that one column on
+            # conflict: rows loaded by the pre-fuel extractor stay NULL under
+            # plain DO NOTHING forever (the weekly window starts at
+            # MAX(timestamp), so they are never revisited), and downstream
+            # coal filters would silently drop them. Gated on the column being
+            # present so an old-format re-load can never null out stamped
+            # rows; within fuel-bearing loads the IS DISTINCT FROM guard makes
+            # unchanged rows a no-op.
             if valid_records:
                 df = pd.DataFrame(valid_records)
+                fuel_update = ["fuel_type"] if "fuel_type" in df.columns else None
 
                 def _upsert_npp():
                     return self._upsert_via_staging(
-                        df, "npp_generation", ["timestamp_ms", "plant_and_unit"]
+                        df,
+                        "npp_generation",
+                        ["timestamp_ms", "plant_and_unit"],
+                        update_columns=fuel_update,
                     )
 
                 inserted = self._execute_with_retry(_upsert_npp)

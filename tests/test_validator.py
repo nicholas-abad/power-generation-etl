@@ -123,6 +123,25 @@ class TestDataValidatorNPP:
         result = self.validator.validate_npp_record(record)
         assert result.valid is True
 
+    def test_optional_fuel_type_values(self):
+        # Present with a source label, null (Bhutan / pre-backfill), or absent
+        # (pre-fuel extractor) are all valid; a non-string is not.
+        for fuel in ["THERMAL", "THER (GT)", None]:
+            record = self.valid_record.copy()
+            record["fuel_type"] = fuel
+            result = self.validator.validate_npp_record(record)
+            assert result.valid is True, fuel
+
+        record = self.valid_record.copy()
+        record.pop("fuel_type", None)
+        assert self.validator.validate_npp_record(record).valid is True
+
+        record = self.valid_record.copy()
+        record["fuel_type"] = 42
+        result = self.validator.validate_npp_record(record)
+        assert result.valid is False
+        assert any("fuel_type" in e for e in result.errors)
+
     def test_optional_unit_missing(self):
         record = self.valid_record.copy()
         del record["unit"]
