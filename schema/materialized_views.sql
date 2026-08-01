@@ -97,10 +97,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_npp_monthly
 ON mv_npp_monthly (month);
 
 -- Aggregated by month + plant (for map)
+-- fuel_type via MAX() keeps the (month, plant) key stable while months mix
+-- backfilled and pre-backfill rows: a plant has exactly one fuel in the DGR-2
+-- source, so MAX just surfaces the label whenever any row that month has it.
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_npp_plant_monthly AS
 SELECT
     DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)) AS month,
     plant,
+    MAX(fuel_type) AS fuel_type,
     SUM(generation_mwh) AS generation_mwh
 FROM npp_generation
 GROUP BY 1, 2

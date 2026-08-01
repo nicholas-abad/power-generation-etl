@@ -31,6 +31,12 @@ CREATE TABLE IF NOT EXISTS npp_generation (
     generation_mwh DOUBLE PRECISION NOT NULL,
     resolution_minutes INTEGER,  -- Data granularity (1440 = daily)
 
+    -- Fuel from the DGR-2 TYPE: section dividers: THERMAL (coal/lignite),
+    -- HYDRO, NUCLEAR, 'THER (GT)' (gas), 'THER (DG)' (diesel). NULL for the
+    -- type-less Bhutan-import section and for rows loaded before the column
+    -- existed (see migration 002).
+    fuel_type VARCHAR(50),
+
     -- Data quality constraints
     CONSTRAINT positive_generation_npp CHECK (generation_mwh >= 0),
     CONSTRAINT valid_timestamps_npp CHECK (timestamp_ms > 0 AND created_at_ms > 0),
