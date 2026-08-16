@@ -144,7 +144,7 @@ Downstream consumers (e.g. the Next.js dashboard) **read only from the database*
 
 ### Option 1: Database CLI (Recommended for Testing)
 
-The database CLI provides a simple way to load and manage data without Airflow.
+The database CLI is how you load and manage data by hand; the weekly workflow calls the same commands.
 
 ```bash
 # 1. Install dependencies (uv — there is no requirements.txt)
