@@ -557,6 +557,12 @@ class PowerGenerationDatabase:
                 df = pd.DataFrame(valid_records)
                 fuel_update = ["fuel_type"] if "fuel_type" in df.columns else None
 
+                # NOTE: DO UPDATE would raise CardinalityViolation on an
+                # intra-batch duplicate natural key (which DO NOTHING merely
+                # skipped). That cannot fire ONLY because validate_file above
+                # drops duplicate (timestamp_ms, plant_and_unit) records
+                # file-globally before this point — an implicit coupling: do
+                # not bypass the validator on this path.
                 def _upsert_npp():
                     return self._upsert_via_staging(
                         df,
@@ -568,7 +574,8 @@ class PowerGenerationDatabase:
                 inserted = self._execute_with_retry(_upsert_npp)
                 skipped = len(valid_records) - inserted
                 logger.success(
-                    f"NPP upsert: {inserted} inserted, {skipped} duplicates skipped"
+                    f"NPP upsert: {inserted} inserts + revisions, "
+                    f"{skipped} unchanged duplicates skipped"
                 )
 
                 # Record extraction metadata

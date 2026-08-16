@@ -7,9 +7,13 @@
 -- fragmented histories and ~0.12 TWh of double-counted overlap (overlap rows
 -- verified value-identical, so ON CONFLICT DO NOTHING loses nothing).
 --
--- The mapping below is mechanical: a name whose latin-1 bytes decode as
--- different valid UTF-8 was mis-decoded; genuine Latin text cannot round-trip.
--- 110 names, harvested from the live table 2026-08-01.
+-- The mapping below is mechanical (a name whose latin-1 bytes decode as
+-- different valid UTF-8 was mis-decoded; genuine Latin text cannot round-trip)
+-- with ONE curated exception: ABOÂ¿O round-trips to 'ABO¿O', but the ¿ is the
+-- source's own lossy substitution for Ñ and the correctly-spelled twin
+-- 'ABOÑO' also exists — mapping to the round-trip result would leave the
+-- plant split in two, so it maps to the real name. 110 names, harvested from
+-- the live table 2026-08-01.
 --
 -- Deploy order: energy-extractors PR #13 (UTF-8 decode) MUST be merged first,
 -- or the next weekly load re-creates the mojibake identities.
@@ -22,10 +26,11 @@
 
 BEGIN;
 
-CREATE TEMP TABLE _mojibake_map (bad TEXT PRIMARY KEY, good TEXT NOT NULL);
+CREATE TEMP TABLE _mojibake_map (bad TEXT PRIMARY KEY, good TEXT NOT NULL)
+ON COMMIT DROP;
 INSERT INTO _mojibake_map (bad, good) VALUES
-('ABOÂ¿O 1', 'ABO¿O 1'),
-('ABOÂ¿O 2', 'ABO¿O 2'),
+('ABOÂ¿O 1', 'ABOÑO 1'),
+('ABOÂ¿O 2', 'ABOÑO 2'),
 ('ABOÃO 1', 'ABOÑO 1'),
 ('ABOÃO 2', 'ABOÑO 2'),
 ('BGP WÅocÅawek', 'BGP Włocławek'),
@@ -135,6 +140,19 @@ INSERT INTO _mojibake_map (bad, good) VALUES
 ('Åaziska 3 B12', 'Łaziska 3 B12'),
 ('ÅÃ³dÅº-4 B03', 'Łódź-4 B03');
 
+-- A good value that is ALSO a bad key would be re-homed and then DELETED in
+-- the same pass — silent destruction. Assert the map is chain-free BEFORE
+-- touching any rows.
+DO $$
+DECLARE chained BIGINT;
+BEGIN
+    SELECT COUNT(*) INTO chained
+    FROM _mojibake_map g JOIN _mojibake_map b ON g.good = b.bad;
+    IF chained > 0 THEN
+        RAISE EXCEPTION 'mojibake map is chained: % good value(s) are also bad keys', chained;
+    END IF;
+END $$;
+
 -- Re-home the corrupted rows under the correct spelling. Overlapping
 -- timestamps (verified value-identical) collapse via DO NOTHING.
 INSERT INTO entsoe_generation_data
@@ -150,19 +168,6 @@ ON CONFLICT (timestamp_ms, country_code, psr_type, plant_name) DO NOTHING;
 DELETE FROM entsoe_generation_data e
 USING _mojibake_map m
 WHERE e.plant_name = m.bad;
-
--- Abort the whole transaction if any mapped name survived (letter-pattern
--- checks are unsafe here: a bare 'Å' is legitimate Swedish).
-DO $$
-DECLARE remaining BIGINT;
-BEGIN
-    SELECT COUNT(*) INTO remaining
-    FROM entsoe_generation_data
-    WHERE plant_name IN (SELECT bad FROM _mojibake_map);
-    IF remaining > 0 THEN
-        RAISE EXCEPTION 'mojibake merge incomplete: % rows still carry a mapped name', remaining;
-    END IF;
-END $$;
 
 COMMIT;
 
