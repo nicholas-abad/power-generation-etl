@@ -1,13 +1,21 @@
-# Power Generation ETL with Airflow
+# Power Generation ETL
 
-Airflow ETL pipelines for ingesting, standardizing, and loading power generation data from multiple sources into a central PostgreSQL database.
+Validates, loads, and schedules power generation data from eight upstream sources into a central PostgreSQL (Neon) database — the source of truth behind the Coal Atlas dashboard.
+
+**Where this sits:** [`energy-extractors`](https://github.com/nicholas-abad/energy-extractors) produces JSONL → **this repo validates and loads it into Neon** → the [dashboard](https://github.com/nicholas-abad/energy-generation-dashboard) reads Neon. See [`docs/INFRASTRUCTURE.md`](docs/INFRASTRUCTURE.md) for the full architecture and the reasoning behind each choice.
 
 ---
 
 ## Overview
 
-This repository contains the **orchestration layer** for power generation data pipelines.  
-It uses **Apache Airflow** to periodically collect data from multiple upstream sources, normalize it into a canonical schema, and load it into a PostgreSQL database for downstream analytics and visualization.
+This repository is the **loading and orchestration layer**. It:
+
+1. Runs the extractors on a **weekly GitHub Actions cron** (`.github/workflows/weekly-extraction.yml`, Sundays 06:23 UTC),
+2. Validates every record against a per-source schema,
+3. Upserts it into PostgreSQL through a staging table (safe to re-run),
+4. Refreshes the materialized views the dashboard reads.
+
+> **There is no Airflow here.** Earlier versions of this README described an Airflow deployment with a `dags/` directory; none of it was ever built. Orchestration is GitHub Actions — see [How the weekly run works](#how-the-weekly-run-works).
 
 The system is designed to be:
 
@@ -37,17 +45,18 @@ It is responsible for **scheduling, coordination, validation, and loading**.
 
 High-level flow:
 ```
-+----------------------------------+
-|   energy-extractors              |
-|  (EIA, ENTSOE, NPP, ONS, OE)    |
-|  energy-extract <source> ...     |
-+----------------------------------+
-        |
++--------------------------------------------------+
+|   energy-extractors                              |
+|  EIA, ENTSOE, NPP, ONS, OE, OCCTO, Chile,        |
+|  Climate TRACE  —  energy-extract <source> ...   |
++--------------------------------------------------+
+        |  JSONL
         v
-+----------------------------------+
-|    ETL (This Repo)               |
-|  Airflow / CLI                   |
-+----------------------------------+
++--------------------------------------------------+
+|    ETL (This Repo)                               |
+|  GitHub Actions weekly cron  /  CLI              |
+|  validate -> stage -> upsert -> refresh views    |
++--------------------------------------------------+
         |
         v
 +----------------------------------+
@@ -63,49 +72,43 @@ High-level flow:
 ## Repository Structure
 ```
 power-generation-etl/
-├── .github/workflows/    # CI/CD pipelines
-│   └── ci.yml            # GitHub Actions workflow
-├── dags/                 # Airflow DAG definitions
-│   ├── minimal_etl.py
-│   ├── eia_monthly.py
-│   ├── npp_monthly.py
-│   └── entsoe_monthly.py
-├── schema/               # SQL schema definitions
-│   ├── eia_generation.sql
-│   ├── npp_generation.sql
-│   ├── entsoe_generation.sql
-│   ├── ons_generation.sql
-│   ├── oe_generation.sql
-│   ├── oe_facility_generation.sql
-│   ├── occto_generation.sql
-│   ├── chile_generation.sql
-│   ├── extraction_metadata.sql
-│   ├── materialized_views.sql
-│   ├── row_count_views.sql
-│   └── migrations/       # Schema migrations
-│       └── 001_add_unique_constraints.sql
-├── docs/                 # Documentation
-│   └── DATA_UNITS.md     # MW vs MWh documentation
-├── src/                  # Core Python modules
-│   ├── database.py       # Database operations with validation
-│   ├── database_management.py  # CLI tool
-│   └── validator.py      # Data validation module
-├── tests/                # Unit tests
-│   └── test_validator.py # Validation tests
-├── logs/                 # Log files (auto-generated)
-├── Dockerfile            # Container image definition
-├── .dockerignore         # Docker build exclusions
-├── README.md
-└── pyproject.toml
+├── .github/workflows/
+│   ├── weekly-extraction.yml   # PRODUCTION: 8 extract jobs + view refresh (Sun 06:23 UTC)
+│   └── ci.yml                  # lint (ruff) + tests (pytest) + type-check on every push
+├── schema/                     # CREATE TABLE IF NOT EXISTS — applied by `setup`
+│   ├── eia_generation.sql          occto_generation.sql
+│   ├── npp_generation.sql          chile_generation.sql
+│   ├── entsoe_generation.sql       climatetrace_generation.sql
+│   ├── ons_generation.sql          eia_generator_info.sql
+│   ├── oe_generation.sql           gcpt_coal_metadata.sql
+│   ├── oe_facility_generation.sql  extraction_metadata.sql
+│   ├── materialized_views.sql  # mv_*_plant_monthly — what the dashboard reads
+│   ├── row_count_views.sql     # mv_*_row_counts — feeds /data-quality
+│   └── migrations/             # hand-applied ALTERs — see "Schema migrations" below
+├── docs/
+│   ├── INFRASTRUCTURE.md       # the architecture, and why each piece was chosen
+│   └── DATA_UNITS.md           # MW vs MWh, per source
+├── src/
+│   ├── database_management.py  # THE CLI: setup / load-data / stats / ...
+│   ├── database.py             # validation + staging-table upsert
+│   ├── validator.py            # per-source record schemas
+│   ├── get_latest_date.py      # newest row per source (drives incremental windows)
+│   ├── incremental_extract.py  # resolves the extraction window for a cron run
+│   ├── refresh_views.py        # refresh materialized views after a load
+│   ├── check_crosswalk_drift.py# plants upstream but missing from plant_crosswalk
+│   └── backfill_extraction_dates.py
+├── tests/                      # pytest — validator, loaders, incremental logic
+└── pyproject.toml              # uv-managed; no requirements.txt
 ```
+
 ---
 
-## How the Pipelines Work
+## How a load works
 
-Each Airflow DAG follows the same high-level pattern:
+Every source follows the same path, whether run by the weekly cron or by hand:
 
 1. **Compute time window**
-   - Derive the data window from Airflow's `logical_date`
+   - Ask the DB for the source's newest row; extract from there to today (`src/get_latest_date.py`)
 2. **Extract**
    - Fetch raw data from the upstream source
 3. **Transform**
@@ -144,8 +147,9 @@ Downstream consumers (e.g. the Next.js dashboard) **read only from the database*
 The database CLI provides a simple way to load and manage data without Airflow.
 
 ```bash
-# 1. Install dependencies
-pip install -r requirements.txt
+# 1. Install dependencies (uv — there is no requirements.txt)
+uv sync
+cp .env.template .env    # then fill in POSTGRES_* (add POSTGRES_SSLMODE=require for Neon)
 
 # 2. Start PostgreSQL
 docker run -d \
@@ -176,43 +180,54 @@ uv run src/database_management.py stats
 
 **See [DATABASE_CLI.md](./DATABASE_CLI.md) for complete CLI documentation.**
 
-### Option 2: Airflow (For Production Scheduling)
+## How the weekly run works
 
-#### 1. Install Airflow
+Production scheduling is **`.github/workflows/weekly-extraction.yml`** — a GitHub Actions cron, no orchestrator to install or operate.
+
+**Schedule:** Sundays at 06:23 UTC (the off-hour minute avoids top-of-hour congestion). It can also be run on demand from the Actions tab.
+
+**Per run**, eight independent jobs — one per source (`eia`, `entsoe`, `npp`, `ons`, `oe`, `occto`, `chile`, `climatetrace`) — each:
+
+1. Check out this repo **and** `energy-extractors`,
+2. Resolve the window: ask the database for that source's newest row and extract from there to today (`src/get_latest_date.py`, `src/incremental_extract.py`) — so each run is small and re-runnable,
+3. Run `energy-extract <source>`,
+4. Load the JSONL with `src/database_management.py load-data <source> <file>`.
+
+Then `refresh-views` rebuilds the materialized views the dashboard reads, and `check-crosswalk-drift` reports plants that have appeared upstream but are missing from `plant_crosswalk`.
+
+Jobs are independent: one source failing does not block the others. Per-source concurrency keys prevent a manual re-run from racing the cron.
+
+**Manual re-run / backfill** — from the Actions tab, "Run workflow" accepts:
+- `source` — limit to one source (default: all),
+- `start_override` / `end_override` — extract a specific historical window instead of the incremental one.
+
+**Secrets required:** `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_SSLMODE`, plus the extractor API keys (`ENTSOE_API_KEY`, `OE_API_KEY`, `CL_API_KEY`) and `EXTRACTORS_REPO_TOKEN` to check out the extractors repo.
+
+---
+
+## Schema migrations
+
+`schema/*.sql` files are idempotent creators (`CREATE TABLE IF NOT EXISTS`) applied by `setup`. **Changes to existing tables live in `schema/migrations/` and are applied by hand:**
 
 ```bash
-pip install "apache-airflow==2.9.*"
+psql "$DATABASE_URL" -f schema/migrations/002_npp_fuel_type.sql
 ```
 
-#### 2. Initialize Airflow
-```
-export AIRFLOW_HOME=~/airflow
-airflow db init
-airflow standalone
-```
-Airflow UI will be available at:
-http://localhost:8080
+| Migration | What it does |
+|---|---|
+| `001a_dedup_and_constrain_small_tables.sql` | Adds natural-key unique constraints (EIA, NPP, OE, OCCTO) after de-duplicating |
+| `001b_dedup_and_constrain_ons.sql` | Same for ONS (separate because of its size) |
+| `002_npp_fuel_type.sql` | Adds `npp_generation.fuel_type` + rebuilds `mv_npp_plant_monthly` |
+| `002b_npp_fuel_type_backfill.sql` | Stamps fuel on all historical NPP rows (idempotent; re-runnable) |
+| `003_entsoe_mojibake_merge.sql` | Merges mis-decoded ENTSO-E plant names into their correct spellings |
 
-#### 3. Configure Database Connection
-Create an Airflow connection:
-	•	Conn ID: neon_postgres
-	•	Conn Type: Postgres
-	•	Host: localhost
-	•	Login: postgres
-	•	Password: postgres
-	•	Database: power_generation
-	•	Port: 5432
+**Read the header comment before running one** — several state a required ordering with an extractor release (e.g. `002` must be applied *before* the fuel-emitting extractor ships, or the load fails).
 
-#### 4. Enable a DAG
-	•	Place DAG files in $AIRFLOW_HOME/dags
-	•	Enable them in the Airflow UI
-	•	Observe scheduled runs and task execution
-
-⸻
+---
 
 ## Data Source Compatibility
 
-This ETL system supports five data sources with **harmonized schemas** for consistent data loading:
+This ETL system loads nine source feeds (eight extractors; OpenElectricity lands in two tables) with **harmonized schemas**:
 
 | Data Source | Package Module | Format | Status |
 |-------------|----------------|--------|--------|
