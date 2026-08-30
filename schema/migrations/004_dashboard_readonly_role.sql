@@ -79,7 +79,7 @@ END $$;
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'dashboard_ro') THEN
-    CREATE ROLE dashboard_ro LOGIN;
+    CREATE ROLE dashboard_ro LOGIN NOINHERIT;
   END IF;
 END $$;
 
