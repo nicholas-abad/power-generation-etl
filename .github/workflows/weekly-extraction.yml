@@ -838,10 +838,33 @@ jobs:
             });
 
   # ─────────────────────────────────────────────
+  # Dashboard read-only role — assert its SELECT surface is exactly the
+  # intended set. Runs AFTER the crosswalk rebuild because that job swaps
+  # plant_crosswalk via DROP + RENAME, which is how a grant silently vanishes.
+  # Skips (NOTICE) when the role does not exist yet.
+  # ─────────────────────────────────────────────
+  check-dashboard-ro-surface:
+    needs: [refresh-views, rebuild-npp-crosswalk]
+    if: ${{ always() && needs.refresh-views.result != 'cancelled' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout ETL repo
+        uses: actions/checkout@v4
+
+      - name: Check dashboard_ro surface
+        env:
+          PGPASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          PGSSLMODE: require
+        run: |
+          psql -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+               -v ON_ERROR_STOP=1 -f schema/checks/dashboard_ro_surface.sql
+
+  # ─────────────────────────────────────────────
   # Notify on failure — create GitHub Issue
   # ─────────────────────────────────────────────
   notify-failure:
-    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-climatetrace, rebuild-npp-crosswalk, refresh-views, check-crosswalk-drift]
+    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-climatetrace, rebuild-npp-crosswalk, refresh-views, check-crosswalk-drift, check-dashboard-ro-surface]
     if: ${{ always() && contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     steps:
@@ -861,6 +884,7 @@ jobs:
               'refresh-views': '${{ needs.refresh-views.result }}',
               'check-crosswalk-drift': '${{ needs.check-crosswalk-drift.result }}',
               'rebuild-npp-crosswalk': '${{ needs.rebuild-npp-crosswalk.result }}',
+              'check-dashboard-ro-surface': '${{ needs.check-dashboard-ro-surface.result }}',
             };
             const failed = Object.entries(jobs)
               .filter(([_, v]) => v === 'failure')
