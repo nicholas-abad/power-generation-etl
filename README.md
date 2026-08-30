@@ -84,7 +84,8 @@ power-generation-etl/
 │   ├── oe_facility_generation.sql  extraction_metadata.sql
 │   ├── materialized_views.sql  # mv_*_plant_monthly — what the dashboard reads
 │   ├── row_count_views.sql     # mv_*_row_counts — feeds /data-quality
-│   └── migrations/             # hand-applied ALTERs — see "Schema migrations" below
+│   ├── migrations/             # hand-applied ALTERs — see "Schema migrations" below
+│   └── checks/                 # read-only assertions run by the weekly workflow (dashboard_ro surface)
 ├── docs/
 │   ├── INFRASTRUCTURE.md       # the architecture, and why each piece was chosen
 │   └── DATA_UNITS.md           # MW vs MWh, per source
@@ -230,6 +231,29 @@ Two roles, two jobs:
 
 | Role | Used by | Can |
 |---|---|---|
+| `neondb_owner` | This ETL (`.env`), the weekly GitHub Actions cron, `refresh_views.py`, plant-data's crosswalk loader | Everything — owns every table |
+| `dashboard_ro` | The Next.js dashboard (Cloudflare `DATABASE_URL`) | `SELECT` on 18 relations only: 6 tables + 12 materialized views. Cannot read the raw ENTSO-E / ONS / OCCTO / NPP / Chile tables or write anything |
+
+The dashboard never writes, so its connection string should never be able to. Migration `004` creates the role. **First apply** — generate the password and keep it, you need it for Cloudflare in the next step:
+
+```bash
+PW="$(openssl rand -hex 32)"; echo "$PW"     # hex: base64 can emit '/' and break the URI
+psql "$DIRECT_DATABASE_URL" -v dashboard_ro_password="$PW" -f schema/migrations/004_dashboard_readonly_role.sql
+```
+
+Use Neon's **direct** endpoint (the host without `-pooler`) for this and any migration: the pooler intermittently hands DDL a read-only backend (`004` detects it and says so).
+
+Then set the dashboard's Cloudflare Pages `DATABASE_URL` to `postgresql://dashboard_ro:$PW@<host>/<db>?sslmode=require` and redeploy. Re-running `004` **without** `-v dashboard_ro_password` re-asserts the grants and leaves the password alone; passing one rotates it, which breaks the dashboard until Cloudflare is updated.
+
+**The canonical list of what the dashboard may read is `schema/checks/dashboard_ro_surface.sql`.** It is read-only and safe to run any time:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f schema/checks/dashboard_ro_surface.sql
+```
+
+It fails if the role can read anything outside the list, cannot read something on it, or can write anything. The weekly workflow runs it after every load (job `check-dashboard-ro-surface`), because grants are explicit and can be lost: a `DROP` + recreate of a view drops its grant (re-`GRANT` in the same migration), and plant-data's crosswalk loader swaps tables via `DROP` + `RENAME` (it now re-applies the ACL itself). A migration that adds a view the dashboard reads must add it to **both** the migration's `GRANT` and this list.
+
+---|---|---|
 | `neondb_owner` | This ETL (`.env`), the weekly GitHub Actions cron, `refresh_views.py` | Everything — owns every table |
 | `dashboard_ro` | The Next.js dashboard (Cloudflare `DATABASE_URL`) | `SELECT` on 18 relations only: 6 tables + 12 materialized views. Cannot see the raw ENTSO-E / ONS / OCCTO / NPP / Chile tables or write anything |
 
