@@ -638,6 +638,9 @@ jobs:
   # reference for plant identity — no spreadsheet.
   # ─────────────────────────────────────────────
   fetch-gem:
+    # Full runs only: a single-source manual dispatch must not trigger the
+    # crosswalk rebuild + prod swap (rebuild-crosswalk is gated on this job).
+    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     concurrency:
@@ -673,7 +676,9 @@ jobs:
   # ─────────────────────────────────────────────
   rebuild-crosswalk:
     needs: [fetch-gem, extract-npp, extract-eia, extract-ons, extract-entsoe, extract-oe, extract-occto, extract-chile]
-    if: ${{ always() && needs.fetch-gem.result == 'success' }}
+    # !cancelled(), not always(): a human cancelling the run must not still
+    # trigger a production swap. Failed/skipped extractors do not block it.
+    if: ${{ !cancelled() && needs.fetch-gem.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     concurrency:
@@ -698,8 +703,18 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
+      - name: Require the GEM-era plant-data (merge-order guard)
+        # This workflow assumes plant-data#13 (GEM identity) is on plant-data's
+        # default branch. Running the OLD builder with --force would rebuild
+        # every source from scratch with no tier-0 preservation. Fail before
+        # anything touches production.
+        run: |
+          for f in plant-data/src/gem_reference.py plant-data/scripts/import_decisions.py plant-data/scripts/export_decisions.py; do
+            test -f "$f" || { echo "::error::$f missing — plant-data main predates the GEM crosswalk (merge plant-data#13 first)"; exit 1; }
+          done
+          grep -q "FROZEN_VALUE_COLUMNS" plant-data/src/build_crosswalk.py || { echo "::error::build_crosswalk.py lacks tier-0 frozen values"; exit 1; }
+
       - name: Fetch non-GEM reference data (GPPD, EIA plant lookup, NPP-GIPT)
-        id: refdata
         env:
           CROSSWALK_REF_DATA_URL: ${{ secrets.CROSSWALK_REF_DATA_URL }}
         run: |
@@ -714,8 +729,9 @@ jobs:
             || { echo "::error::global_power_plant_database.csv missing after extracting reference bundle"; missing=1; }
           test -f "plant-data/data/crosswalks/eia_plant_lookup.csv" \
             || { echo "::error::eia_plant_lookup.csv missing after extracting reference bundle"; missing=1; }
+          test -f "plant-data/data/crosswalks/NPP_GIPT_crosswalk (1).csv" \
+            || { echo "::error::NPP_GIPT_crosswalk (1).csv missing after extracting reference bundle"; missing=1; }
           [ "$missing" = "1" ] && exit 1
-          echo "ok=true" >> "$GITHUB_OUTPUT"
 
       - name: Rebuild crosswalk (all sources, GEM tables, tier-0 decisions preserved)
         run: |
@@ -742,15 +758,21 @@ jobs:
           PY
 
       - name: Export decisions audit trail
+        # Commits ONLY data/review/decisions_export.csv (who decided what, when).
+        # The parquet is deliberately NOT committed weekly: the committed parquet
+        # is verify_crosswalk.py's baseline and must change only through a
+        # reviewed PR. Requires EXTRACTORS_REPO_TOKEN to have contents:write on
+        # plant-data.
         run: |
           cd plant-data
           uv run python scripts/export_decisions.py
           git config user.name "coal-atlas-bot"
           git config user.email "bot@users.noreply.github.com"
-          git add data/review/decisions_export.csv data/crosswalks/unified_plant_crosswalk.parquet
+          git add data/review/decisions_export.csv
           git diff --cached --quiet && { echo "no changes"; exit 0; }
-          git commit -m "chore: weekly crosswalk rebuild + decisions export ($(date -u +%F))"
-          git push
+          git commit -m "chore: decisions export ($(date -u +%F))"
+          git pull --rebase --autostash origin main
+          git push origin HEAD:main
 
   # ─────────────────────────────────────────────
   # Refresh materialized views after all loads

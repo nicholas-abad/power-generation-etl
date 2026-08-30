@@ -187,7 +187,7 @@ Production scheduling is **`.github/workflows/weekly-extraction.yml`** — a Git
 
 **Schedule:** Sundays at 06:23 UTC (the off-hour minute avoids top-of-hour congestion). It can also be run on demand from the Actions tab.
 
-**Per run**, eight independent jobs — one per source (`eia`, `entsoe`, `npp`, `ons`, `oe`, `occto`, `chile`, `climatetrace`) — each:
+**Per run**, eight independent extraction jobs — one per source (`eia`, `entsoe`, `npp`, `ons`, `oe`, `occto`, `chile`, `climatetrace`) — plus `fetch-gem` (mirrors Global Energy Monitor's API into the `gem_*` tables) and `rebuild-crosswalk` (rebuilds `plant_crosswalk` on it, preserving human decisions). Each extraction job:
 
 1. Check out this repo **and** `energy-extractors`,
 2. Resolve the window: ask the database for that source's newest row and extract from there to today (`src/get_latest_date.py`, `src/incremental_extract.py`) — so each run is small and re-runnable,
@@ -202,7 +202,7 @@ Jobs are independent: one source failing does not block the others. Per-source c
 - `source` — limit to one source (default: all),
 - `start_override` / `end_override` — extract a specific historical window instead of the incremental one.
 
-**Secrets required:** `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_SSLMODE`, plus the extractor API keys (`ENTSOE_API_KEY`, `OE_API_KEY`, `CL_API_KEY`) and `EXTRACTORS_REPO_TOKEN` to check out the extractors repo.
+**Secrets required:** `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_SSLMODE`, plus the extractor API keys (`ENTSOE_API_KEY`, `OE_API_KEY`, `CL_API_KEY`), `EXTRACTORS_REPO_TOKEN` (checks out the extractors and plant-data repos, and **pushes the weekly decisions export to plant-data `main` — needs `contents: write` there**), and `CROSSWALK_REF_DATA_URL` (bundle with GPPD, the EIA plant lookup and the NPP-GIPT file; the crosswalk rebuild fails without it).
 
 ---
 
@@ -221,9 +221,9 @@ psql "$DATABASE_URL" -f schema/migrations/002_npp_fuel_type.sql
 | `002_npp_fuel_type.sql` | Adds `npp_generation.fuel_type` + rebuilds `mv_npp_plant_monthly` |
 | `002b_npp_fuel_type_backfill.sql` | Stamps fuel on all historical NPP rows (idempotent; re-runnable) |
 | `003_entsoe_mojibake_merge.sql` | Merges mis-decoded ENTSO-E plant names into their correct spellings |
+| `004_dashboard_readonly_role.sql` | Creates `dashboard_ro`, a SELECT-only role limited to the 18 relations the dashboard reads (see below) |
 | `005_mv_eia_oe_climatetrace.sql` | Creates `mv_eia_unit_monthly`, `mv_oe_plant_monthly`, `mv_climatetrace_coal_monthly` (+ grants to `dashboard_ro`, lossless post-conditions). **Merge and apply in the same sitting** — the weekly surface check lists them |
 | `007_gem_reference_tables.sql` | Grants the `gem_*` tables (GEM's API mirrored by plant-data's `fetch_gem.py`) to `dashboard_ro` and registers them in the surface check. `006` is reserved for the ingestion schema |
-| `004_dashboard_readonly_role.sql` | Creates `dashboard_ro`, a SELECT-only role limited to the 18 relations the dashboard reads (see below) |
 
 **Read the header comment before running one** — several state a required ordering with an extractor release (e.g. `002` must be applied *before* the fuel-emitting extractor ships, or the load fails).
 
