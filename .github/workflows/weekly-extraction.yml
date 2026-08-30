@@ -736,8 +736,14 @@ jobs:
   # Refresh materialized views after all loads
   # ─────────────────────────────────────────────
   refresh-views:
-    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile]
-    if: ${{ always() && (needs.extract-eia.result == 'success' || needs.extract-ons.result == 'success' || needs.extract-entsoe.result == 'success' || needs.extract-npp.result == 'success' || needs.extract-oe.result == 'success' || needs.extract-occto.result == 'success' || needs.extract-chile.result == 'success') }}
+    # Climate TRACE is in the list since migration 005 gave it a view: without
+    # it this job could start before the CT load finished and refresh
+    # mv_climatetrace_coal_monthly against LAST week's rows (the CT loader
+    # revises history with ON CONFLICT DO UPDATE, so that is exactly what would
+    # be missed). Side effect: a manual run for Climate TRACE alone now
+    # refreshes ALL views (seconds to low minutes; well inside the timeout).
+    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-climatetrace]
+    if: ${{ always() && (needs.extract-eia.result == 'success' || needs.extract-ons.result == 'success' || needs.extract-entsoe.result == 'success' || needs.extract-npp.result == 'success' || needs.extract-oe.result == 'success' || needs.extract-occto.result == 'success' || needs.extract-chile.result == 'success' || needs.extract-climatetrace.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

@@ -19,14 +19,18 @@
 DO $$
 DECLARE
   expected TEXT[] := ARRAY[
-    -- raw tables (the 3 sources not yet behind a plant-month view + reference data)
-    'public.eia_generation_data', 'public.eia_generator_info',
-    'public.oe_facility_generation_data', 'public.climatetrace_generation_data',
-    'public.plant_crosswalk', 'public.gcpt_coal_metadata',
+    -- reference tables maintained by data/plant-data (swapped via DROP + RENAME,
+    -- so they cannot be wrapped in views; ~4 MB total)
+    'public.plant_crosswalk', 'public.eia_generator_info', 'public.gcpt_coal_metadata',
+    -- raw generation tables — until PR 3 re-points the dashboard; 006 revokes them
+    'public.eia_generation_data', 'public.oe_facility_generation_data',
+    'public.climatetrace_generation_data',
     -- plant-month materialized views
     'public.mv_entsoe_plant_monthly', 'public.mv_npp_plant_monthly',
     'public.mv_ons_plant_monthly', 'public.mv_occto_plant_monthly',
     'public.mv_chile_plant_monthly',
+    'public.mv_eia_unit_monthly', 'public.mv_oe_plant_monthly',       -- 005
+    'public.mv_climatetrace_coal_monthly',                              -- 005
     -- row-count views behind /data-quality
     'public.mv_eia_row_counts', 'public.mv_entsoe_row_counts', 'public.mv_npp_row_counts',
     'public.mv_ons_row_counts', 'public.mv_oe_row_counts', 'public.mv_occto_row_counts',
@@ -62,6 +66,12 @@ BEGIN
   SELECT array_agg(r) INTO extra   FROM unnest(COALESCE(readable, '{}')) r WHERE NOT r = ANY(expected);
 
   IF missing IS NOT NULL THEN
+    -- Distinguish "the relation is gone / was never created" (a migration not
+    -- applied, or a DROP) from "it exists but the grant is gone".
+    SELECT array_agg(m) INTO extra FROM unnest(missing) m WHERE to_regclass(m) IS NULL;
+    IF extra IS NOT NULL THEN
+      RAISE EXCEPTION 'expected relations do not exist (migration not applied, or dropped?): %', extra;
+    END IF;
     RAISE EXCEPTION 'dashboard_ro CANNOT read (grant lost — a DROP/recreate or a missing GRANT?): %', missing;
   END IF;
   IF extra IS NOT NULL THEN

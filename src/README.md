@@ -7,7 +7,7 @@
 | `validator.py` | Per-source record schemas: required/optional fields, types, ranges, and the natural key used for in-file duplicate detection. Invalid records are skipped (or fail the load with `--strict`). |
 | `get_latest_date.py` | Newest `timestamp_ms` in the DB for a source. The weekly cron uses this so each run extracts only what's new. |
 | `incremental_extract.py` | Turns that latest date into the extractor's `--start-date`/`--end-date` window, honouring any manual override. |
-| `refresh_views.py` | Refreshes the materialized views (`mv_*_plant_monthly`, `mv_*_row_counts`) the dashboard reads. Run after any load. |
+| `refresh_views.py` | Refreshes the materialized views (`mv_*_plant_monthly`, `mv_eia_unit_monthly`, `mv_climatetrace_coal_monthly`, `mv_*_row_counts`) the dashboard reads. Run after any load. |
 | `check_crosswalk_drift.py` | Reports plants that generate upstream but are missing from `plant_crosswalk` — i.e. the crosswalk needs a rebuild in `data/plant-data`. |
 | `backfill_extraction_dates.py` | One-off repair for extraction metadata rows. |
 
