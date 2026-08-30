@@ -220,8 +220,27 @@ psql "$DATABASE_URL" -f schema/migrations/002_npp_fuel_type.sql
 | `002_npp_fuel_type.sql` | Adds `npp_generation.fuel_type` + rebuilds `mv_npp_plant_monthly` |
 | `002b_npp_fuel_type_backfill.sql` | Stamps fuel on all historical NPP rows (idempotent; re-runnable) |
 | `003_entsoe_mojibake_merge.sql` | Merges mis-decoded ENTSO-E plant names into their correct spellings |
+| `004_dashboard_readonly_role.sql` | Creates `dashboard_ro`, a SELECT-only role limited to the 18 relations the dashboard reads (see below) |
 
 **Read the header comment before running one** — several state a required ordering with an extractor release (e.g. `002` must be applied *before* the fuel-emitting extractor ships, or the load fails).
+
+### Database roles
+
+Two roles, two jobs:
+
+| Role | Used by | Can |
+|---|---|---|
+| `neondb_owner` | This ETL (`.env`), the weekly GitHub Actions cron, `refresh_views.py` | Everything — owns every table |
+| `dashboard_ro` | The Next.js dashboard (Cloudflare `DATABASE_URL`) | `SELECT` on 18 relations only: 6 tables + 12 materialized views. Cannot see the raw ENTSO-E / ONS / OCCTO / NPP / Chile tables or write anything |
+
+The dashboard never writes, so its connection string should never be able to. Migration `004` creates the role; the password is generated at apply time and lives only in Cloudflare:
+
+```bash
+psql "$DATABASE_URL" -v dashboard_ro_password="$(openssl rand -base64 32)" \
+     -f schema/migrations/004_dashboard_readonly_role.sql
+```
+
+**Grants are explicit, not inherited.** A migration that drops and re-creates a materialized view loses its grant, and a new view the dashboard reads needs a `GRANT SELECT … TO dashboard_ro` — put it in the same migration. `004` ends with an assertion that the readable set is exactly the intended 18, so re-running it after any schema change is the cheap way to check nothing drifted.
 
 ---
 
