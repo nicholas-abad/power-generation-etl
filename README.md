@@ -222,6 +222,7 @@ psql "$DATABASE_URL" -f schema/migrations/002_npp_fuel_type.sql
 | `002b_npp_fuel_type_backfill.sql` | Stamps fuel on all historical NPP rows (idempotent; re-runnable) |
 | `003_entsoe_mojibake_merge.sql` | Merges mis-decoded ENTSO-E plant names into their correct spellings |
 | `005_mv_eia_oe_climatetrace.sql` | Creates `mv_eia_unit_monthly`, `mv_oe_plant_monthly`, `mv_climatetrace_coal_monthly` (+ grants to `dashboard_ro`, lossless post-conditions). **Merge and apply in the same sitting** — the weekly surface check lists them |
+| `007_gem_reference_tables.sql` | Grants the `gem_*` tables (GEM's API mirrored by plant-data's `fetch_gem.py`) to `dashboard_ro` and registers them in the surface check. `006` is reserved for the ingestion schema |
 | `004_dashboard_readonly_role.sql` | Creates `dashboard_ro`, a SELECT-only role limited to the 18 relations the dashboard reads (see below) |
 
 **Read the header comment before running one** — several state a required ordering with an extractor release (e.g. `002` must be applied *before* the fuel-emitting extractor ships, or the load fails).
@@ -233,7 +234,7 @@ Two roles, two jobs:
 | Role | Used by | Can |
 |---|---|---|
 | `neondb_owner` | This ETL (`.env`), the weekly GitHub Actions cron, `refresh_views.py`, plant-data's crosswalk loader | Everything — owns every table |
-| `dashboard_ro` | The Next.js dashboard (Cloudflare `DATABASE_URL`) | `SELECT` on 21 relations only: 3 reference tables (`plant_crosswalk`, `eia_generator_info`, `gcpt_coal_metadata`), 15 materialized views, and — until the dashboard is re-pointed and `006` revokes them — the 3 raw EIA / OE / Climate TRACE tables. Cannot read the raw ENTSO-E / ONS / OCCTO / NPP / Chile tables or write anything |
+| `dashboard_ro` | The Next.js dashboard (Cloudflare `DATABASE_URL`) | `SELECT` on 25 relations only: 3 reference tables (`plant_crosswalk`, `eia_generator_info`, `gcpt_coal_metadata`), 15 materialized views, 4 GEM reference tables (`gem_*`), and — until the dashboard is re-pointed and `006` revokes them — the 3 raw EIA / OE / Climate TRACE tables. Cannot read the raw ENTSO-E / ONS / OCCTO / NPP / Chile tables or write anything |
 
 The dashboard never writes, so its connection string should never be able to. Migration `004` creates the role. **First apply** — generate the password and keep it, you need it for Cloudflare in the next step:
 

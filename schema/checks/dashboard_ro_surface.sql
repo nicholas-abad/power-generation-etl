@@ -31,6 +31,9 @@ DECLARE
     'public.mv_chile_plant_monthly',
     'public.mv_eia_unit_monthly', 'public.mv_oe_plant_monthly',       -- 005
     'public.mv_climatetrace_coal_monthly',                              -- 005
+    -- GEM reference tables (007): GEM's API mirrored by plant-data's fetch_gem.py
+    'public.gem_locations', 'public.gem_units',
+    'public.gem_unit_status_snapshots', 'public.gem_external_ids',
     -- row-count views behind /data-quality
     'public.mv_eia_row_counts', 'public.mv_entsoe_row_counts', 'public.mv_npp_row_counts',
     'public.mv_ons_row_counts', 'public.mv_oe_row_counts', 'public.mv_occto_row_counts',
@@ -39,6 +42,7 @@ DECLARE
   writable  TEXT[];
   missing   TEXT[];
   extra     TEXT[];
+  absent    TEXT[];
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'dashboard_ro') THEN
     RAISE NOTICE 'dashboard_ro does not exist — migration 004 not applied yet; nothing to check';
@@ -52,6 +56,7 @@ BEGIN
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE c.relkind IN ('r', 'm', 'v', 'p', 'f', 'S')
     AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+    AND n.nspname NOT LIKE 'pg_temp%'
     AND has_table_privilege('dashboard_ro', c.oid, 'SELECT');
 
   SELECT array_agg(n.nspname || '.' || c.relname ORDER BY 1)
@@ -59,6 +64,7 @@ BEGIN
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE c.relkind IN ('r', 'm', 'v', 'p', 'f', 'S')
     AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+    AND n.nspname NOT LIKE 'pg_temp%'
     AND has_table_privilege('dashboard_ro', c.oid,
           'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER');
 
@@ -68,9 +74,9 @@ BEGIN
   IF missing IS NOT NULL THEN
     -- Distinguish "the relation is gone / was never created" (a migration not
     -- applied, or a DROP) from "it exists but the grant is gone".
-    SELECT array_agg(m) INTO extra FROM unnest(missing) m WHERE to_regclass(m) IS NULL;
-    IF extra IS NOT NULL THEN
-      RAISE EXCEPTION 'expected relations do not exist (migration not applied, or dropped?): %', extra;
+    SELECT array_agg(m) INTO absent FROM unnest(missing) m WHERE to_regclass(m) IS NULL;
+    IF absent IS NOT NULL THEN
+      RAISE EXCEPTION 'expected relations do not exist (migration not applied, or dropped?): %', absent;
     END IF;
     RAISE EXCEPTION 'dashboard_ro CANNOT read (grant lost — a DROP/recreate or a missing GRANT?): %', missing;
   END IF;

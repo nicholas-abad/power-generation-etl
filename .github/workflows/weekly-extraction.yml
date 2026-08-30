@@ -631,27 +631,53 @@ jobs:
           retention-days: 14
 
   # ─────────────────────────────────────────────
-  # Rebuild the NPP plant_crosswalk after extraction so newly-appearing plants
-  # get coal_type / coordinates. The dashboard classifies NPP coal via
-  # plant_crosswalk.coal_type (joined by plant name), so without this a new coal
-  # plant shows as non-coal until a manual rebuild. build_crosswalk needs the
-  # GEM + GPPD reference CSVs, which are gitignored (~72 MB, too large for the
-  # repo); provide them via the CROSSWALK_REF_DATA_URL secret — a gzipped tar
-  # unpacking into data/crosswalks/ ("GEM database_*.csv",
-  # global_power_plant_database.csv, eia_plant_lookup.csv). If the secret is
-  # unset the job skips cleanly and check-crosswalk-drift still flags new plants
-  # for a manual rebuild — so this never breaks the weekly run.
-  #
-  # Prereqs: CROSSWALK_REF_DATA_URL secret; EXTRACTORS_REPO_TOKEN must also grant
-  # read access to the plant-data repo.
+  # GEM reference tables — mirror Global Energy Monitor's power trackers from
+  # their API into gem_locations / gem_units / gem_unit_status_snapshots.
+  # Core pull every week (< 1 min); the per-unit detail pull only when GEM has
+  # published a new release (~40 min, throttled). GEM's API is the SOLE
+  # reference for plant identity — no spreadsheet.
   # ─────────────────────────────────────────────
-  rebuild-npp-crosswalk:
-    needs: extract-npp
-    if: ${{ always() && needs.extract-npp.result == 'success' }}
+  fetch-gem:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     concurrency:
-      group: rebuild-npp-crosswalk
+      group: fetch-gem
+      cancel-in-progress: false
+    steps:
+      - name: Checkout plant-data repo
+        uses: actions/checkout@v4
+        with:
+          repository: nicholas-abad/plant-data
+          path: plant-data
+          token: ${{ secrets.EXTRACTORS_REPO_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Mirror GEM into Neon
+        run: |
+          cd plant-data
+          uv sync
+          uv run python scripts/fetch_gem.py
+
+  # ─────────────────────────────────────────────
+  # Crosswalk rebuild — every source, on the GEM tables. Human decisions on
+  # plant_crosswalk are re-emitted unchanged (tier 0); only empty rows are
+  # matched. Gated on fetch-gem, NOT on the NPP extractor: a failed Indian
+  # extraction must not leave the crosswalk stale for every other source.
+  # ─────────────────────────────────────────────
+  rebuild-crosswalk:
+    needs: [fetch-gem, extract-npp, extract-eia, extract-ons, extract-entsoe, extract-oe, extract-occto, extract-chile]
+    if: ${{ always() && needs.fetch-gem.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: rebuild-crosswalk
       cancel-in-progress: false
     steps:
       - name: Checkout ETL repo
@@ -672,57 +698,40 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
-      - name: Fetch crosswalk reference data
+      - name: Fetch non-GEM reference data (GPPD, EIA plant lookup, NPP-GIPT)
         id: refdata
         env:
           CROSSWALK_REF_DATA_URL: ${{ secrets.CROSSWALK_REF_DATA_URL }}
         run: |
           if [ -z "$CROSSWALK_REF_DATA_URL" ]; then
-            echo "CROSSWALK_REF_DATA_URL not set — skipping crosswalk rebuild."
-            echo "(check-crosswalk-drift will still flag any new plants for a manual rebuild.)"
-            echo "ok=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "::error::CROSSWALK_REF_DATA_URL not set — the rebuild needs GPPD and the EIA plant lookup."
+            exit 1
           fi
           curl -fsSL "$CROSSWALK_REF_DATA_URL" -o /tmp/refdata.tar.gz
           tar -xzf /tmp/refdata.tar.gz -C plant-data/data/crosswalks/
-          # Fail loud if the bundle didn't deliver the CSVs build_crosswalk needs.
-          # Otherwise GEM_CSV would be absent, the NPP rebuild would be empty, and
-          # the destructive load below would wipe NPP coal classification in prod.
           missing=0
-          ls plant-data/data/crosswalks/GEM\ database_*.csv >/dev/null 2>&1 \
-            || { echo "::error::GEM database CSV missing after extracting reference bundle"; missing=1; }
           test -f "plant-data/data/crosswalks/global_power_plant_database.csv" \
             || { echo "::error::global_power_plant_database.csv missing after extracting reference bundle"; missing=1; }
+          test -f "plant-data/data/crosswalks/eia_plant_lookup.csv" \
+            || { echo "::error::eia_plant_lookup.csv missing after extracting reference bundle"; missing=1; }
           [ "$missing" = "1" ] && exit 1
           echo "ok=true" >> "$GITHUB_OUTPUT"
 
-      - name: Rebuild NPP crosswalk rows
-        if: ${{ steps.refdata.outputs.ok == 'true' }}
+      - name: Rebuild crosswalk (all sources, GEM tables, tier-0 decisions preserved)
         run: |
           cd plant-data
           uv sync
-          uv run python -m src.build_crosswalk --sources NPP --no-llm --yes
+          uv run python -m src.build_crosswalk --force --yes
 
       - name: Verify rebuilt crosswalk before loading
-        if: ${{ steps.refdata.outputs.ok == 'true' }}
-        # Refuse to push a degraded crosswalk: the load DROPs and replaces the
-        # live table, so a near-empty NPP coal set (e.g. GEM data went missing)
-        # must abort here rather than break the dashboard. ~249 NPP coal plants
-        # is the validated baseline; 200 is a safe floor.
+        # verify_crosswalk.py compares against the committed parquet: known-bad
+        # regressions, ENTSO-E/HJKS capacity invariants, per-source coverage,
+        # GEM-link integrity, and that every prior human decision survived.
         run: |
           cd plant-data
-          uv run python - <<'PY'
-          import sys
-          import pandas as pd
-          df = pd.read_parquet("data/crosswalks/unified_plant_crosswalk.parquet")
-          npp_coal = int(((df["source_system"] == "NPP") & (df["coal_type"].notna())).sum())
-          print(f"rebuilt crosswalk: {len(df):,} rows, NPP coal_type = {npp_coal}")
-          if npp_coal < 200:
-              sys.exit(f"ABORT: only {npp_coal} NPP coal plants (< 200) — refusing to load a degraded crosswalk")
-          PY
+          uv run python scripts/verify_crosswalk.py
 
       - name: Load updated crosswalk into Neon
-        if: ${{ steps.refdata.outputs.ok == 'true' }}
         run: |
           cd plant-data
           uv run python - <<'PY'
@@ -731,6 +740,17 @@ jobs:
           from bootstrap_neon_db import get_engine, load_unified_crosswalk
           load_unified_crosswalk(get_engine())
           PY
+
+      - name: Export decisions audit trail
+        run: |
+          cd plant-data
+          uv run python scripts/export_decisions.py
+          git config user.name "coal-atlas-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add data/review/decisions_export.csv data/crosswalks/unified_plant_crosswalk.parquet
+          git diff --cached --quiet && { echo "no changes"; exit 0; }
+          git commit -m "chore: weekly crosswalk rebuild + decisions export ($(date -u +%F))"
+          git push
 
   # ─────────────────────────────────────────────
   # Refresh materialized views after all loads
@@ -771,7 +791,7 @@ jobs:
   check-crosswalk-drift:
     # Depend on the rebuild too, so drift is checked against the rebuilt
     # crosswalk (not the pre-rebuild state, and not mid-DROP/recreate).
-    needs: [refresh-views, rebuild-npp-crosswalk]
+    needs: [refresh-views, rebuild-crosswalk]
     if: ${{ always() && needs.refresh-views.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -850,7 +870,7 @@ jobs:
   # Skips (NOTICE) when the role does not exist yet.
   # ─────────────────────────────────────────────
   check-dashboard-ro-surface:
-    needs: [refresh-views, rebuild-npp-crosswalk]
+    needs: [refresh-views, rebuild-crosswalk]
     if: ${{ always() && needs.refresh-views.result != 'cancelled' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -870,7 +890,7 @@ jobs:
   # Notify on failure — create GitHub Issue
   # ─────────────────────────────────────────────
   notify-failure:
-    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-climatetrace, rebuild-npp-crosswalk, refresh-views, check-crosswalk-drift, check-dashboard-ro-surface]
+    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-climatetrace, fetch-gem, rebuild-crosswalk, refresh-views, check-crosswalk-drift, check-dashboard-ro-surface]
     if: ${{ always() && contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     steps:
@@ -889,7 +909,8 @@ jobs:
               'extract-climatetrace': '${{ needs.extract-climatetrace.result }}',
               'refresh-views': '${{ needs.refresh-views.result }}',
               'check-crosswalk-drift': '${{ needs.check-crosswalk-drift.result }}',
-              'rebuild-npp-crosswalk': '${{ needs.rebuild-npp-crosswalk.result }}',
+              'fetch-gem': '${{ needs.fetch-gem.result }}',
+              'rebuild-crosswalk': '${{ needs.rebuild-crosswalk.result }}',
               'check-dashboard-ro-surface': '${{ needs.check-dashboard-ro-surface.result }}',
             };
             const failed = Object.entries(jobs)
