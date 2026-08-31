@@ -206,6 +206,17 @@ Jobs are independent: one source failing does not block the others. Per-source c
 
 ---
 
+## Two schemas: `public` and `ingestion`
+
+Since migration `006` the database is split into two Postgres schemas:
+
+| Schema | Holds | Who sees it |
+|---|---|---|
+| `public` | The dashboard's whole world: 15 materialized views, the 4 `gem_*` reference tables, `plant_crosswalk` + its review view, `eia_generator_info`, `gcpt_coal_metadata` | `dashboard_ro` (SELECT on exactly 22 relations) and the ETL |
+| `ingestion` | The 10 raw generation tables, `extraction_metadata` + its views, all sequences | the ETL only — `dashboard_ro` has no USAGE |
+
+The ETL's code is unchanged: `neondb_owner` carries `search_path = "$user", public, ingestion`, so unqualified reads/writes of raw tables fall through to `ingestion` and unqualified CREATEs (views, crosswalk staging) land in `public`. Two guards run weekly: `schema/checks/dashboard_ro_surface.sql` (the role reads exactly the intended set) and `schema/checks/no_shadow_tables.sql` (no raw-table name exists in `public` — a pre-006 `CREATE TABLE IF NOT EXISTS` there would silently swallow writes; plant-data's sibling checkout of this repo must be on a post-006 commit).
+
 ## Schema migrations
 
 `schema/*.sql` files are idempotent creators (`CREATE TABLE IF NOT EXISTS`) applied by `setup`. **Changes to existing tables live in `schema/migrations/` and are applied by hand:**
@@ -223,6 +234,7 @@ psql "$DATABASE_URL" -f schema/migrations/002_npp_fuel_type.sql
 | `003_entsoe_mojibake_merge.sql` | Merges mis-decoded ENTSO-E plant names into their correct spellings |
 | `004_dashboard_readonly_role.sql` | Creates `dashboard_ro`, a SELECT-only role limited to the 18 relations the dashboard reads (see below) |
 | `005_mv_eia_oe_climatetrace.sql` | Creates `mv_eia_unit_monthly`, `mv_oe_plant_monthly`, `mv_climatetrace_coal_monthly` (+ grants to `dashboard_ro`, lossless post-conditions). **Merge and apply in the same sitting** — the weekly surface check lists them |
+| `006_ingestion_schema.sql` | Moves the raw generation tables + extraction bookkeeping into a new `ingestion` schema; `public` becomes the dashboard's whole world. **Apply mid-week, direct endpoint; read the header** — live sessions keep the old search_path until they reconnect |
 | `007_gem_reference_tables.sql` | Grants the `gem_*` tables (GEM's API mirrored by plant-data's `fetch_gem.py`) to `dashboard_ro` and registers them in the surface check. `006` is reserved for the ingestion schema |
 
 **Read the header comment before running one** — several state a required ordering with an extractor release (e.g. `002` must be applied *before* the fuel-emitting extractor ships, or the load fails).
@@ -234,7 +246,7 @@ Two roles, two jobs:
 | Role | Used by | Can |
 |---|---|---|
 | `neondb_owner` | This ETL (`.env`), the weekly GitHub Actions cron, `refresh_views.py`, plant-data's crosswalk loader | Everything — owns every table |
-| `dashboard_ro` | The Next.js dashboard (Cloudflare `DATABASE_URL`) | `SELECT` on 25 relations only: 3 reference tables (`plant_crosswalk`, `eia_generator_info`, `gcpt_coal_metadata`), 15 materialized views, 4 GEM reference tables (`gem_*`), and — until the dashboard is re-pointed and `006` revokes them — the 3 raw EIA / OE / Climate TRACE tables. Cannot read the raw ENTSO-E / ONS / OCCTO / NPP / Chile tables or write anything |
+| `dashboard_ro` | The Next.js dashboard (Cloudflare `DATABASE_URL`) | `SELECT` on 22 relations only: 3 reference tables (`plant_crosswalk`, `eia_generator_info`, `gcpt_coal_metadata`), 15 materialized views, 4 GEM reference tables (`gem_*`). Raw generation tables live in the `ingestion` schema, which the role has no USAGE on — it cannot list them, let alone read them |
 
 The dashboard never writes, so its connection string should never be able to. Migration `004` creates the role. **First apply** — generate the password and keep it, you need it for Cloudflare in the next step:
 

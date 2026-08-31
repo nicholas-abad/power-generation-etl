@@ -3,7 +3,11 @@
 -- Data source: OCCTO Unit-based Generation Results Disclosure System
 -- https://hatsuden-kokai.occto.or.jp/hks-web-public/info/hks
 
-CREATE TABLE IF NOT EXISTS occto_generation_data (
+-- Raw/ingestion-side relation: lives in the `ingestion` schema since migration 006.
+-- The ETL reaches it unqualified through neondb_owner's search_path.
+CREATE SCHEMA IF NOT EXISTS ingestion;
+
+CREATE TABLE IF NOT EXISTS ingestion.occto_generation_data (
     id BIGSERIAL PRIMARY KEY,
 
     -- Extraction metadata
@@ -32,13 +36,13 @@ CREATE TABLE IF NOT EXISTS occto_generation_data (
 );
 
 -- Performance indexes
-CREATE INDEX IF NOT EXISTS idx_occto_gen_timestamp ON occto_generation_data (timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_occto_gen_plant_time ON occto_generation_data (plant, timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_occto_gen_fuel_time ON occto_generation_data (fuel_type, timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_occto_gen_area_time ON occto_generation_data (area_code, timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_occto_gen_extraction_run ON occto_generation_data (extraction_run_id);
-CREATE INDEX IF NOT EXISTS idx_occto_gen_plant_code ON occto_generation_data (plant_code);
+CREATE INDEX IF NOT EXISTS idx_occto_gen_timestamp ON ingestion.occto_generation_data (timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_occto_gen_plant_time ON ingestion.occto_generation_data (plant, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_occto_gen_fuel_time ON ingestion.occto_generation_data (fuel_type, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_occto_gen_area_time ON ingestion.occto_generation_data (area_code, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_occto_gen_extraction_run ON ingestion.occto_generation_data (extraction_run_id);
+CREATE INDEX IF NOT EXISTS idx_occto_gen_plant_code ON ingestion.occto_generation_data (plant_code);
 
 -- Natural key uniqueness (prevents cross-batch and re-load duplicates)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_occto_natural_key
-ON occto_generation_data (timestamp_ms, plant, COALESCE(unit, ''));
+ON ingestion.occto_generation_data (timestamp_ms, plant, COALESCE(unit, ''));

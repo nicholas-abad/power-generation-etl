@@ -4,7 +4,11 @@
 -- /centrales/v4/findByDate; hourly values come from /generacion-real/v3.
 -- Data source: https://sipub.api.coordinador.cl
 
-CREATE TABLE IF NOT EXISTS chile_generation_data (
+-- Raw/ingestion-side relation: lives in the `ingestion` schema since migration 006.
+-- The ETL reaches it unqualified through neondb_owner's search_path.
+CREATE SCHEMA IF NOT EXISTS ingestion;
+
+CREATE TABLE IF NOT EXISTS ingestion.chile_generation_data (
     id BIGSERIAL PRIMARY KEY,
 
     -- Extraction metadata
@@ -31,14 +35,14 @@ CREATE TABLE IF NOT EXISTS chile_generation_data (
 );
 
 -- Performance indexes
-CREATE INDEX IF NOT EXISTS idx_chile_gen_timestamp ON chile_generation_data (timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_chile_gen_plant_time ON chile_generation_data (plant, timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_chile_gen_fuel_time ON chile_generation_data (fuel_type, timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_chile_gen_region_time ON chile_generation_data (region, timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_chile_gen_extraction_run ON chile_generation_data (extraction_run_id);
-CREATE INDEX IF NOT EXISTS idx_chile_gen_plant_id ON chile_generation_data (chile_plant_id);
+CREATE INDEX IF NOT EXISTS idx_chile_gen_timestamp ON ingestion.chile_generation_data (timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_chile_gen_plant_time ON ingestion.chile_generation_data (plant, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_chile_gen_fuel_time ON ingestion.chile_generation_data (fuel_type, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_chile_gen_region_time ON ingestion.chile_generation_data (region, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_chile_gen_extraction_run ON ingestion.chile_generation_data (extraction_run_id);
+CREATE INDEX IF NOT EXISTS idx_chile_gen_plant_id ON ingestion.chile_generation_data (chile_plant_id);
 
 -- Natural key uniqueness (prevents cross-batch and re-load duplicates)
 -- Uses expression index because chile_plant_id is nullable (NULL != NULL in UNIQUE)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_chile_natural_key
-ON chile_generation_data (timestamp_ms, plant, COALESCE(chile_plant_id, ''));
+ON ingestion.chile_generation_data (timestamp_ms, plant, COALESCE(chile_plant_id, ''));

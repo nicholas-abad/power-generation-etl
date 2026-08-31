@@ -6,6 +6,10 @@
 --   psql power_generation -c "\i schema/eia_generation.sql"
 
 -- Enable required extensions
+-- Raw/ingestion-side relation: lives in the `ingestion` schema since migration 006.
+-- The ETL reaches it unqualified through neondb_owner's search_path.
+CREATE SCHEMA IF NOT EXISTS ingestion;
+
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ============================================================================
@@ -13,7 +17,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- ============================================================================
 
 -- EIA generation data table
-CREATE TABLE IF NOT EXISTS eia_generation_data (
+CREATE TABLE IF NOT EXISTS ingestion.eia_generation_data (
     id BIGSERIAL PRIMARY KEY,
 
     -- Extraction metadata
@@ -52,24 +56,24 @@ CREATE TABLE IF NOT EXISTS eia_generation_data (
 -- ============================================================================
 
 -- Time-series analysis indexes
-CREATE INDEX IF NOT EXISTS idx_eia_generation_time_state ON eia_generation_data 
+CREATE INDEX IF NOT EXISTS idx_eia_generation_time_state ON ingestion.eia_generation_data 
 (timestamp_ms, state);
 
-CREATE INDEX IF NOT EXISTS idx_eia_generation_utility_time ON eia_generation_data 
+CREATE INDEX IF NOT EXISTS idx_eia_generation_utility_time ON ingestion.eia_generation_data 
 (utility_id, timestamp_ms);
 
-CREATE INDEX IF NOT EXISTS idx_eia_generation_fuel_time ON eia_generation_data 
+CREATE INDEX IF NOT EXISTS idx_eia_generation_fuel_time ON ingestion.eia_generation_data 
 (fuel_source, timestamp_ms);
 
-CREATE INDEX IF NOT EXISTS idx_eia_generation_plant_time ON eia_generation_data 
+CREATE INDEX IF NOT EXISTS idx_eia_generation_plant_time ON ingestion.eia_generation_data 
 (plant_code, timestamp_ms);
 
 -- Extraction run tracking
-CREATE INDEX IF NOT EXISTS idx_eia_generation_extraction_run ON eia_generation_data
+CREATE INDEX IF NOT EXISTS idx_eia_generation_extraction_run ON ingestion.eia_generation_data
 (extraction_run_id);
 
 -- Prime mover + time for dashboard fuel-type filtered queries
-CREATE INDEX IF NOT EXISTS idx_eia_generation_prime_mover_time ON eia_generation_data
+CREATE INDEX IF NOT EXISTS idx_eia_generation_prime_mover_time ON ingestion.eia_generation_data
 (prime_mover, timestamp_ms);
 
 -- Schema creation complete

@@ -34,7 +34,7 @@ SELECT
     DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)) AS month,
     fuel_type,
     SUM(generation_mw * COALESCE(resolution_minutes, 60) / 60.0) AS generation_mwh
-FROM entsoe_generation_data
+FROM ingestion.entsoe_generation_data
 GROUP BY 1, 2
 ORDER BY 1, 2;
 
@@ -49,7 +49,7 @@ SELECT
     country_code,
     fuel_type,
     SUM(generation_mw * COALESCE(resolution_minutes, 60) / 60.0) AS generation_mwh
-FROM entsoe_generation_data
+FROM ingestion.entsoe_generation_data
 GROUP BY 1, 2, 3, 4
 ORDER BY 1, 2, 3, 4;
 
@@ -66,7 +66,7 @@ SELECT
     DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)) AS month,
     fuel_type,
     SUM(generation_mwh) AS generation_mwh
-FROM ons_generation_data
+FROM ingestion.ons_generation_data
 GROUP BY 1, 2
 ORDER BY 1, 2;
 
@@ -82,7 +82,7 @@ SELECT
     state_name,
     fuel_type,
     SUM(generation_mwh) AS generation_mwh
-FROM ons_generation_data
+FROM ingestion.ons_generation_data
 GROUP BY 1, 2, 3, 4, 5
 ORDER BY 1, 2, 3, 4, 5;
 
@@ -98,7 +98,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS mv_npp_monthly AS
 SELECT
     DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)) AS month,
     SUM(generation_mwh) AS generation_mwh
-FROM npp_generation
+FROM ingestion.npp_generation
 GROUP BY 1
 ORDER BY 1;
 
@@ -115,7 +115,7 @@ SELECT
     plant,
     MAX(fuel_type) AS fuel_type,
     SUM(generation_mwh) AS generation_mwh
-FROM npp_generation
+FROM ingestion.npp_generation
 GROUP BY 1, 2
 ORDER BY 1, 2;
 
@@ -132,7 +132,7 @@ SELECT
     DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)) AS month,
     fuel_type,
     SUM(generation_mwh) AS generation_mwh
-FROM occto_generation_data
+FROM ingestion.occto_generation_data
 GROUP BY 1, 2
 ORDER BY 1, 2;
 
@@ -147,7 +147,7 @@ SELECT
     area_name,
     fuel_type,
     SUM(generation_mwh) AS generation_mwh
-FROM occto_generation_data
+FROM ingestion.occto_generation_data
 GROUP BY 1, 2, 3, 4
 ORDER BY 1, 2, 3, 4;
 
@@ -164,7 +164,7 @@ SELECT
     DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)) AS month,
     fuel_type,
     SUM(generation_mwh) AS generation_mwh
-FROM chile_generation_data
+FROM ingestion.chile_generation_data
 GROUP BY 1, 2
 ORDER BY 1, 2;
 
@@ -182,7 +182,7 @@ SELECT
     comuna,
     fuel_type,
     SUM(generation_mwh) AS generation_mwh
-FROM chile_generation_data
+FROM ingestion.chile_generation_data
 GROUP BY 1, 2, 3, 4, 5
 ORDER BY 1, 2, 3, 4, 5;
 
@@ -212,7 +212,7 @@ SELECT
     prime_mover,
     eia_plant_unit_id,                       -- join key to gcpt_coal_metadata
     SUM(net_generation_mwh) AS net_generation_mwh
-FROM eia_generation_data
+FROM ingestion.eia_generation_data
 GROUP BY 1, 2, 3, 4, 5, 6, 7
 ORDER BY 1, 3, 4;
 
@@ -245,7 +245,7 @@ SELECT
     MAX(longitude) AS longitude,
     MAX(capacity_registered_mw) AS capacity_registered_mw,
     SUM(generation_mwh) AS generation_mwh
-FROM oe_facility_generation_data
+FROM ingestion.oe_facility_generation_data
 GROUP BY 1, 4, 5
 ORDER BY 1, 4, 5;
 
@@ -280,7 +280,7 @@ SELECT
     generation_mwh,
     emissions_tonnes,
     ct_version
-FROM climatetrace_generation_data
+FROM ingestion.climatetrace_generation_data
 WHERE fuel_type ILIKE '%coal%'
 ORDER BY country_code, timestamp_ms;
 

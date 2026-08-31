@@ -18,7 +18,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS mv_eia_row_counts AS
 SELECT
     DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000))::date AS month,
     COUNT(*) AS row_count
-FROM eia_generation_data
+FROM ingestion.eia_generation_data
 GROUP BY 1
 ORDER BY 1;
 
@@ -31,7 +31,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS mv_entsoe_row_counts AS
 SELECT
     DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000))::date AS month,
     COUNT(*) AS row_count
-FROM entsoe_generation_data
+FROM ingestion.entsoe_generation_data
 GROUP BY 1
 ORDER BY 1;
 
@@ -44,7 +44,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS mv_npp_row_counts AS
 SELECT
     DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000))::date AS month,
     COUNT(*) AS row_count
-FROM npp_generation
+FROM ingestion.npp_generation
 GROUP BY 1
 ORDER BY 1;
 
@@ -57,7 +57,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS mv_ons_row_counts AS
 SELECT
     DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000))::date AS month,
     COUNT(*) AS row_count
-FROM ons_generation_data
+FROM ingestion.ons_generation_data
 GROUP BY 1
 ORDER BY 1;
 
@@ -71,7 +71,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS mv_oe_row_counts AS
 SELECT
     DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000))::date AS month,
     COUNT(*) AS row_count
-FROM oe_facility_generation_data
+FROM ingestion.oe_facility_generation_data
 GROUP BY 1
 ORDER BY 1;
 
@@ -84,7 +84,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS mv_occto_row_counts AS
 SELECT
     DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000))::date AS month,
     COUNT(*) AS row_count
-FROM occto_generation_data
+FROM ingestion.occto_generation_data
 GROUP BY 1
 ORDER BY 1;
 
@@ -97,7 +97,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS mv_chile_row_counts AS
 SELECT
     DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000))::date AS month,
     COUNT(*) AS row_count
-FROM chile_generation_data
+FROM ingestion.chile_generation_data
 GROUP BY 1
 ORDER BY 1;
 

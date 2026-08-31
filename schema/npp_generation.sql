@@ -4,9 +4,13 @@
 -- Can be executed independently
 --
 -- Usage:
---   psql power_generation -c "\i schema/npp_generation.sql"
+--   psql power_generation -c "\i schema/ingestion.npp_generation.sql"
 
 -- Enable required extensions
+-- Raw/ingestion-side relation: lives in the `ingestion` schema since migration 006.
+-- The ETL reaches it unqualified through neondb_owner's search_path.
+CREATE SCHEMA IF NOT EXISTS ingestion;
+
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ============================================================================
@@ -14,7 +18,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- ============================================================================
 
 -- NPP generation data table (harmonized with EIA/ENTSOE)
-CREATE TABLE IF NOT EXISTS npp_generation (
+CREATE TABLE IF NOT EXISTS ingestion.npp_generation (
     id BIGSERIAL PRIMARY KEY,
 
     -- Extraction metadata (matches EIA/ENTSOE)
@@ -50,16 +54,16 @@ CREATE TABLE IF NOT EXISTS npp_generation (
 -- ============================================================================
 
 -- Time-series queries filtered by plant
-CREATE INDEX IF NOT EXISTS idx_npp_generation_time_plant ON npp_generation(timestamp_ms, plant);
+CREATE INDEX IF NOT EXISTS idx_npp_generation_time_plant ON ingestion.npp_generation(timestamp_ms, plant);
 
 -- Plant-specific time-series analysis
-CREATE INDEX IF NOT EXISTS idx_npp_generation_plant_time ON npp_generation(plant, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_npp_generation_plant_time ON ingestion.npp_generation(plant, timestamp_ms);
 
 -- Track data lineage by extraction run
-CREATE INDEX IF NOT EXISTS idx_npp_generation_extraction_run ON npp_generation(extraction_run_id);
+CREATE INDEX IF NOT EXISTS idx_npp_generation_extraction_run ON ingestion.npp_generation(extraction_run_id);
 
 -- General time-based queries
-CREATE INDEX IF NOT EXISTS idx_npp_generation_timestamp ON npp_generation(timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_npp_generation_timestamp ON ingestion.npp_generation(timestamp_ms);
 
 -- Schema creation complete
 SELECT 'NPP Generation schema created successfully!' AS status;
