@@ -2,7 +2,11 @@
 -- Hourly generation data from thermal/fossil fuel plants
 -- Data source: ONS Geração por Usina em Base Horária
 
-CREATE TABLE IF NOT EXISTS ons_generation_data (
+-- Raw/ingestion-side relation: lives in the `ingestion` schema since migration 006.
+-- The ETL reaches it unqualified through neondb_owner's search_path.
+CREATE SCHEMA IF NOT EXISTS ingestion;
+
+CREATE TABLE IF NOT EXISTS ingestion.ons_generation_data (
     id BIGSERIAL PRIMARY KEY,
 
     -- Extraction metadata
@@ -36,15 +40,15 @@ CREATE TABLE IF NOT EXISTS ons_generation_data (
 );
 
 -- Performance indexes
-CREATE INDEX IF NOT EXISTS idx_ons_gen_timestamp ON ons_generation_data (timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_ons_gen_plant_time ON ons_generation_data (plant, timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_ons_gen_fuel_time ON ons_generation_data (fuel_type, timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_ons_gen_state_time ON ons_generation_data (state, timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_ons_gen_subsystem_time ON ons_generation_data (subsystem_id, timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_ons_gen_extraction_run ON ons_generation_data (extraction_run_id);
-CREATE INDEX IF NOT EXISTS idx_ons_gen_plant_id ON ons_generation_data (ons_plant_id);
+CREATE INDEX IF NOT EXISTS idx_ons_gen_timestamp ON ingestion.ons_generation_data (timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_ons_gen_plant_time ON ingestion.ons_generation_data (plant, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_ons_gen_fuel_time ON ingestion.ons_generation_data (fuel_type, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_ons_gen_state_time ON ingestion.ons_generation_data (state, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_ons_gen_subsystem_time ON ingestion.ons_generation_data (subsystem_id, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_ons_gen_extraction_run ON ingestion.ons_generation_data (extraction_run_id);
+CREATE INDEX IF NOT EXISTS idx_ons_gen_plant_id ON ingestion.ons_generation_data (ons_plant_id);
 
 -- Natural key uniqueness (prevents cross-batch and re-load duplicates)
 -- Uses expression index because ons_plant_id is nullable (NULL != NULL in UNIQUE)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_ons_natural_key
-ON ons_generation_data (timestamp_ms, plant, COALESCE(ons_plant_id, ''));
+ON ingestion.ons_generation_data (timestamp_ms, plant, COALESCE(ons_plant_id, ''));

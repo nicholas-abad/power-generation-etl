@@ -22,9 +22,6 @@ DECLARE
     -- reference tables maintained by data/plant-data (swapped via DROP + RENAME,
     -- so they cannot be wrapped in views; ~4 MB total)
     'public.plant_crosswalk', 'public.eia_generator_info', 'public.gcpt_coal_metadata',
-    -- raw generation tables — until PR 3 re-points the dashboard; 006 revokes them
-    'public.eia_generation_data', 'public.oe_facility_generation_data',
-    'public.climatetrace_generation_data',
     -- plant-month materialized views
     'public.mv_entsoe_plant_monthly', 'public.mv_npp_plant_monthly',
     'public.mv_ons_plant_monthly', 'public.mv_occto_plant_monthly',
@@ -47,6 +44,12 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'dashboard_ro') THEN
     RAISE NOTICE 'dashboard_ro does not exist — migration 004 not applied yet; nothing to check';
     RETURN;
+  END IF;
+
+  -- 006: the dashboard role must not see INTO the ingestion schema at all.
+  IF to_regnamespace('ingestion') IS NOT NULL
+     AND has_schema_privilege('dashboard_ro', 'ingestion', 'USAGE') THEN
+    RAISE EXCEPTION 'dashboard_ro has USAGE on the ingestion schema';
   END IF;
 
   -- Every relation kind has_table_privilege understands, in every non-system

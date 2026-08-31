@@ -907,6 +907,8 @@ jobs:
         run: |
           psql -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
                -v ON_ERROR_STOP=1 -f schema/checks/dashboard_ro_surface.sql
+          psql -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+               -v ON_ERROR_STOP=1 -f schema/checks/no_shadow_tables.sql
 
   # ─────────────────────────────────────────────
   # Notify on failure — create GitHub Issue

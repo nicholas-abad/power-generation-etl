@@ -471,8 +471,20 @@ class PowerGenerationDatabase:
                 logger.error(f"Error creating table {table_type}: {e}")
                 success = False
 
+        # A fresh database is complete from one command: the dashboard reads
+        # materialized views, and /data-quality reads the row-count views —
+        # neither was created by setup until 2026-08 (review finding).
+        for extra in ("materialized_views.sql", "row_count_views.sql"):
+            try:
+                if not self._execute_schema_file(extra):
+                    success = False
+                    logger.error(f"Failed to create views from {extra}")
+            except Exception as e:
+                logger.error(f"Error creating views from {extra}: {e}")
+                success = False
+
         if success:
-            logger.info("All tables created successfully")
+            logger.info("All tables and views created successfully")
         return success
 
     def insert_npp_jsonl_data(

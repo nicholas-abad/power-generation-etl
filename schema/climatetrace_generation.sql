@@ -11,7 +11,11 @@
 -- entsoe_generation holds ~30 countries — do not split per country.
 -- Data source: https://downloads.climatetrace.org
 
-CREATE TABLE IF NOT EXISTS climatetrace_generation_data (
+-- Raw/ingestion-side relation: lives in the `ingestion` schema since migration 006.
+-- The ETL reaches it unqualified through neondb_owner's search_path.
+CREATE SCHEMA IF NOT EXISTS ingestion;
+
+CREATE TABLE IF NOT EXISTS ingestion.climatetrace_generation_data (
     id BIGSERIAL PRIMARY KEY,
 
     -- Extraction metadata
@@ -55,10 +59,10 @@ CREATE TABLE IF NOT EXISTS climatetrace_generation_data (
 
 -- Natural key uniqueness — also the upsert conflict target.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_climatetrace_natural_key
-ON climatetrace_generation_data (climatetrace_id, timestamp_ms);
+ON ingestion.climatetrace_generation_data (climatetrace_id, timestamp_ms);
 
 -- Performance indexes
-CREATE INDEX IF NOT EXISTS idx_climatetrace_country_time ON climatetrace_generation_data (country_code, timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_climatetrace_fuel_time ON climatetrace_generation_data (fuel_type, timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_climatetrace_timestamp ON climatetrace_generation_data (timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_climatetrace_extraction_run ON climatetrace_generation_data (extraction_run_id);
+CREATE INDEX IF NOT EXISTS idx_climatetrace_country_time ON ingestion.climatetrace_generation_data (country_code, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_climatetrace_fuel_time ON ingestion.climatetrace_generation_data (fuel_type, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_climatetrace_timestamp ON ingestion.climatetrace_generation_data (timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_climatetrace_extraction_run ON ingestion.climatetrace_generation_data (extraction_run_id);

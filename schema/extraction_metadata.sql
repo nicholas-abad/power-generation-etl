@@ -2,16 +2,20 @@
 -- Tracks extraction runs across all data sources
 --
 -- Usage:
---   psql power_generation -c "\i schema/extraction_metadata.sql"
+--   psql power_generation -c "\i schema/ingestion.extraction_metadata.sql"
 
 -- Enable required extensions
+-- Raw/ingestion-side relation: lives in the `ingestion` schema since migration 006.
+-- The ETL reaches it unqualified through neondb_owner's search_path.
+CREATE SCHEMA IF NOT EXISTS ingestion;
+
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ============================================================================
 -- EXTRACTION METADATA TABLE
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS extraction_metadata (
+CREATE TABLE IF NOT EXISTS ingestion.extraction_metadata (
     id SERIAL PRIMARY KEY,
 
     -- Extraction identification
@@ -46,26 +50,26 @@ CREATE TABLE IF NOT EXISTS extraction_metadata (
 
 -- Find extractions by source
 CREATE INDEX IF NOT EXISTS idx_extraction_metadata_source
-ON extraction_metadata(source);
+ON ingestion.extraction_metadata(source);
 
 -- Find extractions by date range
 CREATE INDEX IF NOT EXISTS idx_extraction_metadata_dates
-ON extraction_metadata(start_date, end_date);
+ON ingestion.extraction_metadata(start_date, end_date);
 
 -- Find recent extractions
 CREATE INDEX IF NOT EXISTS idx_extraction_metadata_timestamp
-ON extraction_metadata(extraction_timestamp DESC);
+ON ingestion.extraction_metadata(extraction_timestamp DESC);
 
 -- Find failed extractions
 CREATE INDEX IF NOT EXISTS idx_extraction_metadata_success
-ON extraction_metadata(success) WHERE success = FALSE;
+ON ingestion.extraction_metadata(success) WHERE success = FALSE;
 
 -- ============================================================================
 -- HELPER VIEWS
 -- ============================================================================
 
 -- Summary of extractions by source
-CREATE OR REPLACE VIEW extraction_summary AS
+CREATE OR REPLACE VIEW ingestion.extraction_summary AS
 SELECT
     source,
     COUNT(*) as total_runs,
@@ -76,12 +80,12 @@ SELECT
     MIN(start_date) as earliest_data,
     MAX(end_date) as latest_data,
     MAX(extraction_timestamp) as last_extraction
-FROM extraction_metadata
+FROM ingestion.extraction_metadata
 GROUP BY source
 ORDER BY source;
 
 -- Recent extractions
-CREATE OR REPLACE VIEW recent_extractions AS
+CREATE OR REPLACE VIEW ingestion.recent_extractions AS
 SELECT
     extraction_run_id,
     source,
@@ -91,7 +95,7 @@ SELECT
     total_records,
     failed_count,
     success
-FROM extraction_metadata
+FROM ingestion.extraction_metadata
 ORDER BY extraction_timestamp DESC
 LIMIT 20;
 

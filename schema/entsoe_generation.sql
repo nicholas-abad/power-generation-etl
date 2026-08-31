@@ -6,6 +6,10 @@
 --   psql power_generation -c "\i schema/entsoe_generation.sql"
 
 -- Enable required extensions
+-- Raw/ingestion-side relation: lives in the `ingestion` schema since migration 006.
+-- The ETL reaches it unqualified through neondb_owner's search_path.
+CREATE SCHEMA IF NOT EXISTS ingestion;
+
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ============================================================================
@@ -13,7 +17,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- ============================================================================
 
 -- Primary time-series data table for generation records
-CREATE TABLE IF NOT EXISTS entsoe_generation_data (
+CREATE TABLE IF NOT EXISTS ingestion.entsoe_generation_data (
     id BIGSERIAL PRIMARY KEY,
 
     -- Extraction metadata
@@ -46,31 +50,31 @@ CREATE TABLE IF NOT EXISTS entsoe_generation_data (
 -- ============================================================================
 
 -- Primary time-series analysis index (most critical)
-CREATE INDEX IF NOT EXISTS idx_generation_time_country_psr ON entsoe_generation_data 
+CREATE INDEX IF NOT EXISTS idx_generation_time_country_psr ON ingestion.entsoe_generation_data 
 (timestamp_ms, country_code, psr_type);
 
 -- Plant-specific time-series queries
-CREATE INDEX IF NOT EXISTS idx_generation_plant_time ON entsoe_generation_data 
+CREATE INDEX IF NOT EXISTS idx_generation_plant_time ON ingestion.entsoe_generation_data 
 (plant_name, timestamp_ms);
 
 -- Country-level aggregation queries
-CREATE INDEX IF NOT EXISTS idx_generation_country_time ON entsoe_generation_data 
+CREATE INDEX IF NOT EXISTS idx_generation_country_time ON ingestion.entsoe_generation_data 
 (country_code, timestamp_ms);
 
 -- PSR type analysis (fuel mix studies)
-CREATE INDEX IF NOT EXISTS idx_generation_psr_time ON entsoe_generation_data 
+CREATE INDEX IF NOT EXISTS idx_generation_psr_time ON ingestion.entsoe_generation_data 
 (psr_type, timestamp_ms);
 
 -- Extraction run tracking and data lineage
-CREATE INDEX IF NOT EXISTS idx_generation_extraction_run ON entsoe_generation_data 
+CREATE INDEX IF NOT EXISTS idx_generation_extraction_run ON ingestion.entsoe_generation_data 
 (extraction_run_id);
 
 -- Composite index for detailed filtering
-CREATE INDEX IF NOT EXISTS idx_generation_country_psr_plant ON entsoe_generation_data 
+CREATE INDEX IF NOT EXISTS idx_generation_country_psr_plant ON ingestion.entsoe_generation_data 
 (country_code, psr_type, plant_name);
 
 -- Fuel type analysis
-CREATE INDEX IF NOT EXISTS idx_generation_fuel_time ON entsoe_generation_data 
+CREATE INDEX IF NOT EXISTS idx_generation_fuel_time ON ingestion.entsoe_generation_data 
 (fuel_type, timestamp_ms);
 
 -- Schema creation complete

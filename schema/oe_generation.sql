@@ -2,7 +2,11 @@
 -- Daily generation data by fuel technology from the NEM (National Electricity Market)
 -- Data source: OpenElectricity API v4 (https://api.openelectricity.org.au/v4)
 
-CREATE TABLE IF NOT EXISTS oe_generation_data (
+-- Raw/ingestion-side relation: lives in the `ingestion` schema since migration 006.
+-- The ETL reaches it unqualified through neondb_owner's search_path.
+CREATE SCHEMA IF NOT EXISTS ingestion;
+
+CREATE TABLE IF NOT EXISTS ingestion.oe_generation_data (
     id BIGSERIAL PRIMARY KEY,
 
     -- Extraction metadata
@@ -31,8 +35,8 @@ CREATE TABLE IF NOT EXISTS oe_generation_data (
 );
 
 -- Performance indexes
-CREATE INDEX IF NOT EXISTS idx_oe_gen_timestamp ON oe_generation_data (timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_oe_gen_fueltech_time ON oe_generation_data (fueltech, timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_oe_gen_region_time ON oe_generation_data (network_region, timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_oe_gen_extraction_run ON oe_generation_data (extraction_run_id);
-CREATE INDEX IF NOT EXISTS idx_oe_gen_fueltech_group_time ON oe_generation_data (fueltech_group, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_oe_gen_timestamp ON ingestion.oe_generation_data (timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_oe_gen_fueltech_time ON ingestion.oe_generation_data (fueltech, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_oe_gen_region_time ON ingestion.oe_generation_data (network_region, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_oe_gen_extraction_run ON ingestion.oe_generation_data (extraction_run_id);
+CREATE INDEX IF NOT EXISTS idx_oe_gen_fueltech_group_time ON ingestion.oe_generation_data (fueltech_group, timestamp_ms);

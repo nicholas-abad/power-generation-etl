@@ -3,7 +3,11 @@
 -- Data source: OpenElectricity API v4 (https://api.openelectricity.org.au/v4)
 -- Includes facility coordinates (latitude/longitude) from the API
 
-CREATE TABLE IF NOT EXISTS oe_facility_generation_data (
+-- Raw/ingestion-side relation: lives in the `ingestion` schema since migration 006.
+-- The ETL reaches it unqualified through neondb_owner's search_path.
+CREATE SCHEMA IF NOT EXISTS ingestion;
+
+CREATE TABLE IF NOT EXISTS ingestion.oe_facility_generation_data (
     id BIGSERIAL PRIMARY KEY,
 
     -- Extraction metadata
@@ -50,9 +54,9 @@ CREATE TABLE IF NOT EXISTS oe_facility_generation_data (
 );
 
 -- Performance indexes
-CREATE INDEX IF NOT EXISTS idx_oe_fac_gen_timestamp ON oe_facility_generation_data (timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_oe_fac_gen_facility_time ON oe_facility_generation_data (facility_code, timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_oe_fac_gen_fueltech_time ON oe_facility_generation_data (fueltech, timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_oe_fac_gen_region_time ON oe_facility_generation_data (network_region, timestamp_ms);
-CREATE INDEX IF NOT EXISTS idx_oe_fac_gen_extraction_run ON oe_facility_generation_data (extraction_run_id);
-CREATE INDEX IF NOT EXISTS idx_oe_fac_gen_coords ON oe_facility_generation_data (latitude, longitude);
+CREATE INDEX IF NOT EXISTS idx_oe_fac_gen_timestamp ON ingestion.oe_facility_generation_data (timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_oe_fac_gen_facility_time ON ingestion.oe_facility_generation_data (facility_code, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_oe_fac_gen_fueltech_time ON ingestion.oe_facility_generation_data (fueltech, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_oe_fac_gen_region_time ON ingestion.oe_facility_generation_data (network_region, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_oe_fac_gen_extraction_run ON ingestion.oe_facility_generation_data (extraction_run_id);
+CREATE INDEX IF NOT EXISTS idx_oe_fac_gen_coords ON ingestion.oe_facility_generation_data (latitude, longitude);
