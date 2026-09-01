@@ -11,13 +11,9 @@
 --   psql power_generation -c "\i schema/materialized_views.sql"
 --
 -- Refresh (run after ETL completes):
---   REFRESH MATERIALIZED VIEW CONCURRENTLY mv_entsoe_monthly;
 --   REFRESH MATERIALIZED VIEW CONCURRENTLY mv_entsoe_plant_monthly;
---   REFRESH MATERIALIZED VIEW CONCURRENTLY mv_ons_monthly;
 --   REFRESH MATERIALIZED VIEW CONCURRENTLY mv_ons_plant_monthly;
---   REFRESH MATERIALIZED VIEW CONCURRENTLY mv_npp_monthly;
 --   REFRESH MATERIALIZED VIEW CONCURRENTLY mv_npp_plant_monthly;
---   REFRESH MATERIALIZED VIEW CONCURRENTLY mv_chile_monthly;
 --   REFRESH MATERIALIZED VIEW CONCURRENTLY mv_chile_plant_monthly;
 --   REFRESH MATERIALIZED VIEW CONCURRENTLY mv_eia_unit_monthly;
 --   REFRESH MATERIALIZED VIEW CONCURRENTLY mv_oe_plant_monthly;
@@ -27,19 +23,10 @@
 -- ============================================================================
 -- ENTSOE MATERIALIZED VIEWS
 -- ============================================================================
-
--- Aggregated by month + fuel_type (for time-series chart)
-CREATE MATERIALIZED VIEW IF NOT EXISTS mv_entsoe_monthly AS
-SELECT
-    DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)) AS month,
-    fuel_type,
-    SUM(generation_mw * COALESCE(resolution_minutes, 60) / 60.0) AS generation_mwh
-FROM ingestion.entsoe_generation_data
-GROUP BY 1, 2
-ORDER BY 1, 2;
-
-CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_entsoe_monthly
-ON mv_entsoe_monthly (month, fuel_type);
+-- NOTE: the per-fuel aggregate views (mv_<source>_monthly) were DROPPED by
+-- migration 006 — the dashboard reads only *_plant_monthly and *_row_counts
+-- since PR #36. Do not re-add them here without re-granting and updating
+-- refresh_views.py and the dashboard_ro surface check.
 
 -- Aggregated by month + plant + country + fuel_type (for map)
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_entsoe_plant_monthly AS
@@ -60,19 +47,6 @@ ON mv_entsoe_plant_monthly (month, plant_name, country_code, fuel_type);
 -- ONS MATERIALIZED VIEWS
 -- ============================================================================
 
--- Aggregated by month + fuel_type (for time-series chart)
-CREATE MATERIALIZED VIEW IF NOT EXISTS mv_ons_monthly AS
-SELECT
-    DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)) AS month,
-    fuel_type,
-    SUM(generation_mwh) AS generation_mwh
-FROM ingestion.ons_generation_data
-GROUP BY 1, 2
-ORDER BY 1, 2;
-
-CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_ons_monthly
-ON mv_ons_monthly (month, fuel_type);
-
 -- Aggregated by month + plant + state + fuel_type (for map)
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_ons_plant_monthly AS
 SELECT
@@ -92,18 +66,6 @@ ON mv_ons_plant_monthly (month, plant, state, state_name, fuel_type);
 -- ============================================================================
 -- NPP MATERIALIZED VIEWS
 -- ============================================================================
-
--- Aggregated by month (for time-series chart)
-CREATE MATERIALIZED VIEW IF NOT EXISTS mv_npp_monthly AS
-SELECT
-    DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)) AS month,
-    SUM(generation_mwh) AS generation_mwh
-FROM ingestion.npp_generation
-GROUP BY 1
-ORDER BY 1;
-
-CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_npp_monthly
-ON mv_npp_monthly (month);
 
 -- Aggregated by month + plant (for map)
 -- fuel_type via MAX() keeps the (month, plant) key stable while months mix
@@ -126,19 +88,6 @@ ON mv_npp_plant_monthly (month, plant);
 -- OCCTO MATERIALIZED VIEWS
 -- ============================================================================
 
--- Aggregated by month + fuel_type (for time-series chart)
-CREATE MATERIALIZED VIEW IF NOT EXISTS mv_occto_monthly AS
-SELECT
-    DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)) AS month,
-    fuel_type,
-    SUM(generation_mwh) AS generation_mwh
-FROM ingestion.occto_generation_data
-GROUP BY 1, 2
-ORDER BY 1, 2;
-
-CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_occto_monthly
-ON mv_occto_monthly (month, fuel_type);
-
 -- Aggregated by month + plant + area + fuel_type (for map)
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_occto_plant_monthly AS
 SELECT
@@ -157,19 +106,6 @@ ON mv_occto_plant_monthly (month, plant, area_name, fuel_type);
 -- ============================================================================
 -- CHILE MATERIALIZED VIEWS
 -- ============================================================================
-
--- Aggregated by month + fuel_type (for time-series chart)
-CREATE MATERIALIZED VIEW IF NOT EXISTS mv_chile_monthly AS
-SELECT
-    DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)) AS month,
-    fuel_type,
-    SUM(generation_mwh) AS generation_mwh
-FROM ingestion.chile_generation_data
-GROUP BY 1, 2
-ORDER BY 1, 2;
-
-CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_chile_monthly
-ON mv_chile_monthly (month, fuel_type);
 
 -- Aggregated by month + plant + region + comuna + fuel_type (for map).
 -- Coords are NOT carried here — the dashboard joins plant_crosswalk via
