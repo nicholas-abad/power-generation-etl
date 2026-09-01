@@ -33,7 +33,7 @@ BEGIN;
 -- ── applied-migrations ledger ────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS ingestion.schema_migrations (
     version    text PRIMARY KEY,
-    applied_at timestamptz NOT NULL DEFAULT now(),
+    applied_at timestamptz DEFAULT now(),   -- NULL = applied pre-ledger, date unrecorded
     notes      text
 );
 COMMENT ON TABLE ingestion.schema_migrations IS
