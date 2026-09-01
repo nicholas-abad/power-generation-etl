@@ -22,14 +22,16 @@ load_dotenv()
 # Since migration 005 every source the dashboard shows has a plant-month view,
 # so its read-only role never reads a raw generation table. Climate TRACE has no
 # row-count view on purpose: /data-quality tracks metered sources only.
+# The per-fuel aggregate views (mv_<source>_monthly) were dropped by
+# migration 006; the dashboard reads only *_plant_monthly and *_row_counts.
 SOURCE_VIEWS = {
     "eia": ["mv_eia_unit_monthly", "mv_eia_row_counts"],
-    "entsoe": ["mv_entsoe_monthly", "mv_entsoe_plant_monthly", "mv_entsoe_row_counts"],
-    "ons": ["mv_ons_monthly", "mv_ons_plant_monthly", "mv_ons_row_counts"],
-    "npp": ["mv_npp_monthly", "mv_npp_plant_monthly", "mv_npp_row_counts"],
+    "entsoe": ["mv_entsoe_plant_monthly", "mv_entsoe_row_counts"],
+    "ons": ["mv_ons_plant_monthly", "mv_ons_row_counts"],
+    "npp": ["mv_npp_plant_monthly", "mv_npp_row_counts"],
     "oe": ["mv_oe_plant_monthly", "mv_oe_row_counts"],
-    "occto": ["mv_occto_monthly", "mv_occto_plant_monthly", "mv_occto_row_counts"],
-    "chile": ["mv_chile_monthly", "mv_chile_plant_monthly", "mv_chile_row_counts"],
+    "occto": ["mv_occto_plant_monthly", "mv_occto_row_counts"],
+    "chile": ["mv_chile_plant_monthly", "mv_chile_row_counts"],
     "climatetrace": ["mv_climatetrace_coal_monthly"],
 }
 
