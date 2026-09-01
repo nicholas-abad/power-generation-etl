@@ -394,6 +394,11 @@ class PowerGenerationDatabase:
                 schema_sql = f.read()
 
             with self.engine.connect() as conn:
+                # Month bucketing in the view definitions uses
+                # to_timestamp(timestamp_ms/1000), whose date_trunc('month')
+                # boundary depends on the session TimeZone. Pin it so a client
+                # with a local TZ can't silently shift month buckets.
+                conn.execute(text("SET TIME ZONE 'UTC'"))
                 conn.execute(text(schema_sql))
                 conn.commit()
                 logger.info(f"Schema executed successfully: {schema_filename}")

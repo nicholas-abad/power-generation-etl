@@ -911,10 +911,33 @@ jobs:
                -v ON_ERROR_STOP=1 -f schema/checks/no_shadow_tables.sql
 
   # ─────────────────────────────────────────────
+  # Source freshness — asserts on the DATA, not job status. The 2026-08
+  # ENTSO-E outage went unalerted for four weeks because the extractor exits 0
+  # when the API is down; this fails (and files the weekly issue) until every
+  # source has a successful extraction_metadata row within 9 days.
+  # ─────────────────────────────────────────────
+  check-source-freshness:
+    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-climatetrace]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout ETL repo
+        uses: actions/checkout@v4
+
+      - name: Check per-source extraction freshness
+        env:
+          PGPASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          PGSSLMODE: require
+        run: |
+          psql -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+               -v ON_ERROR_STOP=1 -f schema/checks/source_freshness.sql
+
+  # ─────────────────────────────────────────────
   # Notify on failure — create GitHub Issue
   # ─────────────────────────────────────────────
   notify-failure:
-    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-climatetrace, fetch-gem, rebuild-crosswalk, refresh-views, check-crosswalk-drift, check-dashboard-ro-surface]
+    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-climatetrace, fetch-gem, rebuild-crosswalk, refresh-views, check-crosswalk-drift, check-dashboard-ro-surface, check-source-freshness]
     if: ${{ always() && contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     steps:
@@ -936,6 +959,7 @@ jobs:
               'fetch-gem': '${{ needs.fetch-gem.result }}',
               'rebuild-crosswalk': '${{ needs.rebuild-crosswalk.result }}',
               'check-dashboard-ro-surface': '${{ needs.check-dashboard-ro-surface.result }}',
+              'check-source-freshness': '${{ needs.check-source-freshness.result }}',
             };
             const failed = Object.entries(jobs)
               .filter(([_, v]) => v === 'failure')

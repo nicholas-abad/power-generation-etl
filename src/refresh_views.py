@@ -58,6 +58,11 @@ def refresh_views(views: list[str]) -> bool:
         logger.info(f"Refreshing {view}...")
         try:
             with engine.connect() as conn:
+                # The view queries bucket by date_trunc('month',
+                # to_timestamp(...)), which follows the session TimeZone.
+                # Pin UTC so a refresh from any client bucket-matches the
+                # cluster default (GMT) the views were built under.
+                conn.execute(text("SET TIME ZONE 'UTC'"))
                 conn.execute(text(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view}"))
                 conn.commit()
             elapsed = time.time() - start
