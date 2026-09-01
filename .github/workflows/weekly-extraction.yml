@@ -34,6 +34,7 @@ on:
           - 'OCCTO (Japan)'
           - 'Chile (Coordinador)'
           - 'Climate TRACE (global)'
+          - 'GEM + crosswalk only'
       start_override:
         description: 'Re-run window start (YYYY-MM-DD). Leave blank for default (latest in DB).'
         required: false
@@ -638,9 +639,11 @@ jobs:
   # reference for plant identity — no spreadsheet.
   # ─────────────────────────────────────────────
   fetch-gem:
-    # Full runs only: a single-source manual dispatch must not trigger the
+    # Full runs only — a single-source manual dispatch must not trigger the
     # crosswalk rebuild + prod swap (rebuild-crosswalk is gated on this job).
-    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' }}
+    # Exception: 'GEM + crosswalk only' is the on-demand rebuild button, e.g.
+    # right after the review team's decisions were imported. No extractors run.
+    if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'GEM + crosswalk only' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     concurrency:
@@ -714,24 +717,20 @@ jobs:
           done
           grep -q "FROZEN_VALUE_COLUMNS" plant-data/src/build_crosswalk.py || { echo "::error::build_crosswalk.py lacks tier-0 frozen values"; exit 1; }
 
-      - name: Fetch non-GEM reference data (GPPD, EIA plant lookup, NPP-GIPT)
-        env:
-          CROSSWALK_REF_DATA_URL: ${{ secrets.CROSSWALK_REF_DATA_URL }}
+      - name: Verify non-GEM reference data (GPPD, EIA plant lookup, NPP-GIPT)
+        # Committed to plant-data since 2026-09-01 (6e4a196) — no hosted
+        # bundle, no CROSSWALK_REF_DATA_URL secret. This only asserts the
+        # checkout carries them.
         run: |
-          if [ -z "$CROSSWALK_REF_DATA_URL" ]; then
-            echo "::error::CROSSWALK_REF_DATA_URL not set — the rebuild needs GPPD and the EIA plant lookup."
-            exit 1
-          fi
-          curl -fsSL "$CROSSWALK_REF_DATA_URL" -o /tmp/refdata.tar.gz
-          tar -xzf /tmp/refdata.tar.gz -C plant-data/data/crosswalks/
           missing=0
           test -f "plant-data/data/crosswalks/global_power_plant_database.csv" \
-            || { echo "::error::global_power_plant_database.csv missing after extracting reference bundle"; missing=1; }
+            || { echo "::error::global_power_plant_database.csv missing from plant-data checkout"; missing=1; }
           test -f "plant-data/data/crosswalks/eia_plant_lookup.csv" \
-            || { echo "::error::eia_plant_lookup.csv missing after extracting reference bundle"; missing=1; }
+            || { echo "::error::eia_plant_lookup.csv missing from plant-data checkout"; missing=1; }
           test -f "plant-data/data/crosswalks/NPP_GIPT_crosswalk (1).csv" \
-            || { echo "::error::NPP_GIPT_crosswalk (1).csv missing after extracting reference bundle"; missing=1; }
+            || { echo "::error::NPP_GIPT_crosswalk (1).csv missing from plant-data checkout"; missing=1; }
           [ "$missing" = "1" ] && exit 1
+          echo "reference data present in plant-data checkout"
 
       - name: Rebuild crosswalk (all sources, GEM tables, tier-0 decisions preserved)
         run: |
@@ -918,7 +917,9 @@ jobs:
   # ─────────────────────────────────────────────
   check-source-freshness:
     needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-climatetrace]
-    if: ${{ !cancelled() }}
+    # Skip on crosswalk-only dispatches (every extractor skipped): an
+    # on-demand rebuild shouldn't file the weekly staleness issue again.
+    if: ${{ !cancelled() && (needs.extract-eia.result != 'skipped' || needs.extract-ons.result != 'skipped' || needs.extract-entsoe.result != 'skipped' || needs.extract-npp.result != 'skipped' || needs.extract-oe.result != 'skipped' || needs.extract-occto.result != 'skipped' || needs.extract-chile.result != 'skipped' || needs.extract-climatetrace.result != 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
