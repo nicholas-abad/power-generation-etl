@@ -1591,10 +1591,24 @@ class PowerGenerationDatabase:
                 df = pd.DataFrame(valid_records)
 
                 def _upsert_oe_facility():
+                    # DO UPDATE, not DO NOTHING: the 2018-2026 history was
+                    # first loaded under a restricted OpenElectricity plan
+                    # that returned only some units per facility, and OE also
+                    # revises recent days. Skip-on-conflict froze those
+                    # undercounted rows forever (the 2026-09 backfill wrote
+                    # nothing); updating value columns lets a re-extraction
+                    # correct history in place. Unchanged rows are not
+                    # rewritten (IS DISTINCT FROM guard in the helper).
                     return self._upsert_via_staging(
                         df,
                         "oe_facility_generation_data",
                         ["timestamp_ms", "facility_code", "fueltech"],
+                        update_columns=[
+                            "generation_mwh",
+                            "capacity_registered_mw",
+                            "extraction_run_id",
+                            "created_at_ms",
+                        ],
                     )
 
                 inserted = self._execute_with_retry(_upsert_oe_facility)
