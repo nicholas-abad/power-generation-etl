@@ -19,6 +19,16 @@ inputs:
     description: 'Re-run window end (YYYY-MM-DD) — empty string falls through'
     required: false
     default: ''
+  lookback_years:
+    description: >-
+      Pull the window start back this many years (0 = off). EIA passes 1:
+      its monthly file only covers ~3,000 survey plants and ~9,500
+      annual-only respondents appear in the prior year's file until the
+      Final lands each autumn — without the lookback, year N-1 leaves the
+      window in January and those plants are never fetched (2026-09 audit:
+      133 TWh of 2025 missing). Loaders upsert, so the re-fetch is cheap.
+    required: false
+    default: '0'
 
 outputs:
   start_date:
@@ -43,6 +53,7 @@ runs:
         START_OVERRIDE: ${{ inputs.start_override }}
         END_OVERRIDE: ${{ inputs.end_override }}
         SOURCE: ${{ inputs.source }}
+        LOOKBACK_YEARS: ${{ inputs.lookback_years }}
       run: |
         set -euo pipefail
         date_re='^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
@@ -71,6 +82,15 @@ runs:
 
         START_YEAR="${START_DATE%%-*}"
         END_YEAR="${END_DATE%%-*}"
+
+        if [ "${LOOKBACK_YEARS:-0}" != "0" ] && [ -z "$START_OVERRIDE" ]; then
+          LOOKED_BACK=$(( END_YEAR - LOOKBACK_YEARS ))
+          if [ "$LOOKED_BACK" -lt "$START_YEAR" ]; then
+            echo "Lookback: start_year $START_YEAR → $LOOKED_BACK (revisions window)"
+            START_YEAR="$LOOKED_BACK"
+            START_DATE="$LOOKED_BACK-01-01"
+          fi
+        fi
 
         {
           echo "start_date=$START_DATE"

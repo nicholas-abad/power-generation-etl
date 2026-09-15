@@ -104,6 +104,8 @@ jobs:
           source: eia
           start_override: ${{ inputs.start_override }}
           end_override: ${{ inputs.end_override }}
+          # EIA revises year N-1 until its Final each autumn; see the action.
+          lookback_years: '1' 
 
       - name: Extract EIA data
         run: |
@@ -112,7 +114,7 @@ jobs:
             --start-year "${{ steps.latest.outputs.start_year }}" \
             --end-year "${{ steps.latest.outputs.end_year }}" \
             --output ../extracted_data \
-            --log-level INFO
+            --log-level INFO || { rc=$?; [ "$rc" -eq 2 ] || exit "$rc"; }
 
       - name: Load EIA data into Neon
         run: |
@@ -121,6 +123,17 @@ jobs:
             uv run python src/database_management.py load-data eia "$f"
           done
 
+
+      - name: Fail on partial extraction
+        # The extractor exits 2 and writes failures.json when SOME periods
+        # failed (2026-09 audit): the guard above lets the good rows load
+        # first, then this fails the job loudly with the manifest.
+        run: |
+          if [ -s extracted_data/failures.json ]; then
+            echo "::error::partial extraction — failed periods:"
+            cat extracted_data/failures.json
+            exit 1
+          fi
       - name: Upload artifacts (on failure only)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -185,7 +198,7 @@ jobs:
             --start-year "${{ steps.latest.outputs.start_year }}" \
             --end-year "${{ steps.latest.outputs.end_year }}" \
             --output ../extracted_data \
-            --log-level INFO
+            --log-level INFO || { rc=$?; [ "$rc" -eq 2 ] || exit "$rc"; }
 
       - name: Load ONS data into Neon
         run: |
@@ -194,6 +207,17 @@ jobs:
             uv run python src/database_management.py load-data ons "$f"
           done
 
+
+      - name: Fail on partial extraction
+        # The extractor exits 2 and writes failures.json when SOME periods
+        # failed (2026-09 audit): the guard above lets the good rows load
+        # first, then this fails the job loudly with the manifest.
+        run: |
+          if [ -s extracted_data/failures.json ]; then
+            echo "::error::partial extraction — failed periods:"
+            cat extracted_data/failures.json
+            exit 1
+          fi
       - name: Upload artifacts (on failure only)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -314,7 +338,7 @@ jobs:
             --start-date "${{ steps.latest.outputs.start_date }}" \
             --end-date "${{ steps.latest.outputs.end_date }}" \
             --output ../extracted_data \
-            --log-level INFO
+            --log-level INFO || { rc=$?; [ "$rc" -eq 2 ] || exit "$rc"; }
 
       - name: Load NPP data into Neon
         run: |
@@ -323,6 +347,17 @@ jobs:
             uv run python src/database_management.py load-data npp "$f"
           done
 
+
+      - name: Fail on partial extraction
+        # The extractor exits 2 and writes failures.json when SOME periods
+        # failed (2026-09 audit): the guard above lets the good rows load
+        # first, then this fails the job loudly with the manifest.
+        run: |
+          if [ -s extracted_data/failures.json ]; then
+            echo "::error::partial extraction — failed periods:"
+            cat extracted_data/failures.json
+            exit 1
+          fi
       - name: Upload artifacts (on failure only)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -390,7 +425,7 @@ jobs:
             --end-date "${{ steps.latest.outputs.end_date }}" \
             --output ../extracted_data \
             --facilities \
-            --log-level INFO
+            --log-level INFO || { rc=$?; [ "$rc" -eq 2 ] || exit "$rc"; }
 
       - name: Load OE facility data into Neon
         run: |
@@ -399,6 +434,17 @@ jobs:
             uv run python src/database_management.py load-data oe_facility "$f"
           done
 
+
+      - name: Fail on partial extraction
+        # The extractor exits 2 and writes failures.json when SOME periods
+        # failed (2026-09 audit): the guard above lets the good rows load
+        # first, then this fails the job loudly with the manifest.
+        run: |
+          if [ -s extracted_data/failures.json ]; then
+            echo "::error::partial extraction — failed periods:"
+            cat extracted_data/failures.json
+            exit 1
+          fi
       - name: Upload artifacts (on failure only)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -522,7 +568,7 @@ jobs:
             --start-date "${{ steps.latest.outputs.start_date }}" \
             --end-date "${{ steps.latest.outputs.end_date }}" \
             --output ../extracted_data \
-            --log-level INFO
+            --log-level INFO || { rc=$?; [ "$rc" -eq 2 ] || exit "$rc"; }
 
       - name: Load Chile data into Neon
         run: |
@@ -531,6 +577,17 @@ jobs:
             uv run python src/database_management.py load-data chile "$f"
           done
 
+
+      - name: Fail on partial extraction
+        # The extractor exits 2 and writes failures.json when SOME periods
+        # failed (2026-09 audit): the guard above lets the good rows load
+        # first, then this fails the job loudly with the manifest.
+        run: |
+          if [ -s extracted_data/failures.json ]; then
+            echo "::error::partial extraction — failed periods:"
+            cat extracted_data/failures.json
+            exit 1
+          fi
       - name: Upload artifacts (on failure only)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -611,7 +668,7 @@ jobs:
           uv run energy-extract climatetrace \
             --min-confidence medium \
             --output ../extracted_data \
-            --log-level INFO
+            --log-level INFO || { rc=$?; [ "$rc" -eq 2 ] || exit "$rc"; }
 
       - name: Load Climate TRACE data into Neon
         run: |
@@ -620,6 +677,17 @@ jobs:
             uv run python src/database_management.py load-data climatetrace "$f"
           done
 
+
+      - name: Fail on partial extraction
+        # The extractor exits 2 and writes failures.json when SOME periods
+        # failed (2026-09 audit): the guard above lets the good rows load
+        # first, then this fails the job loudly with the manifest.
+        run: |
+          if [ -s extracted_data/failures.json ]; then
+            echo "::error::partial extraction — failed periods:"
+            cat extracted_data/failures.json
+            exit 1
+          fi
       - name: Upload artifacts (on failure only)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -941,10 +1009,30 @@ jobs:
                -v ON_ERROR_STOP=1 -f schema/checks/source_freshness.sql
 
   # ─────────────────────────────────────────────
+  # Totals drift tripwire — a mature month's total moving >15% week-over-week
+  # means an upstream restatement or data loss; either way a human looks.
+  # Would have caught both 2026 incidents (Australia halving, EIA window gap).
+  # ─────────────────────────────────────────────
+  check-totals-drift:
+    needs: [refresh-views]
+    if: ${{ !cancelled() && needs.refresh-views.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout ETL repo
+        uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+      - name: Install ETL dependencies
+        run: uv sync
+      - name: Check per-source monthly totals vs last snapshot
+        run: uv run python src/check_totals_drift.py
+
+  # ─────────────────────────────────────────────
   # Notify on failure — create GitHub Issue
   # ─────────────────────────────────────────────
   notify-failure:
-    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-climatetrace, fetch-gem, rebuild-crosswalk, refresh-views, check-crosswalk-drift, check-dashboard-ro-surface, check-source-freshness]
+    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-climatetrace, fetch-gem, rebuild-crosswalk, refresh-views, check-crosswalk-drift, check-dashboard-ro-surface, check-source-freshness, check-totals-drift]
     if: ${{ always() && contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     steps:
@@ -967,6 +1055,7 @@ jobs:
               'rebuild-crosswalk': '${{ needs.rebuild-crosswalk.result }}',
               'check-dashboard-ro-surface': '${{ needs.check-dashboard-ro-surface.result }}',
               'check-source-freshness': '${{ needs.check-source-freshness.result }}',
+              'check-totals-drift': '${{ needs.check-totals-drift.result }}',
             };
             const failed = Object.entries(jobs)
               .filter(([_, v]) => v === 'failure')
