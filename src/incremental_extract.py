@@ -119,8 +119,10 @@ def run_extract(cmd: list[str], **kwargs) -> int:
     if proc.returncode not in (0, 2):
         raise subprocess.CalledProcessError(proc.returncode, cmd)
     if proc.returncode == 2:
-        logger.error("extractor reported PARTIAL extraction (exit 2) — "
-                     "loading what succeeded; job will fail at the end")
+        logger.error(
+            "extractor reported PARTIAL extraction (exit 2) — "
+            "loading what succeeded; job will fail at the end"
+        )
     return proc.returncode
 
 
