@@ -59,7 +59,9 @@ def main() -> int:
         snap = {
             (r[0], r[1]): r[2]
             for r in conn.execute(
-                text("SELECT source, month, total_mwh FROM ingestion.monthly_totals_snapshot")
+                text(
+                    "SELECT source, month, total_mwh FROM ingestion.monthly_totals_snapshot"
+                )
             )
         }
         for source, sql in SOURCE_TOTALS.items():
