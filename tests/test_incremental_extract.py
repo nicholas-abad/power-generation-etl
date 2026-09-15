@@ -112,7 +112,7 @@ class TestEntsoeEmptyOutputGuard:
         monkeypatch.setenv("END_OVERRIDE", end)
         monkeypatch.setattr(ie, "EXTRACTED_DATA", tmp_path)
         # subprocess is a no-op: simulates extraction that writes nothing
-        monkeypatch.setattr(ie, "run", lambda *a, **k: None)
+        monkeypatch.setattr(ie, "run_extract", lambda *a, **k: 0)
         return ie.extract_entsoe()
 
     def test_past_month_with_no_output_raises(self, monkeypatch, tmp_path):

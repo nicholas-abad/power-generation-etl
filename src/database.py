@@ -312,9 +312,22 @@ class PowerGenerationDatabase:
 
             # 3. INSERT from staging into target; conflicts are skipped
             # (DO NOTHING) or, with update_columns, revised in place.
+            # With update_columns, intra-batch duplicate natural keys must be
+            # collapsed first: ON CONFLICT DO UPDATE raises CardinalityViolation
+            # where DO NOTHING silently kept the first row. DISTINCT ON keeps
+            # one row per key (the last in file order — matching the source's
+            # "later row supersedes" convention).
+            if update_columns:
+                select_sql = (
+                    f"SELECT DISTINCT ON ({conflict_target[1:-1]}) {col_list} "
+                    f"FROM (SELECT {col_list}, ROW_NUMBER() OVER () AS _rn FROM {staging}) _s "
+                    f"ORDER BY {conflict_target[1:-1]}, _rn DESC"
+                )
+            else:
+                select_sql = f"SELECT {col_list} FROM {staging}"
             cursor.execute(
                 f"INSERT INTO {insert_target} ({col_list}) "
-                f"SELECT {col_list} FROM {staging} "
+                f"{select_sql} "
                 f"ON CONFLICT {conflict_target} {conflict_action}"
             )
             inserted = cursor.rowcount
@@ -903,6 +916,17 @@ class PowerGenerationDatabase:
                 df,
                 "entsoe_generation_data",
                 ["timestamp_ms", "country_code", "psr_type", "plant_name"],
+                # TSOs re-submit corrected actuals with no fixed schedule; the
+                # weekly window re-fetches the tail month from day 1, so DO
+                # NOTHING silently froze every correction (2026-09 audit).
+                update_columns=[
+                    "generation_mw",
+                    "fuel_type",
+                    "data_type",
+                    "resolution_minutes",
+                    "extraction_run_id",
+                    "created_at_ms",
+                ],
             )
 
         inserted = self._execute_with_retry(_upsert)
@@ -1127,6 +1151,18 @@ class PowerGenerationDatabase:
                         df,
                         "eia_generation_data",
                         ["timestamp_ms", "plant_code", "generator_id"],
+                        # EIA revises monthly data repeatedly until the annual
+                        # Final (~autumn N+1); with the widened fetch window,
+                        # revisions must land (2026-09 audit: 31 frozen rows +
+                        # 133 TWh of annual-only respondents outside the window).
+                        update_columns=[
+                            "net_generation_mwh",
+                            "utility_id",
+                            "state",
+                            "prime_mover",
+                            "extraction_run_id",
+                            "created_at_ms",
+                        ],
                     )
 
                 inserted = self._execute_with_retry(_upsert_eia)
@@ -1248,6 +1284,23 @@ class PowerGenerationDatabase:
                                 df,
                                 "ons_generation_data",
                                 conflict_expr="timestamp_ms, plant, COALESCE(ons_plant_id, '')",
+                                # ONS re-publishes current-year files under a
+                                # documented "recurring consistency process";
+                                # the weekly run re-downloads the whole year,
+                                # so DO NOTHING discarded restatements weekly
+                                # (2026-09 audit: 21/205 plants restated).
+                                update_columns=[
+                                    "generation_mwh",
+                                    "fuel_type",
+                                    "plant_type",
+                                    "subsystem_id",
+                                    "subsystem",
+                                    "state",
+                                    "state_name",
+                                    "operation_mode",
+                                    "extraction_run_id",
+                                    "created_at_ms",
+                                ],
                             )
 
                         inserted = self._execute_with_retry(_upsert_chunk)
@@ -1395,6 +1448,15 @@ class PowerGenerationDatabase:
                         df,
                         "occto_generation_data",
                         conflict_expr="timestamp_ms, plant, COALESCE(unit, '')",
+                        # Backfills must be able to correct history in place
+                        # (2026-09 audit; weekly window never overlaps, so this
+                        # only fires on deliberate re-extractions).
+                        update_columns=[
+                            "generation_mwh",
+                            "fuel_type",
+                            "extraction_run_id",
+                            "created_at_ms",
+                        ],
                     )
 
                 inserted = self._execute_with_retry(_upsert_occto)
@@ -1823,6 +1885,17 @@ class PowerGenerationDatabase:
                                 df,
                                 "chile_generation_data",
                                 conflict_expr="timestamp_ms, plant, COALESCE(chile_plant_id, '')",
+                                # Coordinador serves operational data that gets
+                                # revised; the weekly window re-fetches the last
+                                # loaded day (2026-09 audit).
+                                update_columns=[
+                                    "generation_mwh",
+                                    "fuel_type",
+                                    "region",
+                                    "comuna",
+                                    "extraction_run_id",
+                                    "created_at_ms",
+                                ],
                             )
 
                         inserted = self._execute_with_retry(_upsert_chunk)

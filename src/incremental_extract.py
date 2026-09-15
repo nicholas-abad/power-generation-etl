@@ -107,6 +107,23 @@ def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, check=True, env=env, **kwargs)
 
 
+def run_extract(cmd: list[str], **kwargs) -> int:
+    """Like run(), but tolerates the extractor's exit 2 (= PARTIAL: data files
+    written, some periods failed — see extractors cli/runner.py). Returns the
+    exit code so the caller can load the good rows, keep iterating, and fail
+    the whole job at the end. Any other non-zero still raises."""
+    logger.info(f"$ {' '.join(cmd)}")
+    env = kwargs.pop("env", None) or os.environ.copy()
+    env.setdefault("PYTHONUNBUFFERED", "1")
+    proc = subprocess.run(cmd, check=False, env=env, **kwargs)
+    if proc.returncode not in (0, 2):
+        raise subprocess.CalledProcessError(proc.returncode, cmd)
+    if proc.returncode == 2:
+        logger.error("extractor reported PARTIAL extraction (exit 2) — "
+                     "loading what succeeded; job will fail at the end")
+    return proc.returncode
+
+
 def load_and_remove(source: str, jsonl: Path) -> None:
     """Load JSONL into Neon then delete. Skips empty files (current
     month may legitimately have 0 records, and the load step has a
@@ -132,6 +149,7 @@ def extract_entsoe() -> int:
     warn_if_long_window("entsoe", start, end)
 
     n = 0
+    partial_months: list[str] = []
     current = start
     while current <= end:
         gh_group(f"Extract ENTSOE {current.year}-{current.month:02d}")
@@ -141,7 +159,7 @@ def extract_entsoe() -> int:
             "END_YEAR": str(current.year),
             "MONTHS": str(current.month),
         }
-        run(
+        rc = run_extract(
             [
                 str(EXTRACT_BIN),
                 "entsoe",
@@ -153,6 +171,8 @@ def extract_entsoe() -> int:
             ],
             env=env,
         )
+        if rc == 2:
+            partial_months.append(f"{current.year}-{current.month:02d}")
         entsoe_files = sorted(EXTRACTED_DATA.glob("entsoe_*_etl.jsonl"))
         if entsoe_files:
             for f in entsoe_files:
@@ -176,6 +196,13 @@ def extract_entsoe() -> int:
         gh_endgroup()
         n += 1
         current = add_months(current, 1)
+    if partial_months:
+        raise RuntimeError(
+            f"ENTSOE PARTIAL months (some country/PSR combos failed after "
+            f"retries): {partial_months} — good rows were loaded; the failed "
+            f"combos need a start_override backfill. See failures.json in the "
+            f"job artifacts."
+        )
     return n
 
 
@@ -189,6 +216,7 @@ def extract_occto() -> int:
     warn_if_long_window("occto", resume, end_date)
 
     n = 0
+    partial_chunks: list[str] = []
     current = resume.replace(day=1)
     end_month = end_date.replace(day=1)
     while current <= end_month:
@@ -196,7 +224,7 @@ def extract_occto() -> int:
         iter_start = max(current, resume)
         iter_end = min(next_first - timedelta(days=1), end_date)
         gh_group(f"Extract OCCTO {iter_start} → {iter_end}")
-        run(
+        rc = run_extract(
             [
                 str(EXTRACT_BIN),
                 "occto",
@@ -212,6 +240,8 @@ def extract_occto() -> int:
         # Glob instead of guessing the exact filename (like the ENTSOE branch)
         # — a silent naming-convention change in the extractor must not mean
         # "extraction green, nothing loaded, forever".
+        if rc == 2:
+            partial_chunks.append(f"{iter_start}→{iter_end}")
         occto_files = sorted(EXTRACTED_DATA.glob("occto_*_etl.jsonl"))
         if occto_files:
             for f in occto_files:
@@ -232,6 +262,12 @@ def extract_occto() -> int:
         gh_endgroup()
         n += 1
         current = next_first
+    if partial_chunks:
+        raise RuntimeError(
+            f"OCCTO PARTIAL chunks (truncated/failed after retries): "
+            f"{partial_chunks} — good rows were loaded; the failed chunks "
+            f"need a start_override backfill."
+        )
     return n
 
 
