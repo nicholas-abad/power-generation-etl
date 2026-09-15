@@ -35,6 +35,9 @@ SOURCE_CHECKS = [
     ("OE", "oe_facility_generation_data", "facility_code", "plant_code"),
     ("OCCTO", "occto_generation_data", "plant", "plant_name"),
     ("CHILE", "chile_generation_data", "plant", "plant_name"),
+    # CT: the coal matview, not the raw table — the raw table carries every
+    # fuel and would report all gas/oil CT plants as drift forever.
+    ("CT", "mv_climatetrace_coal_monthly", "climatetrace_id", "plant_code"),
 ]
 
 

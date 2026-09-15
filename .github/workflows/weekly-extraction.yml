@@ -678,7 +678,13 @@ jobs:
   # extraction must not leave the crosswalk stale for every other source.
   # ─────────────────────────────────────────────
   rebuild-crosswalk:
-    needs: [fetch-gem, extract-npp, extract-eia, extract-ons, extract-entsoe, extract-oe, extract-occto, extract-chile]
+    # refresh-views is a dependency since the CT lane: build_crosswalk reads
+    # mv_climatetrace_coal_monthly, which refresh-views rewrites — running in
+    # parallel would read a stale or mid-REFRESH matview. On the
+    # 'GEM + crosswalk only' dispatch refresh-views is skipped (skipped needs
+    # don't block this if) and the rebuild uses last week's CT matview —
+    # acceptable for an on-demand decisions rebuild.
+    needs: [fetch-gem, refresh-views, extract-npp, extract-eia, extract-ons, extract-entsoe, extract-oe, extract-occto, extract-chile, extract-climatetrace]
     # !cancelled(), not always(): a human cancelling the run must not still
     # trigger a production swap. Failed/skipped extractors do not block it.
     if: ${{ !cancelled() && needs.fetch-gem.result == 'success' }}
