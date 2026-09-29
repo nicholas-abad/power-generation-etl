@@ -81,9 +81,11 @@ def window_end(today: date) -> date:
     return date.fromisoformat(override) if override else today
 
 
-# 350-min job timeout / ~5min per ENTSOE month / ~6min per OCCTO month
-# both work out to ~12-month soft ceiling before risking a timeout.
-LONG_WINDOW_MONTHS = 12
+# 350-min job timeout. ENTSO-E since 2026-08: one request per country per
+# day (data item 16.1.A allows at most one day), measured 188 s per day for
+# all 101 domains -> ~95 min per month -> ~3-month soft ceiling. OCCTO:
+# ~6 min per month -> ~12 months.
+LONG_WINDOW_MONTHS = {"entsoe": 3, "occto": 12}
 
 
 def warn_if_long_window(source: str, start: date, end: date) -> None:
@@ -91,7 +93,7 @@ def warn_if_long_window(source: str, start: date, end: date) -> None:
     hitting the 350-minute job timeout. The user can still proceed — this
     is a heads-up, not a guardrail."""
     months = (end.year - start.year) * 12 + (end.month - start.month) + 1
-    if months > LONG_WINDOW_MONTHS:
+    if months > LONG_WINDOW_MONTHS.get(source, 12):
         logger.warning(
             f"{source}: extracting {months} months ({start} → {end}) "
             f"may exceed the 350-min job timeout — consider splitting into "
