@@ -24,9 +24,15 @@ SOURCE_CONFIG = {
     ),
     "npp": ("npp_generation", "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date"),
     "ons": ("ons_generation_data", "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date"),
+    # Two grids (NEM, WEM) share the table: start from the grid that is
+    # furthest behind, so one grid failing a week cannot leave a hole that the
+    # other grid's newer rows would hide.
     "oe": (
-        "oe_facility_generation_data",
-        "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date",
+        (
+            "(SELECT MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date AS latest_day "
+            "FROM oe_facility_generation_data GROUP BY network_code) per_network"
+        ),
+        "MIN(latest_day)",
     ),
     "occto": ("occto_generation_data", "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date"),
     "chile": ("chile_generation_data", "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date"),
