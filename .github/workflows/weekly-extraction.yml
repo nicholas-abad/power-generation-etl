@@ -826,8 +826,11 @@ jobs:
           uv run python - <<'PY'
           import sys
           sys.path.insert(0, "scripts")
-          from bootstrap_neon_db import get_engine, load_unified_crosswalk
-          load_unified_crosswalk(get_engine())
+          from bootstrap_neon_db import get_engine, load_npp_unit_map, load_unified_crosswalk
+          engine = get_engine()
+          load_unified_crosswalk(engine)
+          # India at unit grain (plants split across GEM sites, e.g. BARH STPS)
+          load_npp_unit_map(engine)
           PY
 
       - name: Export decisions audit trail
