@@ -24,7 +24,7 @@ DECLARE
     'public.plant_crosswalk', 'public.eia_generator_info', 'public.gcpt_coal_metadata',
     -- plant-month materialized views
     'public.mv_entsoe_plant_monthly', 'public.mv_npp_plant_monthly',
-    'public.mv_npp_unit_monthly',
+    'public.mv_npp_unit_monthly', 'public.mv_occto_unit_monthly',
     'public.mv_ons_plant_monthly', 'public.mv_occto_plant_monthly',
     'public.mv_chile_plant_monthly',
     'public.mv_eia_unit_monthly', 'public.mv_oe_plant_monthly',       -- 005
