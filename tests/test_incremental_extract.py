@@ -79,25 +79,30 @@ class TestWindowEnd:
 
 class TestWarnIfLongWindow:
     def test_short_window_does_not_warn(self, loguru_messages):
-        warn_if_long_window("entsoe", date(2025, 1, 1), date(2025, 6, 30))
+        warn_if_long_window("entsoe", date(2025, 1, 1), date(2025, 3, 31))
         assert not any("may exceed" in m for m in loguru_messages)
 
-    def test_at_threshold_does_not_warn(self, loguru_messages):
-        # 12 months exactly — should NOT warn (LONG_WINDOW_MONTHS is the
-        # max allowed without warning).
-        warn_if_long_window("entsoe", date(2025, 1, 1), date(2025, 12, 31))
+    def test_entsoe_at_threshold_does_not_warn(self, loguru_messages):
+        # 3 months exactly — the ENTSO-E ceiling since one-day requests
+        warn_if_long_window("entsoe", date(2025, 1, 1), date(2025, 3, 31))
         assert not any("may exceed" in m for m in loguru_messages)
 
-    def test_just_over_threshold_warns(self, loguru_messages):
-        warn_if_long_window("entsoe", date(2025, 1, 1), date(2026, 1, 31))
+    def test_entsoe_just_over_threshold_warns(self, loguru_messages):
+        warn_if_long_window("entsoe", date(2025, 1, 1), date(2025, 4, 30))
         joined = "\n".join(loguru_messages)
         assert "may exceed" in joined
-        assert "13 months" in joined
+        assert "4 months" in joined
         assert "entsoe" in joined
 
-    def test_threshold_constant_is_12(self):
-        # Sanity check the documented soft ceiling.
-        assert LONG_WINDOW_MONTHS == 12
+    def test_occto_keeps_twelve_month_ceiling(self, loguru_messages):
+        warn_if_long_window("occto", date(2025, 1, 1), date(2025, 12, 31))
+        assert not any("may exceed" in m for m in loguru_messages)
+        warn_if_long_window("occto", date(2025, 1, 1), date(2026, 1, 31))
+        assert any("13 months" in m for m in loguru_messages)
+
+    def test_thresholds(self):
+        # ENTSO-E: ~95 min per month of one-day requests; OCCTO ~6 min
+        assert LONG_WINDOW_MONTHS == {"entsoe": 3, "occto": 12}
 
 
 class TestEntsoeEmptyOutputGuard:
