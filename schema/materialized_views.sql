@@ -94,6 +94,10 @@ SELECT
     DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)) AS month,
     plant,
     COALESCE(unit, '') AS unit,
+    -- fuel_type is single-valued per plant (verified in prod); carried so
+    -- consumers can apply the same THERMAL filter as the plant view without
+    -- a join (the GEM tracker frontend filters every NPP read this way).
+    MAX(fuel_type) AS fuel_type,
     SUM(generation_mwh) AS generation_mwh
 FROM ingestion.npp_generation
 GROUP BY 1, 2, 3;
