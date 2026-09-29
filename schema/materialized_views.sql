@@ -105,6 +105,23 @@ GROUP BY 1, 2, 3;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_npp_unit_monthly
 ON mv_npp_unit_monthly (month, plant, unit);
 
+-- Unit-level Japan (2026-09-29, same design as mv_npp_unit_monthly): OCCTO's
+-- disclosure is 100% per-unit (214 plants -> 335 plant-units, 55 multi-unit);
+-- the plant view aggregates for the map/KPIs, this one feeds the unit table.
+-- fuel_type is single-valued per plant-unit (verified in prod).
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_occto_unit_monthly AS
+SELECT
+    DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)) AS month,
+    plant,
+    COALESCE(unit, '') AS unit,
+    MAX(fuel_type) AS fuel_type,
+    SUM(generation_mwh) AS generation_mwh
+FROM ingestion.occto_generation_data
+GROUP BY 1, 2, 3;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_occto_unit_monthly
+ON mv_occto_unit_monthly (month, plant, unit);
+
 -- ============================================================================
 -- OCCTO MATERIALIZED VIEWS
 -- ============================================================================
