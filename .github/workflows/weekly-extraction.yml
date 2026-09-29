@@ -1008,6 +1008,16 @@ jobs:
           psql -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
                -v ON_ERROR_STOP=1 -f schema/checks/source_freshness.sql
 
+      - name: Check every operating GEM coal site linked to OE has recent OE coal data
+        # Runs even when the freshness step failed: it names the plants.
+        if: ${{ !cancelled() }}
+        env:
+          PGPASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          PGSSLMODE: require
+        run: |
+          psql -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+               -v ON_ERROR_STOP=1 -f schema/checks/gem_coal_feeds.sql
+
   # ─────────────────────────────────────────────
   # Totals drift tripwire — a mature month's total moving >15% week-over-week
   # means an upstream restatement or data loss; either way a human looks.
