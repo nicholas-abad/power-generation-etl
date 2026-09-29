@@ -416,20 +416,26 @@ jobs:
           end_override: ${{ inputs.end_override }}
 
       - name: Extract OpenElectricity data
+        # Both Australian grids: NEM (eastern states) and WEM (Western
+        # Australia: Bluewaters, Collie, Muja). One output dir per grid so
+        # each keeps its own failures.json.
         env:
           OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
         run: |
           cd extractors
-          uv run energy-extract openelectricity \
-            --start-date "${{ steps.latest.outputs.start_date }}" \
-            --end-date "${{ steps.latest.outputs.end_date }}" \
-            --output ../extracted_data \
-            --facilities \
-            --log-level INFO || { rc=$?; [ "$rc" -eq 2 ] || exit "$rc"; }
+          for network in NEM WEM; do
+            uv run energy-extract openelectricity \
+              --network "$network" \
+              --start-date "${{ steps.latest.outputs.start_date }}" \
+              --end-date "${{ steps.latest.outputs.end_date }}" \
+              --output "../extracted_data/$network" \
+              --facilities \
+              --log-level INFO || { rc=$?; [ "$rc" -eq 2 ] || exit "$rc"; }
+          done
 
       - name: Load OE facility data into Neon
         run: |
-          for f in extracted_data/*_etl.jsonl; do
+          for f in extracted_data/*/*_etl.jsonl; do
             echo "Loading $f..."
             uv run python src/database_management.py load-data oe_facility "$f"
           done
@@ -440,19 +446,22 @@ jobs:
         # failed (2026-09 audit): the guard above lets the good rows load
         # first, then this fails the job loudly with the manifest.
         run: |
-          if [ -s extracted_data/failures.json ]; then
-            echo "::error::partial extraction — failed periods:"
-            cat extracted_data/failures.json
-            exit 1
-          fi
+          failed=0
+          for f in extracted_data/*/failures.json; do
+            [ -s "$f" ] || continue
+            echo "::error::partial extraction ($f) — failed periods:"
+            cat "$f"
+            failed=1
+          done
+          [ "$failed" -eq 0 ]
       - name: Upload artifacts (on failure only)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: oe-extraction-${{ github.run_id }}
           path: |
-            extracted_data/*.jsonl
-            extracted_data/logs/
+            extracted_data/*/*.jsonl
+            extracted_data/*/logs/
             extracted_data/extraction_metadata_*.json
           retention-days: 14
 
