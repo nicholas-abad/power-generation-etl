@@ -28,7 +28,7 @@ SOURCE_VIEWS = {
     "eia": ["mv_eia_unit_monthly", "mv_eia_row_counts"],
     "entsoe": ["mv_entsoe_plant_monthly", "mv_entsoe_row_counts"],
     "ons": ["mv_ons_plant_monthly", "mv_ons_row_counts"],
-    "npp": ["mv_npp_plant_monthly", "mv_npp_row_counts"],
+    "npp": ["mv_npp_plant_monthly", "mv_npp_unit_monthly", "mv_npp_row_counts"],
     "oe": ["mv_oe_plant_monthly", "mv_oe_row_counts"],
     "occto": ["mv_occto_plant_monthly", "mv_occto_row_counts"],
     "chile": ["mv_chile_plant_monthly", "mv_chile_row_counts"],

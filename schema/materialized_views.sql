@@ -84,6 +84,23 @@ ORDER BY 1, 2;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_npp_plant_monthly
 ON mv_npp_plant_monthly (month, plant);
 
+-- Unit-level India (2026-09-29): the DGR feed is per-unit for 236 plants
+-- (1,204 plant-units); the plant view above aggregates for the map/KPIs,
+-- this one feeds the plant-detail unit table. unit='' = plants whose feed
+-- rows carry no unit (single-unit / whole-plant reporters) — the dashboard
+-- excludes those from the unit table rather than inventing a unit.
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_npp_unit_monthly AS
+SELECT
+    DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)) AS month,
+    plant,
+    COALESCE(unit, '') AS unit,
+    SUM(generation_mwh) AS generation_mwh
+FROM ingestion.npp_generation
+GROUP BY 1, 2, 3;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_npp_unit_monthly
+ON mv_npp_unit_monthly (month, plant, unit);
+
 -- ============================================================================
 -- OCCTO MATERIALIZED VIEWS
 -- ============================================================================
