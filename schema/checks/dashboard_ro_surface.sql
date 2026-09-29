@@ -34,6 +34,8 @@ DECLARE
     -- GEM reference tables (007): GEM's API mirrored by plant-data's fetch_gem.py
     'public.gem_locations', 'public.gem_units',
     'public.gem_unit_status_snapshots', 'public.gem_external_ids',
+    -- Climate TRACE's published CT -> GEM links (016), loaded by plant-data
+    'public.ct_gem_crosswalk',
     -- row-count views behind /data-quality
     'public.mv_eia_row_counts', 'public.mv_entsoe_row_counts', 'public.mv_npp_row_counts',
     'public.mv_ons_row_counts', 'public.mv_oe_row_counts', 'public.mv_occto_row_counts',
