@@ -75,7 +75,7 @@ The [2026-10-03 verification report](validation/ons-staging-2019-2026-10-03.json
 - Final raw 2019 population: 2,878,777, with no duplicate natural keys. Qualified coverage: 291 ONS IDs, ten fuels, twelve months, 478,334,817.266 MWh.
 - Dashboard-driver checks passed against both staging and production using their respective read-only roles. Production was only read during this staging task.
 - Provenance and only the twelve ONS 2019 staging drift baselines were updated after reconciliation.
-- All 82 ETL tests passed, including the two local PostgreSQL integration tests. Ruff, Actionlint in both repositories, and dashboard TypeScript checks passed.
+- All 83 ETL tests passed, including the two local PostgreSQL integration tests. Ruff, Actionlint in both repositories, and dashboard TypeScript checks passed.
 
 Full ignored evidence, source comparison input, validation reports and logs are in `output/staging_ons_2019_2026-10-03/`. The new workflows are prepared locally; they have not yet run in GitHub Actions.
 
