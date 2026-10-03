@@ -11,6 +11,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+import run_in_environment  # noqa: E402
 from run_in_environment import build_environment  # noqa: E402
 
 CONFIG = json.loads((ROOT / "config/environments.json").read_text())
@@ -76,6 +77,24 @@ def test_missing_staging_password_never_falls_back_to_production():
     del values["POSTGRES_PASSWORD"]
     with pytest.raises(ValueError, match="POSTGRES_PASSWORD"):
         build_environment("staging", "writer", values, credentials(), CONFIG)
+
+
+def test_probe_ignores_inherited_libpq_routing_and_restores_it_on_failure(monkeypatch):
+    monkeypatch.setenv("PGHOSTADDR", "203.0.113.1")
+    monkeypatch.setenv("PGSERVICE", "production")
+    child = build_environment("staging", "writer", credentials(), os.environ, CONFIG)
+
+    def connect(url, **kwargs):
+        assert "PGHOSTADDR" not in os.environ
+        assert "PGSERVICE" not in os.environ
+        assert url == child["DATABASE_URL"]
+        raise run_in_environment.psycopg2.OperationalError("probe failed")
+
+    monkeypatch.setattr(run_in_environment.psycopg2, "connect", connect)
+    with pytest.raises(run_in_environment.psycopg2.OperationalError):
+        run_in_environment.check_connection(child)
+    assert os.environ["PGHOSTADDR"] == "203.0.113.1"
+    assert os.environ["PGSERVICE"] == "production"
 
 
 @pytest.mark.parametrize("failure", ["production_host", "missing_password"])

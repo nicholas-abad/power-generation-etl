@@ -27,7 +27,7 @@
   "provenance_recorded": true,
   "completed_at": "2026-10-03T09:45:24.434212+00:00",
   "checks": {
-    "etl_tests_passed": 82,
+    "etl_tests_passed": 83,
     "postgresql_integration_tests_included": 2,
     "ruff": "passed",
     "actionlint_etl_and_dashboard": "passed",

@@ -98,13 +98,23 @@ def build_environment(environment, role, values, inherited, config):
 
 def check_connection(child):
     """Read-only probe before handing credentials to the requested command."""
-    with psycopg2.connect(child["DATABASE_URL"], connect_timeout=15) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT current_database(), current_user")
-            if cursor.fetchone() != (child["POSTGRES_DB"], child["POSTGRES_USER"]):
-                raise ValueError(
-                    "Connected database identity does not match configuration"
-                )
+    # libpq also reads this process's environment. PGHOSTADDR/PGSERVICE must
+    # not steer the probe before the command receives the sanitized child env.
+    inherited_pg = {
+        key: value for key, value in os.environ.items() if key.startswith("PG")
+    }
+    try:
+        for key in inherited_pg:
+            del os.environ[key]
+        with psycopg2.connect(child["DATABASE_URL"], connect_timeout=15) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT current_database(), current_user")
+                if cursor.fetchone() != (child["POSTGRES_DB"], child["POSTGRES_USER"]):
+                    raise ValueError(
+                        "Connected database identity does not match configuration"
+                    )
+    finally:
+        os.environ.update(inherited_pg)
 
 
 def main():
