@@ -1,0 +1,49 @@
+{
+  "status": "passed",
+  "environment": "staging",
+  "branch_id": "br-sweet-voice-aglj4sd7",
+  "year": 2019,
+  "inserted_rows": 1493161,
+  "repeat_load_rows_written": 0,
+  "existing_rows_preserved": 1385616,
+  "qualified_rows": 2424001,
+  "qualified_view_rows": 3327,
+  "raw_rows_after": 2878777,
+  "coal_rows_unchanged": 77544,
+  "coal_monthly_totals_unchanged": true,
+  "full_preexisting_row_fingerprints_unchanged": true,
+  "qualified_ons_ids": 291,
+  "qualified_fuel_labels": 10,
+  "qualified_months": 12,
+  "qualified_mwh": 478334817.2659995,
+  "natural_key_duplicates": 0,
+  "source_reconciliation": "All stable fields and generation values match the audited source",
+  "migration_017_first_and_repeat": "passed",
+  "dashboard_ro_staging_and_production": "passed",
+  "source_sha256": "4fee764a541f11c47abaa3add1a7797ddb79683d383475b7c5834acb9709bf2b",
+  "input_sha256": "e941b46008acbe98a45f9731bf58e17eae36267cff9474d194b6ff1f99564df5",
+  "extraction_run_id": "08a29718-1f13-4541-9fe2-68402a8a3805",
+  "totals_baseline_updated_months": 12,
+  "provenance_recorded": true,
+  "completed_at": "2026-10-03T09:45:24.434212+00:00",
+  "checks": {
+    "etl_tests_passed": 82,
+    "postgresql_integration_tests_included": 2,
+    "ruff": "passed",
+    "actionlint_etl_and_dashboard": "passed",
+    "dashboard_typescript": "passed"
+  },
+  "github": {
+    "repositories": [
+      "power-generation-etl",
+      "energy-generation-dashboard"
+    ],
+    "environments": [
+      "staging",
+      "production"
+    ],
+    "production_branch_policy": "main",
+    "environment_secrets_configured": true,
+    "workflow_publication": "pending"
+  }
+}

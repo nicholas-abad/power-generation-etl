@@ -162,6 +162,7 @@ celerybeat.pid
 .env
 .env.staging.*
 .env.production.*
+!.env.*.example
 .envrc
 .venv
 env/

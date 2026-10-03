@@ -1,0 +1,91 @@
+name: ONS 2019 staging rehearsal
+
+on:
+  workflow_dispatch:
+    inputs:
+      extractors_commit:
+        description: 'Full 40-character energy-extractors commit with individual-plant support'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ons-staging
+  cancel-in-progress: false
+
+jobs:
+  rehearse:
+    environment: staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
+      POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}
+      POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+      POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      POSTGRES_SSLMODE: require
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require a pinned extractor revision
+        env:
+          EXTRACTORS_COMMIT: ${{ inputs.extractors_commit }}
+        run: '[[ "$EXTRACTORS_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]'
+      - uses: actions/checkout@v4
+        with:
+          repository: nicholas-abad/energy-extractors
+          ref: ${{ inputs.extractors_commit }}
+          path: extractors
+          token: ${{ secrets.EXTRACTORS_REPO_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: astral-sh/setup-uv@v4
+      - name: Install dependencies
+        run: |
+          uv sync --frozen
+          uv sync --project extractors --frozen --extra ons
+      - name: Check staging identity and required migration
+        run: |
+          uv run python src/run_in_environment.py --environment staging --from-process -- \
+            psql -X -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM public.mv_ons_individual_plant_monthly;'
+      - name: Capture coal baseline
+        run: |
+          uv run python src/run_in_environment.py --environment staging --from-process -- \
+            uv run python src/check_ons_staging.py --report output/coal-before.json
+      - name: Extract the single audited year
+        working-directory: extractors
+        run: |
+          uv run energy-extract ons --start-year 2019 --end-year 2019 \
+            --all-types --individual-plants-only --output ../extracted_data --log-level INFO
+      - name: Load and repeat the same file
+        run: |
+          shopt -s nullglob
+          files=(extracted_data/ons_*_etl.jsonl)
+          test "${#files[@]}" -eq 1
+          for attempt in first repeat; do
+            uv run python src/run_in_environment.py --environment staging --from-process -- \
+              uv run python src/database_management.py load-data ons "${files[0]}" \
+                --strict --validation-report "output/validation-$attempt.json"
+          done
+      - name: Refresh ONS views
+        run: |
+          uv run python src/run_in_environment.py --environment staging --from-process -- \
+            uv run python src/refresh_views.py --source ons
+      - name: Reconcile source observations, views, coal and permissions
+        run: |
+          files=(extracted_data/ons_*_etl.jsonl)
+          uv run python src/run_in_environment.py --environment staging --from-process -- \
+            uv run python src/check_ons_staging.py --baseline output/coal-before.json \
+              --expected-jsonl "${files[0]}" --report output/verification.json
+      - name: Save verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ons-staging-${{ github.run_id }}
+          path: |
+            output/*.json
+            extracted_data/extraction_metadata_*.json
+          retention-days: 30
