@@ -63,6 +63,7 @@ jobs:
   # ─────────────────────────────────────────────
   extract-eia:
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'EIA (USA)' }}
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # Per-source serialization: any second run targeting EIA (cron, "all",
@@ -151,6 +152,7 @@ jobs:
   # ─────────────────────────────────────────────
   extract-ons:
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'ONS (Brazil)' }}
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 60
     concurrency:
@@ -235,6 +237,7 @@ jobs:
   # ─────────────────────────────────────────────
   extract-entsoe:
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'ENTSOE (Europe)' }}
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 350
     concurrency:
@@ -291,6 +294,7 @@ jobs:
   # ─────────────────────────────────────────────
   extract-npp:
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'NPP (India)' }}
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 120
     concurrency:
@@ -375,6 +379,7 @@ jobs:
   # ─────────────────────────────────────────────
   extract-oe:
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'OE (Australia)' }}
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 60
     concurrency:
@@ -471,6 +476,7 @@ jobs:
   # ─────────────────────────────────────────────
   extract-occto:
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'OCCTO (Japan)' }}
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 350
     concurrency:
@@ -528,6 +534,7 @@ jobs:
   # ─────────────────────────────────────────────
   extract-chile:
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'Chile (Coordinador)' }}
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 120
     concurrency:
@@ -620,6 +627,7 @@ jobs:
   # ─────────────────────────────────────────────
   extract-climatetrace:
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'Climate TRACE (global)' }}
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:
@@ -721,6 +729,7 @@ jobs:
     # Exception: 'GEM + crosswalk only' is the on-demand rebuild button, e.g.
     # right after the review team's decisions were imported. No extractors run.
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'GEM + crosswalk only' }}
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 90
     concurrency:
@@ -765,6 +774,7 @@ jobs:
     # !cancelled(), not always(): a human cancelling the run must not still
     # trigger a production swap. Failed/skipped extractors do not block it.
     if: ${{ !cancelled() && needs.fetch-gem.result == 'success' }}
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 45
     concurrency:
@@ -871,6 +881,7 @@ jobs:
     # refreshes ALL views (seconds to low minutes; well inside the timeout).
     needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-climatetrace]
     if: ${{ always() && (needs.extract-eia.result == 'success' || needs.extract-ons.result == 'success' || needs.extract-entsoe.result == 'success' || needs.extract-npp.result == 'success' || needs.extract-oe.result == 'success' || needs.extract-occto.result == 'success' || needs.extract-chile.result == 'success' || needs.extract-climatetrace.result == 'success') }}
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -900,6 +911,7 @@ jobs:
     # crosswalk (not the pre-rebuild state, and not mid-DROP/recreate).
     needs: [refresh-views, rebuild-crosswalk]
     if: ${{ always() && needs.refresh-views.result == 'success' }}
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -979,6 +991,7 @@ jobs:
   check-dashboard-ro-surface:
     needs: [refresh-views, rebuild-crosswalk]
     if: ${{ always() && needs.refresh-views.result != 'cancelled' }}
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1006,6 +1019,7 @@ jobs:
     # Skip on crosswalk-only dispatches (every extractor skipped): an
     # on-demand rebuild shouldn't file the weekly staleness issue again.
     if: ${{ !cancelled() && (needs.extract-eia.result != 'skipped' || needs.extract-ons.result != 'skipped' || needs.extract-entsoe.result != 'skipped' || needs.extract-npp.result != 'skipped' || needs.extract-oe.result != 'skipped' || needs.extract-occto.result != 'skipped' || needs.extract-chile.result != 'skipped' || needs.extract-climatetrace.result != 'skipped') }}
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1038,6 +1052,7 @@ jobs:
   check-totals-drift:
     needs: [refresh-views]
     if: ${{ !cancelled() && needs.refresh-views.result == 'success' }}
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -1056,6 +1071,7 @@ jobs:
   notify-failure:
     needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-climatetrace, fetch-gem, rebuild-crosswalk, refresh-views, check-crosswalk-drift, check-dashboard-ro-surface, check-source-freshness, check-totals-drift]
     if: ${{ always() && contains(needs.*.result, 'failure') }}
+    environment: production
     runs-on: ubuntu-latest
     steps:
       - name: Create failure issue

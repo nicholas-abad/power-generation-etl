@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, develop, feature/*]
+    branches: [main, develop, feature/*, feat/*]
   pull_request:
     branches: [main, develop]
 
@@ -71,6 +71,7 @@ jobs:
           POSTGRES_DB: power_generation_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
+          ONS_TEST_PG_DSN: postgresql://postgres:postgres@localhost:5432/power_generation_test
         run: uv run pytest tests/ -v --tb=short
 
   type-check:

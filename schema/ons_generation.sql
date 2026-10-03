@@ -1,5 +1,7 @@
 -- Brazil ONS Power Generation Data
--- Hourly generation data from thermal/fossil fuel plants
+-- Hourly generation data across ONS fuels and plant types.
+-- Legacy loads also contain groups/forecasts. The qualified all-fuel plant
+-- product is mv_ons_individual_plant_monthly (migration 017).
 -- Data source: ONS Geração por Usina em Base Horária
 
 -- Raw/ingestion-side relation: lives in the `ingestion` schema since migration 006.
