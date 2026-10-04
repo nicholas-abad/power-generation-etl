@@ -105,6 +105,8 @@ class ValidationReport:
     duplicate_count: int = 0
     errors_by_type: Dict[str, int] = field(default_factory=dict)
     sample_errors: List[Dict[str, Any]] = field(default_factory=list)
+    # Supplied by loaders that report actual inserted/updated rows.
+    written_count: Optional[int] = None
 
     def add_error(self, error_type: str, record_index: int, details: str):
         """Add an error to the report."""
@@ -577,6 +579,8 @@ def save_report(report: ValidationReport, output_path: str) -> None:
         "errors_by_type": report.errors_by_type,
         "sample_errors": report.sample_errors,
     }
+    if report.written_count is not None:
+        report_dict["rows_written"] = report.written_count
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -1350,6 +1350,7 @@ class PowerGenerationDatabase:
                 valid_count=total_valid,
                 invalid_count=total_invalid,
                 duplicate_count=total_duplicates,
+                written_count=total_inserted,
             )
 
             if validation_report_path:

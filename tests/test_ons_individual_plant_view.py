@@ -5,6 +5,7 @@ connection and refuses non-local servers. CI supplies its disposable service.
 """
 
 import json
+from datetime import UTC, datetime
 import os
 from pathlib import Path
 import shutil
@@ -21,6 +22,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from database import PowerGenerationDatabase  # noqa: E402
+from check_ons_staging import reconcile  # noqa: E402
 
 
 @pytest.fixture
@@ -132,6 +134,7 @@ def test_real_loader_migration_and_replay(database, tmp_path):
     source_file.write_text("".join(json.dumps(row) + "\n" for row in rows))
     ok, report = db.insert_ons_jsonl_data(str(source_file), chunk_lines=3)
     assert ok and report.valid_count == 8 and report.invalid_count == 0
+    assert report.written_count == 8
     migrate(dsn)
     with conn.cursor() as cur:
         cur.execute(
@@ -152,8 +155,12 @@ def test_real_loader_migration_and_replay(database, tmp_path):
             "SELECT has_table_privilege('etl_writer', 'public.mv_ons_individual_plant_monthly', 'SELECT')"
         )
         assert cur.fetchone() == (True,)
-    ok, _ = db.insert_ons_jsonl_data(str(source_file), chunk_lines=3)
-    assert ok
+    repeat_report = tmp_path / "repeat.json"
+    ok, report = db.insert_ons_jsonl_data(
+        str(source_file), chunk_lines=3, validation_report_path=str(repeat_report)
+    )
+    assert ok and report.written_count == 0
+    assert json.loads(repeat_report.read_text())["rows_written"] == 0
     migrate(dsn)
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM ingestion.ons_generation_data")
@@ -210,3 +217,38 @@ def test_qualification_and_utc_month_boundary(database):
             "SELECT (month AT TIME ZONE 'UTC')::text, ons_plant_id, observation_count, generation_mwh FROM public.mv_ons_individual_plant_monthly"
         )
         assert cur.fetchall() == [("2019-02-01 00:00:00", "KEEP", 1, 0.0)]
+
+
+@pytest.mark.parametrize("year", [2019, 2024])
+def test_full_year_reconciliation_and_corruption_detection(database, tmp_path, year):
+    conn, db, dsn = database
+    rows = [
+        record(
+            "PLANT",
+            timestamp_ms=int(datetime(year, month, 1, tzinfo=UTC).timestamp() * 1000),
+        )
+        for month in range(1, 13)
+    ]
+    if year == 2024:
+        rows.append(
+            record(
+                "PLANT",
+                timestamp_ms=int(datetime(2024, 2, 29, tzinfo=UTC).timestamp() * 1000),
+            )
+        )
+    source = tmp_path / "source.jsonl"
+    source.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    assert db.insert_ons_jsonl_data(str(source))[0]
+    migrate(dsn)
+    with conn.cursor() as cur:
+        cur.execute("SET TIME ZONE 'UTC'")
+        result = reconcile(cur, source, year, len(rows))
+        assert result["source_rows_reconciled"] == len(rows)
+        assert result["qualified_monthly_rows"] == 12
+        cur.execute("DROP TABLE ons_expected")
+        cur.execute(
+            "UPDATE ingestion.ons_generation_data SET generation_mwh=99 WHERE timestamp_ms=%s",
+            (rows[0]["timestamp_ms"],),
+        )
+        with pytest.raises(ValueError, match="Stored observations differ"):
+            reconcile(cur, source, year, len(rows))

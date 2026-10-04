@@ -1,0 +1,94 @@
+{
+  "audited_on": "2026-10-04",
+  "scope": "ONS qualifying individual-plant observations; not national generation totals",
+  "years": {
+    "2019": {
+      "expected_observations": 2424001,
+      "source_files": [
+        {
+          "label": "2019",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2019.parquet",
+          "sha256": "4fee764a541f11c47abaa3add1a7797ddb79683d383475b7c5834acb9709bf2b",
+          "raw_records": 4394570
+        }
+      ]
+    },
+    "2024": {
+      "expected_observations": 2842224,
+      "source_files": [
+        {
+          "label": "2024-01",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2024_01.parquet",
+          "sha256": "588e00c7cd7417ad02edd641896de5c23eb9ab8826282f6fa33c78199f29b7c0",
+          "raw_records": 506352
+        },
+        {
+          "label": "2024-02",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2024_02.parquet",
+          "sha256": "9418eb58c46d2c7d134044cacc675c62dfec3d741546acf5426ee02796218daa",
+          "raw_records": 478104
+        },
+        {
+          "label": "2024-03",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2024_03.parquet",
+          "sha256": "2c2738398ff4ec846398cded775fb9d5b13e9f2056c99e01708a754c49c42e02",
+          "raw_records": 513192
+        },
+        {
+          "label": "2024-04",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2024_04.parquet",
+          "sha256": "7b43f2e0308dafa690d2591724ffe2c70b11957bb9f635bd0c6ac3c63100cb53",
+          "raw_records": 498480
+        },
+        {
+          "label": "2024-05",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2024_05.parquet",
+          "sha256": "76269fd59fb9cac17aaed3b2131064491691957b32c92c4a5ed02dcc6bd15254",
+          "raw_records": 515808
+        },
+        {
+          "label": "2024-06",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2024_06.parquet",
+          "sha256": "8ec145eee3642bcbff1f15be9a11c83183558b3546032a6615106fbce836af86",
+          "raw_records": 500136
+        },
+        {
+          "label": "2024-07",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2024_07.parquet",
+          "sha256": "301e74528c41ede326b9e89ba333e6c5a63585651315bd64f5e54b085ecdb305",
+          "raw_records": 518184
+        },
+        {
+          "label": "2024-08",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2024_08.parquet",
+          "sha256": "d362b458887fb009cebb567f00425f86c4767aaea790cb3c44321d7c58e9138d",
+          "raw_records": 519408
+        },
+        {
+          "label": "2024-09",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2024_09.parquet",
+          "sha256": "6f63e1d4c0f2b17b25eb26e5afb2a8b48397e0008215a3be3f8c9e88578a1831",
+          "raw_records": 502008
+        },
+        {
+          "label": "2024-10",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2024_10.parquet",
+          "sha256": "37349104ba47464edd7b444673a12d2f012ef3b9fcf8941beae370de5368a380",
+          "raw_records": 517344
+        },
+        {
+          "label": "2024-11",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2024_11.parquet",
+          "sha256": "0d2ef26719106eaef64275fd5b03cf3827ea1bb8023e0cf7cf6b3db18dcbe053",
+          "raw_records": 500904
+        },
+        {
+          "label": "2024-12",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2024_12.parquet",
+          "sha256": "72ad2602a8b34ecc050811bfcf5bce6301d46e179cf411bb6688c9490d43872f",
+          "raw_records": 519696
+        }
+      ]
+    }
+  }
+}

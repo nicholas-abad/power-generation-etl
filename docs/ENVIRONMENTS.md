@@ -1,5 +1,7 @@
 # Staging and production
 
+**Frontend correction — 2026-10-04:** the frontend going forward is [chienleng/global-coal-generation-tracker](https://github.com/chienleng/global-coal-generation-tracker). Plan frontend CI, staging, and release integration against that repository's contracts. **The user prohibits pushing commits, branches, or tags to Chien's repository, including equivalent GitHub API writes.** Read-only inspection and local proposals are allowed; publishing frontend changes remains with Chien. References below to `energy-generation-dashboard`, its GitHub environments, and its driver checks record the earlier legacy setup; they do not configure or verify the replacement frontend. The ETL and Neon staging setup remains applicable.
+
 The Neon project `damp-wildflower-34076536` now has two independent branches:
 
 | Environment | Neon branch | Endpoint | Purpose |
@@ -46,7 +48,11 @@ Both `power-generation-etl` and `energy-generation-dashboard` have `staging` and
 
 ETL environment secrets: `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`. The username is `etl_writer` in both environments, with distinct passwords. Dashboard environments have a `DATABASE_URL` secret using `dashboard_ro`. Both repositories have an environment variable `NEON_ENDPOINT_ID`.
 
-The weekly ETL workflow declares `environment: production`. The separate `ons-staging.yml` workflow is manual and fixed to 2019. It requires the full extractor commit SHA, uses `environment: staging`, loads the same extracted file twice, refreshes ONS views, and reconciles every source observation and monthly group while checking coal preservation and permissions. It neither rebuilds crosswalks nor updates production drift baselines. Migration 017 must already be applied to staging. Its expected observation count is pinned to the audited 2019 release; an upstream restatement must be reviewed before changing that count.
+The feature branch's weekly ETL workflow declares `environment: production`; publishing the feature branch does not change the scheduled workflow on `main`. The separate `ons-staging.yml` workflow benchmarks **2019 and 2024**, sequentially, using `environment: staging`. It runs when its workflow, checker, or benchmark manifest changes on `feat/ons-all-fuels-*`, and supports manual dispatch with a full extractor commit SHA. Push runs use the exact extractor revision pinned in the workflow. A workflow push establishes the GitHub Actions run without merging production changes.
+
+Before loading, the workflow checks every downloaded file against the audited hashes and row counts in `config/ons-benchmarks.json`. It loads the same extracted file twice and requires the repeat's machine-readable `rows_written` to equal zero. After refreshing ONS views it reconciles every source observation and monthly group, verifies all twelve months, and checks coal preservation and database permissions. Each year produces its own artifact with code revisions, source hashes, baseline, validation reports, load logs, and reconciliation results. Migration 017 must already be applied to staging. The workflow neither rebuilds crosswalks nor changes production data or drift baselines.
+
+An upstream restatement fails the benchmark before ingestion. Review the changed source before updating the committed hashes or expected counts; a larger or different result must not silently become the new benchmark.
 
 The dashboard's manual `database-check.yml` reads the selected environment and verifies its endpoint, role, 2019 coal totals and coverage. GitHub environments govern jobs that explicitly reference them. Creating the environments does not deploy workflow files or change Cloudflare Pages settings.
 
@@ -56,7 +62,7 @@ Existing repository-level production secrets remain for compatibility with the c
 
 1. Develop on feature branches and run CI. Pin the extractor commit used for the rehearsal.
 2. Apply the exact proposed migration to staging as owner; load as writer. Keep input hashes, validation reports and reconciliation output.
-3. Check all intended source rows, coal regressions, monthly aggregates, a repeat load, and dashboard queries as reader.
+3. Check all intended source rows, coal regressions, monthly aggregates, and a repeat load. Verify the read-only database contract, then test the relevant integration with `chienleng/global-coal-generation-tracker`; legacy dashboard checks alone do not verify that frontend.
 4. Review the results and merge the tested code. Apply the migration to production before deploying code that requires the new view, then run the narrowly scoped production load.
 5. Reconcile production and update only drift baselines affected by the verified expansion.
 
@@ -77,6 +83,25 @@ The [2026-10-03 verification report](validation/ons-staging-2019-2026-10-03.json
 - Provenance and only the twelve ONS 2019 staging drift baselines were updated after reconciliation.
 - All 83 ETL tests passed, including the two local PostgreSQL integration tests. Ruff, Actionlint in both repositories, and dashboard TypeScript checks passed.
 
-Full ignored evidence, source comparison input, validation reports and logs are in `output/staging_ons_2019_2026-10-03/`. The new workflows are prepared locally; they have not yet run in GitHub Actions.
+Full ignored evidence, source comparison input, validation reports and logs are in `output/staging_ons_2019_2026-10-03/`. The first published [2019 GitHub rehearsal](https://github.com/nicholas-abad/power-generation-etl/actions/runs/37178579505) passed on 2026-10-04, including source reconciliation, unchanged coal results, and a repeat load that wrote zero rows. The corresponding [ETL CI run](https://github.com/nicholas-abad/power-generation-etl/actions/runs/37178579495) also passed. These runs used the feature branch; no production merge was needed.
 
-Cloudflare preview routing is documented in the dashboard repository's `docs/ENVIRONMENTS.md`.
+## ONS benchmark years — 2026-10-04
+
+| Year | Source files | Source observations | Qualifying observations |
+| --- | ---: | ---: | ---: |
+| 2019 | 1 annual Parquet | 4,394,570 | 2,424,001 |
+| 2024 | 12 monthly Parquets | 6,089,616 | 2,842,224 |
+
+The benchmark includes every qualifying individual-plant fuel label, excluding groups and forecasts. These are ONS reporting populations, not national totals. The 2024 source audit checked all twelve monthly files, including February 29. Source hashes are committed in `config/ons-benchmarks.json`; local raw Parquets and the detailed source audit are under the extractor's ignored `output/ons_benchmark_2024_2026-10-04/` directory.
+
+Run both years again from the published ETL feature branch:
+
+```bash
+gh workflow run ons-staging.yml --repo nicholas-abad/power-generation-etl \
+  --ref feat/ons-all-fuels-2019 \
+  -f extractors_commit=db56cb9023b9844356fc633651d49f7027ac3274
+```
+
+The branch name retains the original pilot year; the benchmark matrix explicitly includes both 2019 and 2024. The GitHub Actions UI's manual-run button requires the workflow on the default branch. The workflow is already registered by its feature-branch push; the CLI can select that branch explicitly.
+
+The legacy dashboard's Cloudflare preview instructions are historical. Its pending preview setup and CI rollout are no longer part of the active plan. Inspect `chienleng/global-coal-generation-tracker` before defining the replacement frontend's environment and release configuration.
