@@ -258,6 +258,11 @@ JOIN = "e.timestamp_ms=a.timestamp_ms AND e.country_code=a.country_code AND e.ps
 
 
 def preflight(cursor, year, month=None):
+    scope = (
+        predicate(year, month)
+        .replace("country_code=", "a.country_code=")
+        .replace("timestamp_ms", "a.timestamp_ms")
+    )
     cursor.execute(f"""SELECT count(*) FROM ingestion.entsoe_generation_data a
         LEFT JOIN entsoe_expected e ON {JOIN}
         WHERE {predicate(year, month).replace("country_code=", "a.country_code=").replace("timestamp_ms", "a.timestamp_ms")}
@@ -269,16 +274,16 @@ def preflight(cursor, year, month=None):
         AND e.timestamp_ms IS NULL""")
     missing_any = cursor.fetchone()[0]
     cursor.execute(f"""SELECT count(*) FROM entsoe_expected e JOIN ingestion.entsoe_generation_data a ON {JOIN}
-        WHERE abs(e.generation_mw-a.generation_mw)>1e-9 OR e.resolution_minutes<>a.resolution_minutes
-        OR e.fuel_type<>a.fuel_type""")
+        WHERE {scope} AND (abs(e.generation_mw-a.generation_mw)>1e-9 OR e.resolution_minutes<>a.resolution_minutes
+        OR e.fuel_type<>a.fuel_type)""")
     differences = cursor.fetchone()[0]
     cursor.execute(f"""SELECT count(*) FROM entsoe_expected e JOIN ingestion.entsoe_generation_data a ON {JOIN}
-        WHERE (a.unit_eic IS NOT NULL AND a.unit_eic IS DISTINCT FROM e.unit_eic)
-        OR (a.production_unit_eic IS NOT NULL AND a.production_unit_eic IS DISTINCT FROM e.production_unit_eic)""")
+        WHERE {scope} AND ((a.unit_eic IS NOT NULL AND a.unit_eic IS DISTINCT FROM e.unit_eic)
+        OR (a.production_unit_eic IS NOT NULL AND a.production_unit_eic IS DISTINCT FROM e.production_unit_eic))""")
     changed_identity = cursor.fetchone()[0]
-    cursor.execute("""SELECT count(*) FROM entsoe_expected e JOIN ingestion.entsoe_generation_data a
+    cursor.execute(f"""SELECT count(*) FROM entsoe_expected e JOIN ingestion.entsoe_generation_data a
         ON e.country_code=a.country_code AND e.unit_eic=a.unit_eic AND e.timestamp_ms=a.timestamp_ms
-        WHERE e.plant_name IS DISTINCT FROM a.plant_name OR e.psr_type IS DISTINCT FROM a.psr_type""")
+        WHERE {scope} AND (e.plant_name IS DISTINCT FROM a.plant_name OR e.psr_type IS DISTINCT FROM a.psr_type)""")
     duplicate_identity = cursor.fetchone()[0]
     result = {
         "missing_existing_coal_observations": missing_coal,
@@ -288,14 +293,33 @@ def preflight(cursor, year, month=None):
         "duplicate_unit_identities": duplicate_identity,
     }
     if any(result.values()):
+        if missing_any:
+            cursor.execute(f"""SELECT a.timestamp_ms,a.plant_name,a.psr_type,a.generation_mw,a.resolution_minutes
+                FROM ingestion.entsoe_generation_data a LEFT JOIN entsoe_expected e ON {JOIN}
+                WHERE {scope} AND e.timestamp_ms IS NULL
+                ORDER BY a.timestamp_ms,a.plant_name LIMIT 25""")
+            result["missing_examples"] = cursor.fetchall()
+        if differences:
+            cursor.execute(f"""SELECT a.timestamp_ms,a.plant_name,a.psr_type,
+                a.generation_mw,e.generation_mw,a.resolution_minutes,e.resolution_minutes
+                FROM entsoe_expected e JOIN ingestion.entsoe_generation_data a ON {JOIN}
+                WHERE {scope} AND (abs(e.generation_mw-a.generation_mw)>1e-9
+                OR e.resolution_minutes<>a.resolution_minutes OR e.fuel_type<>a.fuel_type)
+                ORDER BY a.timestamp_ms,a.plant_name LIMIT 25""")
+            result["changed_examples"] = cursor.fetchall()
         raise ValueError(f"Source comparison failed before loading: {result}")
     return result
 
 
 def reconcile(cursor, year, month=None):
+    scope = (
+        predicate(year, month)
+        .replace("country_code=", "a.country_code=")
+        .replace("timestamp_ms", "a.timestamp_ms")
+    )
     fields = [f"e.{c} IS DISTINCT FROM a.{c}" for c in COLUMNS if c != "generation_mw"]
     cursor.execute(
-        f"SELECT count(*) FROM entsoe_expected e LEFT JOIN ingestion.entsoe_generation_data a ON {JOIN} WHERE "
+        f"SELECT count(*) FROM entsoe_expected e LEFT JOIN ingestion.entsoe_generation_data a ON {JOIN} AND {scope} WHERE "
         + " OR ".join(
             fields + ["a.id IS NULL", "abs(e.generation_mw-a.generation_mw)>1e-9"]
         )

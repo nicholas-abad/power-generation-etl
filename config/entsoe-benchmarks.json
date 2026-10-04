@@ -16,6 +16,21 @@
         "Nuclear": 52463,
         "Fossil Gas": 26280
       }
+    },
+    "2024": {
+      "content_sha256": "c86a1ee39b725ba7dc47d006ff90e9ca15b1d9bce6ab1412c825bf3c7d6bd5f9",
+      "observations": 861720,
+      "unit_count": 39,
+      "days": 366,
+      "generation_mwh": 49388186.42,
+      "fuel_counts": {
+        "Fossil Brown coal/Lignite": 463848,
+        "Hydro Pumped Storage": 132624,
+        "Fossil Hard coal": 66312,
+        "Nuclear": 132624,
+        "Fossil Gas": 66312
+      },
+      "staging_status": "Preflight failed on legacy interval labels and duplicate names; repair approval required before load."
     }
   }
 }
