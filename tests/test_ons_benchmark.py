@@ -8,6 +8,7 @@ import sys
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+import check_ons_staging  # noqa: E402
 from check_ons_staging import benchmark, check_extraction, year_bounds  # noqa: E402
 
 
@@ -38,7 +39,7 @@ def metadata_for(year):
     }
 
 
-@pytest.mark.parametrize("year,days", [(2019, 365), (2024, 366)])
+@pytest.mark.parametrize("year,days", [(2019, 365), (2020, 366), (2024, 366)])
 def test_historical_year_boundaries_include_leap_day(year, days):
     start, end = year_bounds(year)
     assert (end - start) // 86400000 == days
@@ -47,10 +48,19 @@ def test_historical_year_boundaries_include_leap_day(year, days):
         year_bounds(2023)
 
 
-@pytest.mark.parametrize("year", [2019, 2024])
+@pytest.mark.parametrize("year", [2019, 2020, 2024])
 def test_complete_audited_extraction_is_accepted(year):
     report = check_extraction(metadata_for(year), year, benchmark(year))
     assert report["status"] == "source_verified"
+
+
+def test_year_selection_requires_a_committed_audit(monkeypatch, tmp_path):
+    manifest = tmp_path / "benchmarks.json"
+    manifest.write_text('{"years": {"2019": {}}}')
+    monkeypatch.setattr(check_ons_staging, "BENCHMARKS", manifest)
+    assert check_ons_staging.audited_years() == (2019,)
+    with pytest.raises(ValueError, match="Only the audited"):
+        year_bounds(2020)
 
 
 @pytest.mark.parametrize(

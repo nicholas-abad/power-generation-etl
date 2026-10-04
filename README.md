@@ -4,7 +4,7 @@ Validates, loads, and schedules power generation data from eight upstream source
 
 **Where this sits:** [`energy-extractors`](https://github.com/nicholas-abad/energy-extractors) produces JSONL → **this repo validates and loads it into Neon**. The frontend going forward is [`chienleng/global-coal-generation-tracker`](https://github.com/chienleng/global-coal-generation-tracker), confirmed by the user on 2026-10-04. The former `energy-generation-dashboard` is outside the active frontend CI/release plan. See [`docs/INFRASTRUCTURE.md`](docs/INFRASTRUCTURE.md) for backend architecture and historical deployment details; legacy Next.js/Cloudflare instructions below do not configure the replacement frontend.
 
-Use the explicit [staging/production environment commands](docs/ENVIRONMENTS.md) for migrations and loads. They check the selected Neon endpoint and use separate credentials. The ONS staging benchmarks cover **2019 and 2024**, with audited source-file hashes, full source reconciliation, coal regression checks, and an identical repeat load.
+Use the explicit [staging/production environment commands](docs/ENVIRONMENTS.md) for migrations and loads. They check the selected Neon endpoint and use separate credentials. The fixed ONS staging benchmarks cover **2019 and 2024**. Additional audited years can be loaded and verified individually through the manual staging workflow, with the same source-file hashes, full source reconciliation, coal regression checks, and identical repeat load.
 
 ---
 

@@ -13,6 +13,17 @@
         }
       ]
     },
+    "2020": {
+      "expected_observations": 2438376,
+      "source_files": [
+        {
+          "label": "2020",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2020.parquet",
+          "sha256": "00af403583d86f51852720d55d98bdb327c2f983e58cedbfc6fc49b44e1d7a7c",
+          "raw_records": 4479000
+        }
+      ]
+    },
     "2024": {
       "expected_observations": 2842224,
       "source_files": [

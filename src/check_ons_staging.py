@@ -1,4 +1,4 @@
-"""Verify the audited ONS 2019 and 2024 benchmarks on staging.
+"""Verify an audited complete ONS year on staging.
 
 Use through run_in_environment.py. This check requires staging and only
 writes a temporary comparison table plus the requested local JSON report.
@@ -35,9 +35,16 @@ ROOT = Path(__file__).resolve().parents[1]
 BENCHMARKS = ROOT / "config/ons-benchmarks.json"
 
 
+def audited_years():
+    return tuple(
+        sorted(int(year) for year in json.loads(BENCHMARKS.read_text())["years"])
+    )
+
+
 def year_bounds(year):
-    if year not in (2019, 2024):
-        raise ValueError("Only the audited benchmark years 2019 and 2024 are allowed")
+    allowed = audited_years()
+    if year not in allowed:
+        raise ValueError(f"Only the audited benchmark years {allowed} are allowed")
     return (
         int(datetime(year, 1, 1, tzinfo=UTC).timestamp() * 1000),
         int(datetime(year + 1, 1, 1, tzinfo=UTC).timestamp() * 1000),
@@ -243,7 +250,7 @@ def reconcile(cursor, path, year, expected_count):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--year", type=int, choices=(2019, 2024), default=2019)
+    parser.add_argument("--year", type=int, choices=audited_years(), default=2019)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--expected-jsonl", type=Path)
