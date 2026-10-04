@@ -48,7 +48,7 @@ Both `power-generation-etl` and `energy-generation-dashboard` have `staging` and
 
 ETL environment secrets: `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`. The username is `etl_writer` in both environments, with distinct passwords. Dashboard environments have a `DATABASE_URL` secret using `dashboard_ro`. Both repositories have an environment variable `NEON_ENDPOINT_ID`.
 
-The feature branch's weekly ETL workflow declares `environment: production`; publishing the feature branch does not change the scheduled workflow on `main`. The separate `ons-staging.yml` workflow benchmarks **2019 and 2024**, sequentially, using `environment: staging`. It runs when its workflow, checker, or benchmark manifest changes on `feat/ons-all-fuels-*`, and supports manual dispatch with a full extractor commit SHA. Push runs use the exact extractor revision pinned in the workflow. A workflow push establishes the GitHub Actions run without merging production changes.
+The feature branch's weekly ETL workflow declares `environment: production`; publishing the feature branch does not change the scheduled workflow on `main`. The separate `ons-staging.yml` workflow uses `environment: staging` and is now **manual only**. Select one audited year with the `year` input, or select `benchmarks` to run the fixed **2019 and 2024** regression years sequentially. Every dispatch supplies a full extractor commit SHA. Ordinary code pushes run the normal CI checks without loading data.
 
 Before loading, the workflow checks every downloaded file against the audited hashes and row counts in `config/ons-benchmarks.json`. It loads the same extracted file twice and requires the repeat's machine-readable `rows_written` to equal zero. After refreshing ONS views it reconciles every source observation and monthly group, verifies all twelve months, and checks coal preservation and database permissions. Each year produces its own artifact with code revisions, source hashes, baseline, validation reports, load logs, and reconciliation results. Migration 017 must already be applied to staging. The workflow neither rebuilds crosswalks nor changes production data or drift baselines.
 
@@ -110,9 +110,27 @@ Run both years again from the published ETL feature branch:
 ```bash
 gh workflow run ons-staging.yml --repo nicholas-abad/power-generation-etl \
   --ref feat/ons-all-fuels-2019 \
+  -f year=benchmarks \
   -f extractors_commit=db56cb9023b9844356fc633651d49f7027ac3274
 ```
 
-The branch name retains the original pilot year; the benchmark matrix explicitly includes both 2019 and 2024. The GitHub Actions UI's manual-run button requires the workflow on the default branch. The workflow is already registered by its feature-branch push; the CLI can select that branch explicitly.
+The branch name retains the original pilot year. The GitHub Actions UI's manual-run button requires the workflow on the default branch. The workflow was registered by its initial feature-branch push; the CLI can select that branch explicitly.
+
+## Year-by-year expansion
+
+Following the successful 2019/2024 benchmarks, the user authorized one additional year at a time, starting with **2020**. The 2020 annual source was audited on 2026-10-04: 4,479,000 source observations, 2,438,376 qualifying observations, 281 ONS plant IDs, ten fuel labels and all twelve months. Its exact source-file hash and expected count are recorded in `config/ons-benchmarks.json`. The checker accepts only years present in that committed manifest.
+
+Run 2020 alone:
+
+```bash
+gh workflow run ons-staging.yml --repo nicholas-abad/power-generation-etl \
+  --ref feat/ons-all-fuels-2019 \
+  -f year=2020 \
+  -f extractors_commit=db56cb9023b9844356fc633651d49f7027ac3274
+```
+
+Before adding another year, audit its full source inventory, commit its hashes and counts, add it to the workflow's year choices, and run the same staging checks. Complete historical years require all twelve months; a partial current-year run needs a separately defined cutoff and is not covered by this full-year check.
+
+Loaded observations are saved to `ingestion.ons_generation_data` on Neon staging branch `br-sweet-voice-aglj4sd7`. The qualifying monthly aggregates are in `public.mv_ons_individual_plant_monthly` on that same branch. The local 2020 source Parquet and source audit are under the extractor checkout's ignored `output/ons_yearly_audits_2026-10-04/2020/` directory. GitHub artifacts contain verification reports and logs, not the complete generation dataset.
 
 The legacy dashboard's Cloudflare preview instructions are historical. Its pending preview setup and CI rollout are no longer part of the active plan. Inspect `chienleng/global-coal-generation-tracker` before defining the replacement frontend's environment and release configuration.

@@ -1,15 +1,20 @@
-name: ONS 2019 and 2024 staging benchmarks
+name: ONS staging year validation
+run-name: ONS staging validation — ${{ inputs.year }}
 
 on:
-  # Bootstrap and verify the workflow without merging into production's main.
-  push:
-    branches: ['feat/ons-all-fuels-*']
-    paths:
-      - '.github/workflows/ons-staging.yml'
-      - 'config/ons-benchmarks.json'
-      - 'src/check_ons_staging.py'
+  # Registered by the initial feature-branch run; subsequent loads are explicit.
   workflow_dispatch:
     inputs:
+      year:
+        description: 'One audited year, or the fixed 2019/2024 regression benchmarks'
+        required: true
+        default: benchmarks
+        type: choice
+        options:
+          - benchmarks
+          - '2019'
+          - '2020'
+          - '2024'
       extractors_commit:
         description: 'Full 40-character energy-extractors commit with individual-plant support'
         required: true
@@ -32,9 +37,9 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        year: [2019, 2024]
+        year: ${{ fromJSON(inputs.year == 'benchmarks' && '[2019,2024]' || format('[{0}]', inputs.year)) }}
     env:
-      EXTRACTORS_COMMIT: ${{ inputs.extractors_commit || 'db56cb9023b9844356fc633651d49f7027ac3274' }}
+      EXTRACTORS_COMMIT: ${{ inputs.extractors_commit }}
       BENCHMARK_YEAR: ${{ matrix.year }}
       POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
       POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}

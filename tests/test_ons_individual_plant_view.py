@@ -4,6 +4,7 @@ Set ONS_TEST_PG_DSN explicitly. This test never uses the project's .env
 connection and refuses non-local servers. CI supplies its disposable service.
 """
 
+import calendar
 import json
 from datetime import UTC, datetime
 import os
@@ -219,7 +220,7 @@ def test_qualification_and_utc_month_boundary(database):
         assert cur.fetchall() == [("2019-02-01 00:00:00", "KEEP", 1, 0.0)]
 
 
-@pytest.mark.parametrize("year", [2019, 2024])
+@pytest.mark.parametrize("year", [2019, 2020, 2024])
 def test_full_year_reconciliation_and_corruption_detection(database, tmp_path, year):
     conn, db, dsn = database
     rows = [
@@ -229,11 +230,11 @@ def test_full_year_reconciliation_and_corruption_detection(database, tmp_path, y
         )
         for month in range(1, 13)
     ]
-    if year == 2024:
+    if calendar.isleap(year):
         rows.append(
             record(
                 "PLANT",
-                timestamp_ms=int(datetime(2024, 2, 29, tzinfo=UTC).timestamp() * 1000),
+                timestamp_ms=int(datetime(year, 2, 29, tzinfo=UTC).timestamp() * 1000),
             )
         )
     source = tmp_path / "source.jsonl"
