@@ -30,7 +30,7 @@
         "Nuclear": 132624,
         "Fossil Gas": 66312
       },
-      "staging_status": "Preflight failed on legacy interval labels and duplicate names; repair approval required before load."
+      "staging_status": "Passed after the explicitly approved interval/duplicate repair; original and corrected baselines retained in docs/validation."
     }
   }
 }

@@ -1,0 +1,276 @@
+{
+  "audited_on": "2026-10-04",
+  "environment": "staging",
+  "neon_branch": "br-sweet-voice-aglj4sd7",
+  "status": "passed",
+  "production_accessed": false,
+  "extractors_commit": "b38bfd7f3089478dd60393b66b88b3936ad2b857",
+  "tested_etl_commit": "ffec8b82d9b8386154dae921ae6b7fec71f7b04a",
+  "repair_commit": "13936be6d747e6b1305a2414c68ee0196f6a72aa",
+  "source_manifest_sha256": "43ff3cd7b9170649d383d365282bf68602165310e60b543f599fab15d42342d5",
+  "original_audit": "entsoe-cz-2024-preflight-2026-10-04.json",
+  "repair": {
+    "environment": "staging",
+    "country": "CZ",
+    "year": 2024,
+    "source": {
+      "observations": 861720,
+      "unit_count": 39,
+      "fuel_counts": {
+        "Fossil Brown coal/Lignite": 463848,
+        "Hydro Pumped Storage": 132624,
+        "Fossil Hard coal": 66312,
+        "Nuclear": 132624,
+        "Fossil Gas": 66312
+      },
+      "generation_mwh": 49388186.42,
+      "days": 366,
+      "content_sha256": "c86a1ee39b725ba7dc47d006ff90e9ca15b1d9bce6ab1412c825bf3c7d6bd5f9",
+      "source_requests": 366,
+      "extraction_run_id": "c914a35a-a46d-4f6a-8248-0bfd95c7703f"
+    },
+    "repair": {
+      "action": "applied",
+      "interval_corrections": 117216,
+      "exact_duplicate_copies": 16,
+      "original_rows_to_archive": 117232,
+      "coal_before_sha256": "11a9deef64f321eb1b2b7d3958a82e041312962cb67f2fd15a29fa4690d2096c",
+      "coal_mwh_before": 12219119.69999749,
+      "coal_mwh_after_repair": 18782731.27499695,
+      "backup_table": "ingestion.entsoe_cz_2024_repair_backup"
+    }
+  },
+  "backup_verified": {
+    "table": "ingestion.entsoe_cz_2024_repair_backup",
+    "rows": 117232,
+    "coal_rows": 104196,
+    "dashboard_select": false
+  },
+  "post_repair_preflight": {
+    "country": "CZ",
+    "year": 2024,
+    "month": null,
+    "phase": "preflight",
+    "source": {
+      "observations": 861720,
+      "unit_count": 39,
+      "fuel_counts": {
+        "Fossil Brown coal/Lignite": 463848,
+        "Hydro Pumped Storage": 132624,
+        "Fossil Hard coal": 66312,
+        "Nuclear": 132624,
+        "Fossil Gas": 66312
+      },
+      "generation_mwh": 49388186.42,
+      "days": 366,
+      "content_sha256": "c86a1ee39b725ba7dc47d006ff90e9ca15b1d9bce6ab1412c825bf3c7d6bd5f9",
+      "source_requests": 366,
+      "extraction_run_id": "c914a35a-a46d-4f6a-8248-0bfd95c7703f"
+    },
+    "coal": {
+      "coal_rows": 530160,
+      "coal_sha256": "b37ffa8e88329137a46e0cf68bedbd79ef90cb110d059fdc0227de68dbebd241",
+      "coal_monthly": [
+        [
+          "2024-01-01 00:00:00+00",
+          1847881.9000000032
+        ],
+        [
+          "2024-02-01 00:00:00+00",
+          1704320.6000000115
+        ],
+        [
+          "2024-03-01 00:00:00+00",
+          1659865.1999999932
+        ],
+        [
+          "2024-04-01 00:00:00+00",
+          1150410.0000000002
+        ],
+        [
+          "2024-05-01 00:00:00+00",
+          1179384.3999999983
+        ],
+        [
+          "2024-06-01 00:00:00+00",
+          1230096.9250000014
+        ],
+        [
+          "2024-07-01 00:00:00+00",
+          1354275.2749999352
+        ],
+        [
+          "2024-08-01 00:00:00+00",
+          1400447.0749999718
+        ],
+        [
+          "2024-09-01 00:00:00+00",
+          1538904.84999995
+        ],
+        [
+          "2024-10-01 00:00:00+00",
+          1787878.324999946
+        ],
+        [
+          "2024-11-01 00:00:00+00",
+          2103770.899999987
+        ],
+        [
+          "2024-12-01 00:00:00+00",
+          1825495.8249999078
+        ]
+      ]
+    },
+    "preflight": {
+      "missing_existing_coal_observations": 0,
+      "missing_existing_observations": 0,
+      "changed_existing_observations": 0,
+      "changed_existing_identities": 0,
+      "duplicate_unit_identities": 0
+    },
+    "status": "passed"
+  },
+  "first_load": {
+    "timestamp": "2026-10-04T18:48:26.190284",
+    "source_file": "../../extractors/energy-extractors/output/entsoe_cz_pilot_2026-10-04/year2024-full/entsoe_generation_2026-10-04_18-22-45_etl.jsonl",
+    "total_records": 861720,
+    "valid_records": 861720,
+    "invalid_records": 0,
+    "duplicate_records": 0,
+    "errors_by_type": {},
+    "sample_errors": [],
+    "rows_written": 861720
+  },
+  "repeat_load": {
+    "timestamp": "2026-10-04T18:50:38.924857",
+    "source_file": "../../extractors/energy-extractors/output/entsoe_cz_pilot_2026-10-04/year2024-full/entsoe_generation_2026-10-04_18-22-45_etl.jsonl",
+    "total_records": 861720,
+    "valid_records": 861720,
+    "invalid_records": 0,
+    "duplicate_records": 0,
+    "errors_by_type": {},
+    "sample_errors": [],
+    "rows_written": 0
+  },
+  "verification": {
+    "country": "CZ",
+    "year": 2024,
+    "month": null,
+    "phase": "verify",
+    "source": {
+      "observations": 861720,
+      "unit_count": 39,
+      "fuel_counts": {
+        "Fossil Brown coal/Lignite": 463848,
+        "Hydro Pumped Storage": 132624,
+        "Fossil Hard coal": 66312,
+        "Nuclear": 132624,
+        "Fossil Gas": 66312
+      },
+      "generation_mwh": 49388186.42,
+      "days": 366,
+      "content_sha256": "c86a1ee39b725ba7dc47d006ff90e9ca15b1d9bce6ab1412c825bf3c7d6bd5f9",
+      "source_requests": 366,
+      "extraction_run_id": "c914a35a-a46d-4f6a-8248-0bfd95c7703f"
+    },
+    "coal": {
+      "coal_rows": 530160,
+      "coal_sha256": "b37ffa8e88329137a46e0cf68bedbd79ef90cb110d059fdc0227de68dbebd241",
+      "coal_monthly": [
+        [
+          "2024-01-01 00:00:00+00",
+          1847881.9000000032
+        ],
+        [
+          "2024-02-01 00:00:00+00",
+          1704320.6000000115
+        ],
+        [
+          "2024-03-01 00:00:00+00",
+          1659865.1999999932
+        ],
+        [
+          "2024-04-01 00:00:00+00",
+          1150410.0000000002
+        ],
+        [
+          "2024-05-01 00:00:00+00",
+          1179384.3999999983
+        ],
+        [
+          "2024-06-01 00:00:00+00",
+          1230096.9250000014
+        ],
+        [
+          "2024-07-01 00:00:00+00",
+          1354275.2749999352
+        ],
+        [
+          "2024-08-01 00:00:00+00",
+          1400447.0749999718
+        ],
+        [
+          "2024-09-01 00:00:00+00",
+          1538904.84999995
+        ],
+        [
+          "2024-10-01 00:00:00+00",
+          1787878.324999946
+        ],
+        [
+          "2024-11-01 00:00:00+00",
+          2103770.899999987
+        ],
+        [
+          "2024-12-01 00:00:00+00",
+          1825495.8249999078
+        ]
+      ]
+    },
+    "preflight": {
+      "missing_existing_coal_observations": 0,
+      "missing_existing_observations": 0,
+      "changed_existing_observations": 0,
+      "changed_existing_identities": 0,
+      "duplicate_unit_identities": 0
+    },
+    "reconciliation": {
+      "matched_observations": 861720,
+      "matched_monthly_groups": 468,
+      "matched_legacy_coal_monthly_groups": 288,
+      "months": [
+        "2024-01-01T00:00:00+00:00",
+        "2024-02-01T00:00:00+00:00",
+        "2024-03-01T00:00:00+00:00",
+        "2024-04-01T00:00:00+00:00",
+        "2024-05-01T00:00:00+00:00",
+        "2024-06-01T00:00:00+00:00",
+        "2024-07-01T00:00:00+00:00",
+        "2024-08-01T00:00:00+00:00",
+        "2024-09-01T00:00:00+00:00",
+        "2024-10-01T00:00:00+00:00",
+        "2024-11-01T00:00:00+00:00",
+        "2024-12-01T00:00:00+00:00"
+      ],
+      "dashboard_permissions": "unchanged"
+    },
+    "status": "passed"
+  },
+  "github_ci": {
+    "etl": "https://github.com/nicholas-abad/power-generation-etl/actions/runs/37218212900",
+    "extractor_parser": "https://github.com/nicholas-abad/power-generation-etl/actions/runs/37218212897",
+    "etl_tests_passed": 152,
+    "parser_tests_passed": 48,
+    "postgresql": "17; disposable GitHub service",
+    "staging_workflow_data_job": "skipped on push; actual benchmark executed locally through the staging wrapper"
+  },
+  "notes": [
+    "The user explicitly approved correcting legacy 2024 durations and duplicate-name copies in staging before the all-fuel load.",
+    "No overlapping MW values or fuels changed. 117,216 interval labels were corrected; 16 exact duplicate copies were archived and removed.",
+    "Coal MWh increased from 12,219,119.700 to 18,782,731.275 due to the interval correction; the expansion then preserved this corrected baseline exactly.",
+    "There were 596,488 legacy fossil rows, 596,472 after duplicate cleanup, and 861,720 after adding 265,248 nuclear/pumped-hydro observations.",
+    "First-load rows_written includes identity and provenance updates, not only new observations.",
+    "Legacy replays retain the verified source interval duration; the regression test passed in CI.",
+    "Production was not accessed. The frontend repository was not modified."
+  ]
+}

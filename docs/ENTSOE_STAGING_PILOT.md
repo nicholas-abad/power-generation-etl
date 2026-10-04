@@ -2,6 +2,8 @@
 
 The pilot covers **CZ (Czech Republic), March 2019, then full 2019 and 2024**. Production is out of scope, including read-only queries, migrations, deployments and releases. Work stays on `feat/entsoe-all-fuels` in the extractor and ETL repositories and Neon staging branch `br-sweet-voice-aglj4sd7`.
 
+**Completed on 2026-10-04:** both full years passed on staging. Each identical reload wrote zero rows. The 2024 run required an explicitly approved repair of legacy durations and duplicate-name copies; both the original and corrected baselines are retained below. The ETL and parser CI runs passed 152 and 48 tests respectively, with PostgreSQL 17 integration tests.
+
 The frontend going forward is `chienleng/global-coal-generation-tracker`. Do not push to that repository. This pilot does not change frontend code, its queries, or reader permissions.
 
 ## Source and coverage
@@ -41,7 +43,7 @@ uv run energy-extract entsoe --countries CZ --start-year 2019 --end-year 2019 \
   --all-fuels --yes --output output/entsoe-cz-2019
 ```
 
-`--months 3` limits this to the March sample. `--resume-source-archive` explicitly reuses archived responses after an interrupted download; the parser rechecks every response. For this pilot the 2024 download is split into four independent month ranges; all 366 archived day responses must then be replayed as one full-year extraction before loading. Only full-year manifests qualify for the fixed benchmarks.
+`--months 3` limits this to the March sample. `--resume-source-archive` explicitly reuses archived responses after an interrupted download; the parser rechecks every response. For this pilot the 2024 download was split into four independent month ranges; all 366 archived day responses were then replayed as one full-year extraction before loading. Only full-year manifests qualify for the fixed benchmarks.
 
 From the ETL repository, apply the migration through the pinned staging wrapper:
 
@@ -62,7 +64,7 @@ The [2019 verification summary](validation/entsoe-cz-2019-2026-10-04.json) recor
 
 ### 2024 preflight found historical data errors
 
-The complete 366-response archive was replayed with the pinned extractor: 861,720 observations, 39 units, five fuel types and 49,388,186.42 MWh. Its canonical source hash is recorded in the benchmark configuration, but **the 2024 load stopped before writing data**. The [drift audit and repair plan](validation/entsoe-cz-2024-preflight-2026-10-04.json) distinguish this from a successful staging load.
+The complete 366-response archive was replayed with the pinned extractor: 861,720 observations, 39 units, five fuel types and 49,388,186.42 MWh. Its canonical source hash is recorded in the benchmark configuration. The initial preflight **stopped the 2024 load before writing data**. The [original drift audit and repair plan](validation/entsoe-cz-2024-preflight-2026-10-04.json) preserve the evidence from that failed preflight; the approved repair and successful load are recorded separately.
 
 All overlapping MW values and fuel labels match. However, 117,216 existing fossil rows have `resolution_minutes=15` where the source XML says 60: 91,152 brown-coal rows, 13,032 hard-coal rows and 13,032 gas rows. These run from January 1 through June 29. The legacy parser infers one interval from the median spacing of a whole DataFrame; the new parser retains each XML Period's resolution. This validates the need to use source intervals when reporting changes within a year.
 
@@ -77,7 +79,11 @@ The 6,563,611.575 MWh increase (+53.7%) comes from correcting interval durations
 
 The proposed [staging-only repair](../src/repair_entsoe_cz_2024_staging.py) defaults to a read-only plan. It checks the audited source hash, the original coal hash, exact correction counts, unchanged MW/fuel values and proof of each duplicate. Its explicit `--apply` mode first archives all 117,232 original rows in `ingestion.entsoe_cz_2024_repair_backup`, then updates durations and removes only those proven copies in one transaction. The backup receives no dashboard access. PostgreSQL tests cover planning without writes, backup contents, the exact mutation, repeat execution, refusal of unreviewed changes and rejection of a production environment before connecting.
 
-The user approved this correction in staging on 2026-10-04; production remains out of scope. Run that script through `run_in_environment.py --environment staging --role owner`, using the archived full-year JSONL/manifest and `--apply`. Then preserve a new post-repair coal baseline, run normal preflight, load twice, refresh and reconcile. Keep the original baseline and the repair report alongside the final verification so the correction remains explicit. Do not restore the backup blindly after subsequent loads; review later revisions and source IDs before rollback.
+The user approved this correction in staging on 2026-10-04. It was applied through the pinned staging owner wrapper, and all 117,232 original rows were verified in the backup, including 104,196 coal rows. A fresh preflight then found zero missing observations, measurement differences or identity conflicts. Production was not accessed. Do not restore the backup blindly after subsequent loads; review later revisions and source IDs before rollback.
+
+The [completed 2024 verification](validation/entsoe-cz-2024-2026-10-04.json) records 861,720 matched observations, 468 monthly unit groups, 288 legacy coal monthly groups and unchanged reader permissions. The load added 265,248 nuclear/pumped-hydro observations to the corrected fossil history and retained IDs on all source rows. Its identical repeat wrote zero rows. The coal fingerprint after the expansion exactly matches the post-repair baseline: 530,160 unique coal observations and 18,782,731.275 MWh. Both full years are now validated for this country; other countries still require their own source, identity and historical-data checks.
+
+The [final code CI](https://github.com/nicholas-abad/power-generation-etl/actions/runs/37218212900) passed all 152 ETL tests on disposable PostgreSQL 17; [parser CI](https://github.com/nicholas-abad/power-generation-etl/actions/runs/37218212897) passed all 48 ENTSO-E tests. These push runs skipped the manual data job. The actual database benchmarks above ran locally through the same pinned staging wrapper, with permanent evidence retained in this repository. Nothing was merged to main or deployed to production.
 
 Raw observations are stored on staging in `ingestion.entsoe_generation_data`; aggregates are in `public.mv_entsoe_unit_monthly` and the existing ENTSO-E views. Complete XML archives, JSONL/CSV and manifests are retained locally under the extractor checkout's ignored `output/entsoe_cz_pilot_2026-10-04/`. Load reports, baseline hashes and reconciliation reports are under the ETL checkout's matching ignored output directory. Permanent summaries belong in `docs/validation/`. GitHub benchmark artifacts retain source XML and verification reports for 30 days.
 
