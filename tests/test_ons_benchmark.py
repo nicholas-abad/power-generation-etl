@@ -40,7 +40,7 @@ def metadata_for(year):
 
 
 @pytest.mark.parametrize(
-    "year,days", [(2019, 365), (2020, 366), (2021, 365), (2024, 366)]
+    "year,days", [(2019, 365), (2020, 366), (2021, 365), (2022, 365), (2024, 366)]
 )
 def test_historical_year_boundaries_include_leap_day(year, days):
     start, end = year_bounds(year)
@@ -50,7 +50,7 @@ def test_historical_year_boundaries_include_leap_day(year, days):
         year_bounds(2023)
 
 
-@pytest.mark.parametrize("year", [2019, 2020, 2021, 2024])
+@pytest.mark.parametrize("year", [2019, 2020, 2021, 2022, 2024])
 def test_complete_audited_extraction_is_accepted(year):
     report = check_extraction(metadata_for(year), year, benchmark(year))
     assert report["status"] == "source_verified"
