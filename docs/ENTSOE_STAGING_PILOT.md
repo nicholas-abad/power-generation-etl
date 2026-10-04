@@ -60,6 +60,25 @@ Preflight refuses missing existing observations, changed measurements and identi
 
 The [2019 verification summary](validation/entsoe-cz-2019-2026-10-04.json) records 356,083 observations, 41 units, 492 monthly unit groups and 57,621,966.75 MWh across five reported fuel types. All 224,876 existing coal observations and 312 coal monthly groups were preserved. Both loads had zero invalid or duplicate input rows; the repeat wrote zero rows. The earlier March sample also passed with 30,432 observations, 41 monthly groups and 19,272 unchanged coal observations.
 
+### 2024 preflight found historical data errors
+
+The complete 366-response archive was replayed with the pinned extractor: 861,720 observations, 39 units, five fuel types and 49,388,186.42 MWh. Its canonical source hash is recorded in the benchmark configuration, but **the 2024 load stopped before writing data**. The [drift audit and repair plan](validation/entsoe-cz-2024-preflight-2026-10-04.json) distinguish this from a successful staging load.
+
+All overlapping MW values and fuel labels match. However, 117,216 existing fossil rows have `resolution_minutes=15` where the source XML says 60: 91,152 brown-coal rows, 13,032 hard-coal rows and 13,032 gas rows. These run from January 1 through June 29. The legacy parser infers one interval from the median spacing of a whole DataFrame; the new parser retains each XML Period's resolution. This validates the need to use source intervals when reporting changes within a year.
+
+There are also 16 exact duplicate-name copies at 2024-12-31 23:00–23:45 UTC: twelve zero-valued coal observations for EDET G2/G3/G4 and four gas observations for EPC2 B21. The gas copies add 295.325 MWh. The canonical and duplicate names differ by a trailing underscore, and both copies have identical MW, fuel and duration.
+
+| Czech 2024 coal | Existing staging | Correct source intervals |
+|---|---:|---:|
+| MWh | 12,219,119.700 | 18,782,731.275 |
+| Raw rows | 530,172 | 530,160 (twelve duplicate copies removed) |
+
+The 6,563,611.575 MWh increase (+53.7%) comes from correcting interval durations; no MW readings change. This requires a separate decision because the original regression benchmark required unchanged coal totals.
+
+The proposed [staging-only repair](../src/repair_entsoe_cz_2024_staging.py) defaults to a read-only plan. It checks the audited source hash, the original coal hash, exact correction counts, unchanged MW/fuel values and proof of each duplicate. Its explicit `--apply` mode first archives all 117,232 original rows in `ingestion.entsoe_cz_2024_repair_backup`, then updates durations and removes only those proven copies in one transaction. The backup receives no dashboard access. PostgreSQL tests cover planning without writes, backup contents, the exact mutation, repeat execution, refusal of unreviewed changes and rejection of a production environment before connecting.
+
+The user approved this correction in staging on 2026-10-04; production remains out of scope. Run that script through `run_in_environment.py --environment staging --role owner`, using the archived full-year JSONL/manifest and `--apply`. Then preserve a new post-repair coal baseline, run normal preflight, load twice, refresh and reconcile. Keep the original baseline and the repair report alongside the final verification so the correction remains explicit. Do not restore the backup blindly after subsequent loads; review later revisions and source IDs before rollback.
+
 Raw observations are stored on staging in `ingestion.entsoe_generation_data`; aggregates are in `public.mv_entsoe_unit_monthly` and the existing ENTSO-E views. Complete XML archives, JSONL/CSV and manifests are retained locally under the extractor checkout's ignored `output/entsoe_cz_pilot_2026-10-04/`. Load reports, baseline hashes and reconciliation reports are under the ETL checkout's matching ignored output directory. Permanent summaries belong in `docs/validation/`. GitHub benchmark artifacts retain source XML and verification reports for 30 days.
 
 The metadata date-range query exposed an unrelated planner problem during the sample: PostgreSQL walked the timestamp index across the full ENTSO-E table to find the run's first/last observation. Filtering the run in a materialized CTE made it use the existing run-ID index; the staging query dropped from nine minutes to 0.16 seconds. A PostgreSQL regression test checks this execution-plan shape and correct date boundaries.
