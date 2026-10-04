@@ -24,7 +24,7 @@ Migration [018](../schema/migrations/018_entsoe_unit_identifiers.sql) adds three
 | `production_unit_eic VARCHAR(16)` | Optional parent production-unit ID |
 | `source_unit_name TEXT` | Unmodified API name |
 
-The existing timestamp/country/PSR/plant-name unique key remains. A new partial unique index on `(country_code, unit_eic, timestamp_ms)` prevents duplicate identified observations. Existing rows retain null IDs until an audited source file backfills them. The loader rejects attempts to replace a known EIC; legacy replays retain IDs and the known generation metric.
+The existing timestamp/country/PSR/plant-name unique key remains. A new partial unique index on `(country_code, unit_eic, timestamp_ms)` prevents duplicate identified observations. Existing rows retain null IDs until an audited source file backfills them. The loader rejects attempts to replace a known EIC; legacy replays retain IDs, the known generation metric and exact source interval duration, preventing inferred legacy intervals from undoing the correction. Later identified source revisions remain subject to the normal audit.
 
 Twenty-six Czech names differ from stored legacy names by one trailing underscore. [Explicit reviewed aliases](../config/entsoe-unit-aliases.json) connect the source EIC/name/PSR combination to the existing `plant_name`, preserving legacy joins while retaining `source_unit_name`. There is no general trimming or fuzzy matching. An unexpected name or PSR for a known alias fails validation. New countries require their own identity/coverage review; two EICs sharing the old name/PSR/time key require a separate key migration.
 

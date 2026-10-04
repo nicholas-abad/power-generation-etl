@@ -230,7 +230,7 @@ class PowerGenerationDatabase:
         conflict_expr: str = None,
         update_columns: list = None,
         identity_columns: list = None,
-        preserve_identified_metric: bool = False,
+        preserve_identified_metadata: bool = False,
     ) -> int:
         """Insert rows via a staging table, skipping duplicates on conflict.
 
@@ -285,12 +285,16 @@ class PowerGenerationDatabase:
         if update_columns:
             for col in update_columns:
                 _validate_identifier(col)
-            if preserve_identified_metric and target_table != "entsoe_generation_data":
-                raise ValueError("The identified metric guard is ENTSO-E-specific")
+            if (
+                preserve_identified_metadata
+                and target_table != "entsoe_generation_data"
+            ):
+                raise ValueError("The identified metadata guard is ENTSO-E-specific")
             values = {
                 c: (
-                    "CASE WHEN t.unit_eic IS NOT NULL THEN t.data_type ELSE EXCLUDED.data_type END"
-                    if c == "data_type" and preserve_identified_metric
+                    f"CASE WHEN t.unit_eic IS NOT NULL THEN t.{c} ELSE EXCLUDED.{c} END"
+                    if c in {"data_type", "resolution_minutes"}
+                    and preserve_identified_metadata
                     else f"EXCLUDED.{c}"
                 )
                 for c in update_columns
@@ -1011,7 +1015,7 @@ class PowerGenerationDatabase:
                 + identity_columns
                 + (["source_unit_name"] if identity_columns else []),
                 identity_columns=identity_columns,
-                preserve_identified_metric=not identity_columns,
+                preserve_identified_metadata=not identity_columns,
             )
 
         inserted = self._execute_with_retry(_upsert)
