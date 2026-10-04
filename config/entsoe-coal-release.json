@@ -1,0 +1,13 @@
+{
+  "scope": "CZ coal hotfix; preparation only, not authorized for production execution",
+  "extractor_repository": "nicholas-abad/energy-extractors",
+  "extractor_commit": "d9606c5f9070e38f670cc4ea323da372631d14c7",
+  "etl_repository": "nicholas-abad/power-generation-etl",
+  "etl_base_commit": "d8c6d781a34726e87001e2c43ec09b66aa9e0595",
+  "etl_commit_binding": "The immutable Git commit containing this file; record its full SHA at rehearsal/deployment.",
+  "repair_id": "entsoe-cz-coal-2023-2024-v1",
+  "repair_artifact_sha256": "1a5805c8a326e91e3ef569d21669e8dbead6d9d136ebc8976cd266e6ef2540b6",
+  "full_release_rehearsal": "pending",
+  "production_access": "not authorized",
+  "github_publication": "pending"
+}

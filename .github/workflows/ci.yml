@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, develop, feature/*]
+    branches: [main, develop, feature/*, fix/entsoe-coal-corrections]
   pull_request:
     branches: [main, develop]
 
@@ -66,6 +66,7 @@ jobs:
 
       - name: Run tests
         env:
+          COAL_TEST_PG_DSN: host=localhost port=5432 dbname=power_generation_test user=postgres password=postgres
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_DB: power_generation_test
