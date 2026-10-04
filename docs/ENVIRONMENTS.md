@@ -163,8 +163,23 @@ gh workflow run ons-staging.yml --repo nicholas-abad/power-generation-etl \
 
 The [2022-only GitHub run](https://github.com/nicholas-abad/power-generation-etl/actions/runs/37184463618) passed on 2026-10-04. Its [permanent verification summary](validation/ons-staging-2022-2026-10-04.json) records 2,667,216 source observations and 3,665 monthly groups reconciled across twelve months and eleven fuel labels. All 78,840 coal observations and the monthly coal totals were preserved. Both loads had zero invalid or duplicate records; the identical repeat wrote zero rows. The matching [ETL CI run](https://github.com/nicholas-abad/power-generation-etl/actions/runs/37184378116) passed all 113 tests, including seven PostgreSQL integration tests. First-load writes include updates and are not a count of new observations.
 
-Full downloaded evidence is retained locally under `output/github_ons_2022_37184463618/`; the GitHub artifact expires after thirty days. The permanent summary hashes the exact source manifest saved in the artifact. Validated all-fuel years are now **2019, 2020, 2021, 2022 and 2024**. **2023 is the next year to audit and load**; it has not yet been run through this expansion workflow. This 2022 run changed staging only; production and the frontend repository were unchanged.
+Full downloaded evidence is retained locally under `output/github_ons_2022_37184463618/`; the GitHub artifact expires after thirty days. The permanent summary hashes the exact source manifest saved in the artifact. This 2022 run changed staging only; production and the frontend repository were unchanged.
 
-Loaded observations are saved to `ingestion.ons_generation_data` on Neon staging branch `br-sweet-voice-aglj4sd7`. The qualifying monthly aggregates are in `public.mv_ons_individual_plant_monthly` on that same branch. Local 2020–2022 source Parquets and source audits are under the extractor checkout's ignored `output/ons_yearly_audits_2026-10-04/<year>/` directories. GitHub artifacts contain verification reports and logs, not the complete generation dataset.
+The twelve monthly 2023 sources were audited on 2026-10-04: 5,748,504 source observations, 2,798,736 qualifying observations, 322 ONS plant IDs, eleven fuel labels and all twelve months. The excluded population comprises 2,056,248 plant-group observations and 893,520 forecasts. All twelve source hashes and the expected qualifying count are committed in `config/ons-benchmarks.json`.
+
+Run 2023 alone:
+
+```bash
+gh workflow run ons-staging.yml --repo nicholas-abad/power-generation-etl \
+  --ref feat/ons-all-fuels-2019 \
+  -f year=2023 \
+  -f extractors_commit=db56cb9023b9844356fc633651d49f7027ac3274
+```
+
+The [2023-only GitHub run](https://github.com/nicholas-abad/power-generation-etl/actions/runs/37185496391) passed on 2026-10-04. Its [permanent verification summary](validation/ons-staging-2023-2026-10-04.json) records 2,798,736 source observations and 3,837 monthly groups reconciled across twelve months and eleven fuel labels. All 78,840 coal observations and the monthly coal totals were preserved. Both loads had zero invalid or duplicate records; the identical repeat wrote zero rows. The matching [ETL CI run](https://github.com/nicholas-abad/power-generation-etl/actions/runs/37185438246) passed all 116 tests, including eight PostgreSQL integration tests. First-load writes include updates and are not a count of new observations.
+
+Full downloaded evidence is retained locally under `output/github_ons_2023_37185496391/`; the GitHub artifact expires after thirty days. The permanent summary hashes the exact source manifest saved in the artifact. Qualifying all-fuel coverage is now validated for **every year from 2019 through 2024**. **2025 is the next complete year to audit and load**; it has not yet been run through this expansion workflow. The fixed regression benchmarks remain 2019 and 2024. This 2023 run changed staging only; production and the frontend repository were unchanged.
+
+Loaded observations are saved to `ingestion.ons_generation_data` on Neon staging branch `br-sweet-voice-aglj4sd7`. The qualifying monthly aggregates are in `public.mv_ons_individual_plant_monthly` on that same branch. Local 2020–2023 source Parquets and source audits are under the extractor checkout's ignored `output/ons_yearly_audits_2026-10-04/<year>/` directories. GitHub artifacts contain verification reports and logs, not the complete generation dataset.
 
 The legacy dashboard's Cloudflare preview instructions are historical. Its pending preview setup and CI rollout are no longer part of the active plan. Inspect `chienleng/global-coal-generation-tracker` before defining the replacement frontend's environment and release configuration.
