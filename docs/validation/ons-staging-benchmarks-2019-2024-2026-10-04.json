@@ -1,0 +1,57 @@
+{
+  "status": "passed",
+  "environment": "staging",
+  "branch_id": "br-sweet-voice-aglj4sd7",
+  "verified_on": "2026-10-04",
+  "scope": "ONS qualifying individual-plant observations; not national generation totals",
+  "rows_written_note": "Counts include inserts and updates, not only newly added observations.",
+  "github_run": "https://github.com/nicholas-abad/power-generation-etl/actions/runs/37179237503",
+  "github_ci": "https://github.com/nicholas-abad/power-generation-etl/actions/runs/37179237509",
+  "bootstrap_2019_run": "https://github.com/nicholas-abad/power-generation-etl/actions/runs/37178579505",
+  "manifest_sha256": "0ace704d0e29ae06e03b5988052a2206fc1d89f758e20dbfe204ce35bf18637e",
+  "tests": {
+    "etl": 103,
+    "postgresql_integration_tests_included": 4,
+    "ons_extractor": 57
+  },
+  "years": {
+    "2019": {
+      "status": "passed",
+      "source_rows_reconciled": 2424001,
+      "source_files_verified": 1,
+      "qualified_monthly_rows": 3327,
+      "qualified_months": 12,
+      "qualified_fuel_labels": 10,
+      "qualified_generation_mwh": 478334817.2660243,
+      "coal_rows_preserved": 77544,
+      "coal_sha256": "cc12b6ec7c23c1dcbcb7843a22ff44b370a440d31469e60da84e5320fccf5194",
+      "coal_monthly_totals_preserved": true,
+      "first_load_rows_written": 2424001,
+      "repeat_load_rows_written": 0,
+      "invalid_records": 0,
+      "duplicate_records": 0,
+      "extraction_run_id": "af292a63-49df-4756-8aac-132c928e76ae",
+      "extractors_commit": "db56cb9023b9844356fc633651d49f7027ac3274",
+      "etl_commit": "2b08fcec4f5aec4bc6c424f07abf97cb2955a73d"
+    },
+    "2024": {
+      "status": "passed",
+      "source_rows_reconciled": 2842224,
+      "source_files_verified": 12,
+      "qualified_monthly_rows": 3887,
+      "qualified_months": 12,
+      "qualified_fuel_labels": 11,
+      "qualified_generation_mwh": 469276065.90301263,
+      "coal_rows_preserved": 79056,
+      "coal_sha256": "d5cb7741800b62a264510032a60087b5f80ac031476d3cc9c943ba16caa7bb76",
+      "coal_monthly_totals_preserved": true,
+      "first_load_rows_written": 2842224,
+      "repeat_load_rows_written": 0,
+      "invalid_records": 0,
+      "duplicate_records": 0,
+      "extraction_run_id": "5088be37-b776-4e54-9a54-335bbce28b95",
+      "extractors_commit": "db56cb9023b9844356fc633651d49f7027ac3274",
+      "etl_commit": "2b08fcec4f5aec4bc6c424f07abf97cb2955a73d"
+    }
+  }
+}
