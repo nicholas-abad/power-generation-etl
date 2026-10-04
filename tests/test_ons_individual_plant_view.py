@@ -220,7 +220,7 @@ def test_qualification_and_utc_month_boundary(database):
         assert cur.fetchall() == [("2019-02-01 00:00:00", "KEEP", 1, 0.0)]
 
 
-@pytest.mark.parametrize("year", [2019, 2020, 2021, 2024])
+@pytest.mark.parametrize("year", [2019, 2020, 2021, 2022, 2024])
 def test_full_year_reconciliation_and_corruption_detection(database, tmp_path, year):
     conn, db, dsn = database
     rows = [
