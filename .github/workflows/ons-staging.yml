@@ -1,4 +1,4 @@
-name: ONS 2019 staging rehearsal
+name: ONS 2019 and 2024 staging benchmarks
 
 on:
   # Bootstrap and verify the workflow without merging into production's main.
@@ -6,6 +6,8 @@ on:
     branches: ['feat/ons-all-fuels-*']
     paths:
       - '.github/workflows/ons-staging.yml'
+      - 'config/ons-benchmarks.json'
+      - 'src/check_ons_staging.py'
   workflow_dispatch:
     inputs:
       extractors_commit:
@@ -22,11 +24,18 @@ concurrency:
 
 jobs:
   rehearse:
+    name: ONS ${{ matrix.year }} staging benchmark
     environment: staging
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        year: [2019, 2024]
     env:
-      EXTRACTORS_COMMIT: ${{ inputs.extractors_commit || 'b7ac3660d0f8d8ae89a7e7d789a02ef87b8c8c47' }}
+      EXTRACTORS_COMMIT: ${{ inputs.extractors_commit || 'db56cb9023b9844356fc633651d49f7027ac3274' }}
+      BENCHMARK_YEAR: ${{ matrix.year }}
       POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
       POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}
       POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
@@ -58,12 +67,20 @@ jobs:
       - name: Capture coal baseline
         run: |
           uv run python src/run_in_environment.py --environment staging --from-process -- \
-            uv run python src/check_ons_staging.py --report output/coal-before.json
-      - name: Extract the single audited year
+            uv run python src/check_ons_staging.py --year "$BENCHMARK_YEAR" \
+              --report output/coal-before.json
+      - name: Extract the audited year
         working-directory: extractors
         run: |
-          uv run energy-extract ons --start-year 2019 --end-year 2019 \
+          uv run energy-extract ons --start-year "$BENCHMARK_YEAR" --end-year "$BENCHMARK_YEAR" \
             --all-types --individual-plants-only --output ../extracted_data --log-level INFO
+      - name: Require complete downloads and audited source hashes before loading
+        run: |
+          shopt -s nullglob
+          metadata=(extracted_data/extraction_metadata_*.json)
+          test "${#metadata[@]}" -eq 1
+          uv run python src/check_ons_staging.py --year "$BENCHMARK_YEAR" \
+            --preflight-metadata "${metadata[0]}" --report output/source-preflight.json
       - name: Load and repeat the same file
         run: |
           set -o pipefail
@@ -76,7 +93,8 @@ jobs:
                 --strict --validation-report "output/validation-$attempt.json" \
                 2>&1 | tee "output/load-$attempt.log"
           done
-          grep -q 'No valid records to insert' output/load-repeat.log
+          jq -e '.rows_written == 0 and .invalid_records == 0 and .duplicate_records == 0 and .total_records > 0' \
+            output/validation-repeat.json
       - name: Refresh ONS views
         run: |
           uv run python src/run_in_environment.py --environment staging --from-process -- \
@@ -85,15 +103,17 @@ jobs:
         run: |
           files=(extracted_data/ons_*_etl.jsonl)
           uv run python src/run_in_environment.py --environment staging --from-process -- \
-            uv run python src/check_ons_staging.py --baseline output/coal-before.json \
+            uv run python src/check_ons_staging.py --year "$BENCHMARK_YEAR" \
+              --baseline output/coal-before.json \
               --expected-jsonl "${files[0]}" --report output/verification.json
       - name: Save verification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ons-staging-${{ github.run_id }}
+          name: ons-staging-${{ matrix.year }}-${{ github.run_id }}
           path: |
             output/*.json
             output/load-*.log
             extracted_data/extraction_metadata_*.json
+            config/ons-benchmarks.json
           retention-days: 30

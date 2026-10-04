@@ -1,5 +1,7 @@
 # Infrastructure
 
+**Frontend correction — 2026-10-04:** the user selected [chienleng/global-coal-generation-tracker](https://github.com/chienleng/global-coal-generation-tracker) as the frontend going forward. This document's Next.js/Cloudflare architecture and costs describe the legacy `energy-generation-dashboard`, which is outside the active frontend plan. Do not carry those assumptions into the replacement frontend's integration, CI, or releases without inspecting its configuration. The backend extraction, ETL, and Neon context remains relevant.
+
 This document describes the deployed infrastructure for the power generation
 pipeline and the reasoning behind each choice. The stack is intentionally
 small: a serverless database, a scheduled CI job for the ETL, and a static-edge
