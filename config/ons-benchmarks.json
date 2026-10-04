@@ -112,6 +112,83 @@
         }
       ]
     },
+    "2023": {
+      "expected_observations": 2798736,
+      "source_files": [
+        {
+          "label": "2023-01",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2023_01.parquet",
+          "sha256": "df2e487cc6a1971311e8cfa19278ef7c8a619e2fefe72a6e5ef90223a9aaec63",
+          "raw_records": 464736
+        },
+        {
+          "label": "2023-02",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2023_02.parquet",
+          "sha256": "43f3cdc58353e25f7251c4c85e0323359b2e3f909a7a0a878dca84c0c9aaa9b5",
+          "raw_records": 416784
+        },
+        {
+          "label": "2023-03",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2023_03.parquet",
+          "sha256": "aaa244ca76e6c6498eef31af528464c596404386fb075d0c6b776fbe8f9c0304",
+          "raw_records": 463536
+        },
+        {
+          "label": "2023-04",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2023_04.parquet",
+          "sha256": "25725e7df41cdcec7e4575ba96303c05b3fe88d4db4e97311d8624ea3c853335",
+          "raw_records": 451776
+        },
+        {
+          "label": "2023-05",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2023_05.parquet",
+          "sha256": "9b4cfa2b49939f068235da595f4556a4905a4fd3cffbcbe0b7f9704d24ccce3e",
+          "raw_records": 493464
+        },
+        {
+          "label": "2023-06",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2023_06.parquet",
+          "sha256": "7efde756927a2389371ee21d9560ee9da36103d056eaa00f7c931dacbbde214f",
+          "raw_records": 479016
+        },
+        {
+          "label": "2023-07",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2023_07.parquet",
+          "sha256": "dbcd2a8d5f35dcdd2efb8736ec28e0c5d09bcd9bb6b5dfcb7f81afc2318d9258",
+          "raw_records": 496872
+        },
+        {
+          "label": "2023-08",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2023_08.parquet",
+          "sha256": "801659872cdcbb63c41f90953a65f666cc932a13d1482099fec38eb533c38f54",
+          "raw_records": 501432
+        },
+        {
+          "label": "2023-09",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2023_09.parquet",
+          "sha256": "74b20157e5bde74c5226722f1f9ce1dbb8bc7d791966907859b6ce00fedf9354",
+          "raw_records": 485664
+        },
+        {
+          "label": "2023-10",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2023_10.parquet",
+          "sha256": "c6356cd99988eec69b2db80ef547911aa6620b3b57800e6fa3b2df7fae73702e",
+          "raw_records": 503664
+        },
+        {
+          "label": "2023-11",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2023_11.parquet",
+          "sha256": "15aba654bbec7b26ad8c3622f07e137e4774d68c56b3287df901b12be5fa2f9f",
+          "raw_records": 486720
+        },
+        {
+          "label": "2023-12",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2023_12.parquet",
+          "sha256": "d2c2bd4812f50ceadc202a9e10758af08dbb5cc0d99cd2ca7f3ccde3eafe547e",
+          "raw_records": 504840
+        }
+      ]
+    },
     "2024": {
       "expected_observations": 2842224,
       "source_files": [
