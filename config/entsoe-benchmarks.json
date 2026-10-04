@@ -1,0 +1,21 @@
+{
+  "country": "CZ",
+  "audited_on": "2026-10-04",
+  "scope": "A73/A16 identified generation units, complete UTC years; not national totals. Response document IDs and retrieval times are excluded from the canonical observation hash.",
+  "benchmarks": {
+    "2019": {
+      "content_sha256": "8b50334734352902cf11e9fec4004acf3a5d1b79ceed4d97e4e5d48d5d41dac9",
+      "observations": 356083,
+      "unit_count": 41,
+      "days": 365,
+      "generation_mwh": 57621966.75,
+      "fuel_counts": {
+        "Fossil Brown coal/Lignite": 189886,
+        "Hydro Pumped Storage": 52464,
+        "Fossil Hard coal": 34990,
+        "Nuclear": 52463,
+        "Fossil Gas": 26280
+      }
+    }
+  }
+}
