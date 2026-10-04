@@ -1,0 +1,49 @@
+{
+  "status": "passed",
+  "environment": "staging",
+  "branch_id": "br-sweet-voice-aglj4sd7",
+  "verified_on": "2026-10-04",
+  "scope": "ONS qualifying individual-plant observations; not national generation totals",
+  "rows_written_note": "Counts include inserts and updates, not only newly added observations.",
+  "github_run": "https://github.com/nicholas-abad/power-generation-etl/actions/runs/37183009686",
+  "github_ci": "https://github.com/nicholas-abad/power-generation-etl/actions/runs/37182950177",
+  "manifest_sha256": "3e929f54d148a50d9e54dd5be0871f124ba0e3a5b5be8a815b493733be3d6af5",
+  "tests": {
+    "etl": 110,
+    "postgresql_integration_tests_included": 6
+  },
+  "data_locations": {
+    "database": "neondb",
+    "hourly_observations": "ingestion.ons_generation_data",
+    "qualified_monthly_aggregates": "public.mv_ons_individual_plant_monthly"
+  },
+  "years": {
+    "2021": {
+      "status": "passed",
+      "source_rows_reconciled": 2564736,
+      "source_files_verified": 1,
+      "source_files": [
+        {
+          "label": "2021",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2021.parquet",
+          "sha256": "45104340064ad2898c9ce13e34aa2d41c86bc1830da6b7a785648fa89141f492",
+          "raw_records": 4872192
+        }
+      ],
+      "qualified_monthly_rows": 3524,
+      "qualified_months": 12,
+      "qualified_fuel_labels": 10,
+      "qualified_generation_mwh": 473610256.5939889,
+      "coal_rows_preserved": 78840,
+      "coal_sha256": "d999c9c335c6e896021744915cbc8280f492e05c6ef96dc770160cd6c8c52845",
+      "coal_monthly_totals_preserved": true,
+      "first_load_rows_written": 2564736,
+      "repeat_load_rows_written": 0,
+      "invalid_records": 0,
+      "duplicate_records": 0,
+      "extraction_run_id": "d5005cdf-ae78-4ba0-abaf-8722ad7b5bfe",
+      "extractors_commit": "db56cb9023b9844356fc633651d49f7027ac3274",
+      "etl_commit": "55aa8295cbc3351931b25f684c26824c7894c7bc"
+    }
+  }
+}
