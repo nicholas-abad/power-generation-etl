@@ -6,6 +6,8 @@ Validates, loads, and schedules power generation data from eight upstream source
 
 Use the explicit [staging/production environment commands](docs/ENVIRONMENTS.md) for migrations and loads. They check the selected Neon endpoint and use separate credentials. The fixed ONS staging benchmarks cover **2019 and 2024**. Additional audited years can be loaded and verified individually through the manual staging workflow, with the same source-file hashes, full source reconciliation, coal regression checks, and identical repeat load.
 
+The next expansion is the [ENTSO-E Czech unit pilot](docs/ENTSOE_STAGING_PILOT.md), with stable unit IDs, preserved source interval lengths, migration 018 and 2019/2024 staging benchmarks. **Production is out of scope, including read-only access.** Feature-branch CI uses disposable PostgreSQL; the separate manual data workflow targets staging only.
+
 ---
 
 ## Overview
@@ -249,6 +251,7 @@ psql "$DATABASE_URL" -f schema/migrations/002_npp_fuel_type.sql
 | `015_crosswalk_owner.sql` | `plant_crosswalk` + its review view owned by `etl_writer` again (the CI swap needs ownership) |
 | `016_ct_gem_crosswalk.sql` | Grants plant-data's `ct_gem_crosswalk` (Climate TRACE's own CT → GEM links) to `dashboard_ro`, owner `etl_writer`. **Apply after plant-data's `--ct-gem-only` load; merge and apply in the same sitting** |
 | `017_ons_individual_plant_view.sql` | Adds `mv_ons_individual_plant_monthly`, an ETL-only view of qualifying ONS plants across loaded fuels; preserves ONS IDs and the existing coal dashboard view. Apply before the updated ONS view refresher. See [the 2019 pilot](docs/ONS_2019_PILOT.md) |
+| `018_entsoe_unit_identifiers.sql` | Adds generation/production EICs, original source names, unit/time uniqueness and ETL-only `mv_entsoe_unit_monthly`. Apply before this branch's ENTSO-E loader/refresher. See [the staging pilot](docs/ENTSOE_STAGING_PILOT.md) |
 
 **Read the header comment before running one** — several state a required ordering with an extractor release (e.g. `002` must be applied *before* the fuel-emitting extractor ships, or the load fails).
 

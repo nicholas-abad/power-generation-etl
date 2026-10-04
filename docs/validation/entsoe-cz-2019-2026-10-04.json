@@ -1,0 +1,231 @@
+{
+  "audited_on": "2026-10-04",
+  "environment": "staging",
+  "neon_branch": "br-sweet-voice-aglj4sd7",
+  "production_accessed": false,
+  "extractors_commit": "b38bfd7f3089478dd60393b66b88b3936ad2b857",
+  "schema_sha256": {
+    "schema/migrations/018_entsoe_unit_identifiers.sql": "4da813e4a7328716cf5556dd1c78a1bdf1043d74a2f0ce59b20f2ae580b5f7f0",
+    "schema/entsoe_unit_monthly.sql": "5893b87fe3cd7c9eda2cd464e0f0d37baefd075cd49d41408d8cc4d5cfcbb519"
+  },
+  "source_manifest_sha256": "b47d9366fd1a85ad9a1cd3720ea9f03dc2086085af0c5bd80337e4bafcb1939f",
+  "final_parser_replay": {
+    "status": "passed",
+    "country": "CZ",
+    "year": 2019,
+    "requests_reparsed": 365,
+    "content_sha256": "8b50334734352902cf11e9fec4004acf3a5d1b79ceed4d97e4e5d48d5d41dac9",
+    "selection": {
+      "series": 14897,
+      "observations": 356083
+    },
+    "parser_sha256": "e07dbc9a019f87d0eeb1218a41d57b52ed570270299f828b9b809c4ff0541854"
+  },
+  "first_load": {
+    "timestamp": "2026-10-04T18:04:32.936876",
+    "source_file": "../../extractors/energy-extractors/output/entsoe_cz_pilot_2026-10-04/year2019/entsoe_generation_2026-10-04_17-40-24_etl.jsonl",
+    "total_records": 356083,
+    "valid_records": 356083,
+    "invalid_records": 0,
+    "duplicate_records": 0,
+    "errors_by_type": {},
+    "sample_errors": [],
+    "rows_written": 356083
+  },
+  "repeat_load": {
+    "timestamp": "2026-10-04T18:05:33.797078",
+    "source_file": "../../extractors/energy-extractors/output/entsoe_cz_pilot_2026-10-04/year2019/entsoe_generation_2026-10-04_17-40-24_etl.jsonl",
+    "total_records": 356083,
+    "valid_records": 356083,
+    "invalid_records": 0,
+    "duplicate_records": 0,
+    "errors_by_type": {},
+    "sample_errors": [],
+    "rows_written": 0
+  },
+  "verification": {
+    "country": "CZ",
+    "year": 2019,
+    "month": null,
+    "phase": "verify",
+    "source": {
+      "observations": 356083,
+      "unit_count": 41,
+      "fuel_counts": {
+        "Fossil Brown coal/Lignite": 189886,
+        "Hydro Pumped Storage": 52464,
+        "Fossil Hard coal": 34990,
+        "Nuclear": 52463,
+        "Fossil Gas": 26280
+      },
+      "generation_mwh": 57621966.75,
+      "days": 365,
+      "content_sha256": "8b50334734352902cf11e9fec4004acf3a5d1b79ceed4d97e4e5d48d5d41dac9",
+      "source_requests": 365,
+      "extraction_run_id": "9f7fd13d-5890-4a61-a70f-2b0ed446c89c"
+    },
+    "coal": {
+      "coal_rows": 224876,
+      "coal_sha256": "13cf3ca2bffd20b095919d6ad96e9ffae7b5d60612e2854d33f8ae81b9f68e77",
+      "coal_monthly": [
+        [
+          "2019-01-01 00:00:00+00",
+          2278127.300000022
+        ],
+        [
+          "2019-02-01 00:00:00+00",
+          2087860.840000004
+        ],
+        [
+          "2019-03-01 00:00:00+00",
+          2263216.9600000274
+        ],
+        [
+          "2019-04-01 00:00:00+00",
+          1837328.9100000004
+        ],
+        [
+          "2019-05-01 00:00:00+00",
+          1636077.6900000034
+        ],
+        [
+          "2019-06-01 00:00:00+00",
+          1321187.6699999908
+        ],
+        [
+          "2019-07-01 00:00:00+00",
+          1423580.8299999924
+        ],
+        [
+          "2019-08-01 00:00:00+00",
+          1753344.7899999989
+        ],
+        [
+          "2019-09-01 00:00:00+00",
+          1928826.8899999957
+        ],
+        [
+          "2019-10-01 00:00:00+00",
+          2070367.4899999932
+        ],
+        [
+          "2019-11-01 00:00:00+00",
+          2039705.1200000118
+        ],
+        [
+          "2019-12-01 00:00:00+00",
+          2187977.660000001
+        ]
+      ]
+    },
+    "preflight": {
+      "missing_existing_coal_observations": 0,
+      "missing_existing_observations": 0,
+      "changed_existing_observations": 0,
+      "changed_existing_identities": 0,
+      "duplicate_unit_identities": 0
+    },
+    "reconciliation": {
+      "matched_observations": 356083,
+      "matched_monthly_groups": 492,
+      "matched_legacy_coal_monthly_groups": 312,
+      "months": [
+        "2019-01-01T00:00:00+00:00",
+        "2019-02-01T00:00:00+00:00",
+        "2019-03-01T00:00:00+00:00",
+        "2019-04-01T00:00:00+00:00",
+        "2019-05-01T00:00:00+00:00",
+        "2019-06-01T00:00:00+00:00",
+        "2019-07-01T00:00:00+00:00",
+        "2019-08-01T00:00:00+00:00",
+        "2019-09-01T00:00:00+00:00",
+        "2019-10-01T00:00:00+00:00",
+        "2019-11-01T00:00:00+00:00",
+        "2019-12-01T00:00:00+00:00"
+      ],
+      "dashboard_permissions": "unchanged"
+    },
+    "status": "passed"
+  },
+  "preflight_report_sha256": "c2d9f1e84a2499c8d457f15b23643efd02e332c57f4d6d3926030c703319b6b7",
+  "march_sample": {
+    "first_load": {
+      "timestamp": "2026-10-04T17:40:00.474733",
+      "source_file": "../../extractors/energy-extractors/output/entsoe_cz_pilot_2026-10-04/march2019/entsoe_generation_2026-10-04_17-19-06_etl.jsonl",
+      "total_records": 30432,
+      "valid_records": 30432,
+      "invalid_records": 0,
+      "duplicate_records": 0,
+      "errors_by_type": {},
+      "sample_errors": [],
+      "rows_written": 30432
+    },
+    "repeat_load": {
+      "timestamp": "2026-10-04T17:50:47.209967",
+      "source_file": "../../extractors/energy-extractors/output/entsoe_cz_pilot_2026-10-04/march2019/entsoe_generation_2026-10-04_17-19-06_etl.jsonl",
+      "total_records": 30432,
+      "valid_records": 30432,
+      "invalid_records": 0,
+      "duplicate_records": 0,
+      "errors_by_type": {},
+      "sample_errors": [],
+      "rows_written": 0
+    },
+    "verification": {
+      "country": "CZ",
+      "year": 2019,
+      "month": 3,
+      "phase": "verify",
+      "source": {
+        "observations": 30432,
+        "unit_count": 41,
+        "fuel_counts": {
+          "Fossil Brown coal/Lignite": 16296,
+          "Hydro Pumped Storage": 4464,
+          "Fossil Hard coal": 2976,
+          "Nuclear": 4464,
+          "Fossil Gas": 2232
+        },
+        "generation_mwh": 4718576.06,
+        "days": 31,
+        "content_sha256": "2b77eaaab0c65835346bcf8f9e02761a78c64a0f30ecf85ffda05c2f6054f9b3",
+        "source_requests": 31,
+        "extraction_run_id": "4e0d2a26-9518-46c8-a734-de6297699838"
+      },
+      "coal": {
+        "coal_rows": 19272,
+        "coal_sha256": "107674d1930b964ff8dc64e3976d1d4948b8d5a36d424451321eb89a53fa7c21",
+        "coal_monthly": [
+          [
+            "2019-03-01 00:00:00+00",
+            2263216.9600000274
+          ]
+        ]
+      },
+      "preflight": {
+        "missing_existing_coal_observations": 0,
+        "changed_existing_observations": 0
+      },
+      "reconciliation": {
+        "matched_observations": 30432,
+        "matched_monthly_groups": 41,
+        "months": [
+          "2019-03-01T00:00:00+00:00"
+        ],
+        "dashboard_permissions": "unchanged"
+      },
+      "status": "passed"
+    }
+  },
+  "local_tests": {
+    "entsoe_parser": 48,
+    "etl": 148,
+    "postgresql": "14; disposable localhost only"
+  },
+  "notes": [
+    "First-load rows_written includes identity and provenance updates, not just new observations.",
+    "Compared existing raw coal measurements and old coal monthly view, plus every new source observation and monthly unit group.",
+    "The full-year preflight followed the March sample; exact March coal measurements had already been verified unchanged.",
+    "Raw API XML and full JSONL are retained in ignored local output directories. No production connection was made."
+  ]
+}

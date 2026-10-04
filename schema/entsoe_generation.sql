@@ -28,6 +28,9 @@ CREATE TABLE IF NOT EXISTS ingestion.entsoe_generation_data (
     country_code VARCHAR(32) NOT NULL,
     psr_type VARCHAR(50) NOT NULL,        -- Power System Resource type (fuel/technology)
     plant_name TEXT NOT NULL,
+    unit_eic VARCHAR(16),                -- Generation unit, from PowerSystemResources
+    production_unit_eic VARCHAR(16),     -- Parent registeredResource; not the unit ID
+    source_unit_name TEXT,              -- Exact XML name; plant_name keeps reviewed legacy aliases
     fuel_type VARCHAR(100) NOT NULL,      -- Parsed from plant data
     data_type VARCHAR(50) NOT NULL,       -- Data classification from ENTSO-E
 
@@ -40,10 +43,16 @@ CREATE TABLE IF NOT EXISTS ingestion.entsoe_generation_data (
     CONSTRAINT positive_generation CHECK (generation_mw >= 0),
     CONSTRAINT valid_timestamps CHECK (timestamp_ms > 0 AND created_at_ms > 0),
     CONSTRAINT valid_resolution CHECK (resolution_minutes > 0),
+    CONSTRAINT valid_entsoe_unit_eic CHECK (unit_eic IS NULL OR unit_eic ~ '^[A-Z0-9-]{16}$'),
+    CONSTRAINT valid_entsoe_production_eic CHECK (production_unit_eic IS NULL OR production_unit_eic ~ '^[A-Z0-9-]{16}$'),
 
     -- Natural key uniqueness (prevents cross-batch and re-load duplicates)
     CONSTRAINT uq_entsoe_natural_key UNIQUE (timestamp_ms, country_code, psr_type, plant_name)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_entsoe_unit_time
+ON ingestion.entsoe_generation_data (country_code, unit_eic, timestamp_ms)
+WHERE unit_eic IS NOT NULL;
 
 -- ============================================================================
 -- PERFORMANCE INDEXES

@@ -26,7 +26,11 @@ load_dotenv()
 # migration 006; the dashboard reads only *_plant_monthly and *_row_counts.
 SOURCE_VIEWS = {
     "eia": ["mv_eia_unit_monthly", "mv_eia_row_counts"],
-    "entsoe": ["mv_entsoe_plant_monthly", "mv_entsoe_row_counts"],
+    "entsoe": [
+        "mv_entsoe_plant_monthly",
+        "mv_entsoe_unit_monthly",
+        "mv_entsoe_row_counts",
+    ],
     "ons": [
         "mv_ons_plant_monthly",
         "mv_ons_row_counts",

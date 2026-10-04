@@ -5,6 +5,7 @@ Validates incoming JSONL data before database insertion.
 """
 
 import json
+import math
 import re
 import time
 from dataclasses import dataclass, field
@@ -177,7 +178,11 @@ ENTSOE_SCHEMA = {
         "generation_mw": {"type": "float", "validation": "non_negative"},
         "resolution_minutes": {"type": "int", "validation": "positive"},
     },
-    "optional_fields": {},
+    "optional_fields": {
+        "unit_eic": {"type": "str_or_null", "validation": None},
+        "production_unit_eic": {"type": "str_or_null", "validation": None},
+        "source_unit_name": {"type": "str_or_null", "validation": None},
+    },
     "duplicate_key": ("timestamp_ms", "country_code", "psr_type", "plant_name"),
 }
 
@@ -468,7 +473,29 @@ class DataValidator:
 
     def validate_entsoe_record(self, record: Dict[str, Any]) -> ValidationResult:
         """Validate a single ENTSOE record."""
-        return self._validate_record(record, ENTSOE_SCHEMA)
+        result = self._validate_record(record, ENTSOE_SCHEMA)
+        if "unit_eic" in record:
+            for field in ("unit_eic", "production_unit_eic"):
+                value = record.get(field)
+                if field == "production_unit_eic" and value is None:
+                    continue
+                if not isinstance(value, str) or not re.fullmatch(
+                    r"[A-Z0-9-]{16}", value
+                ):
+                    result.errors.append(f"{field}: must be a source EIC")
+            if record.get("data_type") != "Actual Aggregated":
+                result.errors.append(
+                    "data_type: identified units require actual generation"
+                )
+            if record.get("resolution_minutes") not in (15, 30, 60):
+                result.errors.append("resolution_minutes: unsupported source interval")
+            generation = record.get("generation_mw")
+            if not isinstance(generation, (int, float)) or not math.isfinite(
+                generation
+            ):
+                result.errors.append("generation_mw: must be finite")
+            result.valid = not result.errors
+        return result
 
     def validate_ons_record(self, record: Dict[str, Any]) -> ValidationResult:
         """Validate a single ONS Brazil record."""
