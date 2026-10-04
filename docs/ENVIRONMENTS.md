@@ -94,6 +94,17 @@ Full ignored evidence, source comparison input, validation reports and logs are 
 
 The benchmark includes every qualifying individual-plant fuel label, excluding groups and forecasts. These are ONS reporting populations, not national totals. The 2024 source audit checked all twelve monthly files, including February 29. Source hashes are committed in `config/ons-benchmarks.json`; local raw Parquets and the detailed source audit are under the extractor's ignored `output/ons_benchmark_2024_2026-10-04/` directory.
 
+Both years passed in the [two-year GitHub Actions run](https://github.com/nicholas-abad/power-generation-etl/actions/runs/37179237503). The [permanent verification summary](validation/ons-staging-benchmarks-2019-2024-2026-10-04.json) records the tested code revisions and source manifest hash:
+
+| Year | Monthly groups reconciled | Coal observations preserved | Repeat rows written |
+| --- | ---: | ---: | ---: |
+| 2019 | 3,327 | 77,544 | 0 |
+| 2024 | 3,887 | 79,056 | 0 |
+
+All qualifying observations matched their source fields and generation values; both years covered twelve months and had zero invalid or duplicate records. Coal observations and monthly coal totals remained unchanged. The matching ETL CI run passed 103 tests, including four PostgreSQL integration tests using PostgreSQL 17; the local ONS extractor suite passed 57 tests. First-load `rows_written` includes inserts and updates, including provenance updates, and must not be interpreted as a count of new observations. Production and the frontend repository were unchanged.
+
+Full downloaded artifacts are retained locally under `output/github_ons_benchmarks_37179237503/`; GitHub retains the uploaded artifacts for thirty days. The committed verification summary and source manifest persist beyond that artifact retention window.
+
 Run both years again from the published ETL feature branch:
 
 ```bash
