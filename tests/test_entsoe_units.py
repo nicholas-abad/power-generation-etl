@@ -117,15 +117,17 @@ def test_migration_alias_backfill_replay_and_legacy_compatibility(entsoe_db, tmp
             "SELECT has_table_privilege('dashboard_ro','public.mv_entsoe_unit_monthly','SELECT'), has_table_privilege('dashboard_ro','public.mv_entsoe_plant_monthly','SELECT')"
         )
         assert cursor.fetchone() == (False, True)
-    # A legacy replay neither erases IDs nor downgrades the known metric.
+    # A legacy replay retains exact XML intervals, even if its DataFrame-wide
+    # inference labels an hourly observation as 15 minutes (CZ 2024 drift).
     original["data_type"] = "Unknown"
+    original["resolution_minutes"] = 15
     ok, legacy = load(db, tmp_path, [original])
     assert ok and legacy.written_count == 0
     with connection.cursor() as cursor:
         cursor.execute(
-            "SELECT unit_eic,data_type,generation_mw FROM ingestion.entsoe_generation_data WHERE plant_name='ECHV_G1___'"
+            "SELECT unit_eic,data_type,generation_mw,resolution_minutes FROM ingestion.entsoe_generation_data WHERE plant_name='ECHV_G1___'"
         )
-        assert cursor.fetchone() == ("27W-GU-ECHVG1--C", "Actual Aggregated", 100.0)
+        assert cursor.fetchone() == ("27W-GU-ECHVG1--C", "Actual Aggregated", 100.0, 60)
 
 
 def test_conflicting_unit_identity_is_rejected(entsoe_db, tmp_path):

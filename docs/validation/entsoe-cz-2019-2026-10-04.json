@@ -227,5 +227,14 @@
     "Compared existing raw coal measurements and old coal monthly view, plus every new source observation and monthly unit group.",
     "The full-year preflight followed the March sample; exact March coal measurements had already been verified unchanged.",
     "Raw API XML and full JSONL are retained in ignored local output directories. No production connection was made."
-  ]
+  ],
+  "github_ci": {
+    "etl": "https://github.com/nicholas-abad/power-generation-etl/actions/runs/37216372391",
+    "extractor_parser": "https://github.com/nicholas-abad/power-generation-etl/actions/runs/37216372516",
+    "etl_commit": "d64deccba6f19dc7102552321012dc1017a69d5c",
+    "etl_tests_passed": 148,
+    "parser_tests_passed": 48,
+    "postgresql": "17; disposable GitHub service",
+    "staging_workflow_data_job": "skipped on push; actual benchmark executed locally through the staging wrapper"
+  }
 }
