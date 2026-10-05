@@ -1,0 +1,20 @@
+{
+  "project_id": "damp-wildflower-34076536",
+  "proxy_host": "c-2.eu-central-1.aws.neon.tech",
+  "database": "neondb",
+  "roles": {
+    "writer": "etl_writer",
+    "reader": "dashboard_ro",
+    "owner": "neondb_owner"
+  },
+  "environments": {
+    "production": {
+      "branch_id": "br-holy-tooth-agibelcu",
+      "endpoint_id": "ep-empty-star-ag0bt9wd"
+    },
+    "staging": {
+      "branch_id": "br-sweet-voice-aglj4sd7",
+      "endpoint_id": "ep-sparkling-night-agj1zen6"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "scope": "CZ coal hotfix; prepared and locally rehearsed; production access and execution not authorized",
+  "extractor_repository": "nicholas-abad/energy-extractors",
+  "extractor_commit": "58b1c3ddfe156d8fce7058631bc9fef965de0a7b",
+  "etl_repository": "nicholas-abad/power-generation-etl",
+  "etl_base_commit": "d8c6d781a34726e87001e2c43ec09b66aa9e0595",
+  "etl_commit_binding": "The immutable Git commit containing this file; record its full SHA at rehearsal/deployment.",
+  "repair_id": "entsoe-cz-coal-2023-2024-v1",
+  "repair_artifact_sha256": "1a5805c8a326e91e3ef569d21669e8dbead6d9d136ebc8976cd266e6ef2540b6",
+  "full_release_rehearsal": "passed after cold-review fixes; isolated old-schema reconstruction with full source replay and rollback",
+  "production_access": "not authorized",
+  "github_publication": "hotfix branches published; draft PRs open; production release not authorized",
+  "pull_requests": {
+    "extractor": "https://github.com/nicholas-abad/energy-extractors/pull/17",
+    "etl": "https://github.com/nicholas-abad/power-generation-etl/pull/114"
+  },
+  "github_ci": "Use the check results for each draft PR's current head revision",
+  "rehearsal_report": "docs/validation/entsoe-coal-reviewed-rehearsal-2026-10-05.json",
+  "runtime_etl_rehearsal_commit": "95d3b084a304269ad9d382d94aed081e726bccef",
+  "historical_audit_scope": "Full Czech coal, 2019-2025 plus stored 2026 YTD through 2026-09-29T22:00Z; separate 2025 correction and 2026 refresh candidates remain local and unexecuted against staging/production",
+  "historical_audit_report": "docs/validation/entsoe-coal-history-2026-10-05.json"
+}

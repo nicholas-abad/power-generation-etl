@@ -31,6 +31,7 @@ COPY --from=builder /app/.venv /app/.venv
 # Copy application code
 COPY src/ ./src/
 COPY schema/ ./schema/
+COPY config/ ./config/
 
 # Create logs directory
 RUN mkdir -p /app/logs

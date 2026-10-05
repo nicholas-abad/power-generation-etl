@@ -1,0 +1,186 @@
+{
+  "scope": "Explicit source EIC/name to existing database name mappings; never trim or fuzzy-match arbitrary names.",
+  "evidence": {
+    "country": "CZ",
+    "period": "2019-03 UTC",
+    "content_sha256": "2b77eaaab0c65835346bcf8f9e02761a78c64a0f30ecf85ffda05c2f6054f9b3",
+    "comparison": "All existing fossil observations matched in MW, interval duration and fuel; no missing coal rows after these explicit aliases."
+  },
+  "aliases": [
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-ECHVG1--C",
+      "psr_type": "B02",
+      "source_name": "ECHV_G1____",
+      "legacy_name": "ECHV_G1___"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-ECHVG2--8",
+      "psr_type": "B02",
+      "source_name": "ECHV_G2____",
+      "legacy_name": "ECHV_G2___"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-ECHVG3--4",
+      "psr_type": "B02",
+      "source_name": "ECHV_G3____",
+      "legacy_name": "ECHV_G3___"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-ECHVG4--0",
+      "psr_type": "B02",
+      "source_name": "ECHV_G4____",
+      "legacy_name": "ECHV_G4___"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EDETG1--0",
+      "psr_type": "B05",
+      "source_name": "EDET_G1____",
+      "legacy_name": "EDET_G1___"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EDETG2--X",
+      "psr_type": "B05",
+      "source_name": "EDET_G2____",
+      "legacy_name": "EDET_G2___"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EDETG3--T",
+      "psr_type": "B05",
+      "source_name": "EDET_G3____",
+      "legacy_name": "EDET_G3___"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EDETG4--P",
+      "psr_type": "B05",
+      "source_name": "EDET_G4____",
+      "legacy_name": "EDET_G4___"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EECKG4--B",
+      "psr_type": "B02",
+      "source_name": "EECK_G4____",
+      "legacy_name": "EECK_G4___"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EECKG5--7",
+      "psr_type": "B02",
+      "source_name": "EECK_G5____",
+      "legacy_name": "EECK_G5___"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-ELEDG6--C",
+      "psr_type": "B02",
+      "source_name": "ELED_G6____",
+      "legacy_name": "ELED_G6___"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EME3G11-4",
+      "psr_type": "B02",
+      "source_name": "EME3_G11___",
+      "legacy_name": "EME3_G11__"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EPC1G2--8",
+      "psr_type": "B02",
+      "source_name": "EPC1_G2____",
+      "legacy_name": "EPC1_G2___"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EPC1G3--4",
+      "psr_type": "B02",
+      "source_name": "EPC1_G3____",
+      "legacy_name": "EPC1_G3___"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EPC1G4--0",
+      "psr_type": "B02",
+      "source_name": "EPC1_G4____",
+      "legacy_name": "EPC1_G4___"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EPC1G5--X",
+      "psr_type": "B02",
+      "source_name": "EPC1_G5____",
+      "legacy_name": "EPC1_G5___"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EPC1G6--T",
+      "psr_type": "B02",
+      "source_name": "EPC1_G6____",
+      "legacy_name": "EPC1_G6___"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EPR2G23-X",
+      "psr_type": "B02",
+      "source_name": "EPR2_G23___",
+      "legacy_name": "EPR2_G23__"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EPR2G24-U",
+      "psr_type": "B02",
+      "source_name": "EPR2_G24___",
+      "legacy_name": "EPR2_G24__"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EPR2G25-R",
+      "psr_type": "B02",
+      "source_name": "EPR2_G25___",
+      "legacy_name": "EPR2_G25__"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-ETU2G21-N",
+      "psr_type": "B02",
+      "source_name": "ETU2_G21___",
+      "legacy_name": "ETU2_G21__"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-ETU2G22-K",
+      "psr_type": "B02",
+      "source_name": "ETU2_G22___",
+      "legacy_name": "ETU2_G22__"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-ETU2G23-H",
+      "psr_type": "B02",
+      "source_name": "ETU2_G23___",
+      "legacy_name": "ETU2_G23__"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-ETU2G24-E",
+      "psr_type": "B02",
+      "source_name": "ETU2_G24___",
+      "legacy_name": "ETU2_G24__"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27WGU-EECKG7---A",
+      "psr_type": "B02",
+      "source_name": "EECK_G7____",
+      "legacy_name": "EECK_G7___"
+    }
+  ]
+}
