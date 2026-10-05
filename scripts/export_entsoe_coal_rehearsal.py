@@ -6,6 +6,7 @@ stored in the export. This is a reconstruction source, not a production backup.
 
 import argparse
 import csv
+from datetime import datetime, timezone
 import gzip
 import hashlib
 import io
@@ -61,7 +62,27 @@ def staging_dsn():
     return dsn, expected
 
 
-def export(destination):
+def history_queries(years):
+    """Full UTC years plus adjacent days, for read-only historical comparison."""
+    queries = {}
+    for year in years:
+        if not 2019 <= year <= datetime.now(timezone.utc).year:
+            raise ValueError("History audit year is outside the supported range")
+        start = int(datetime(year, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
+        end = int(datetime(year + 1, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
+        for label, lower, upper in (
+            (str(year), start, end),
+            (f"{year}_prior_day", start - 86400000, start),
+            (f"{year}_next_day", end, end + 86400000),
+        ):
+            queries[label] = (
+                f"SELECT {COLUMNS} FROM {RAW} WHERE country_code='CZ' AND {COAL} "
+                f"AND timestamp_ms>={lower} AND timestamp_ms<{upper} ORDER BY id"
+            )
+    return queries
+
+
+def export(destination, queries=None):
     dsn, target = staging_dsn()
     destination.mkdir(parents=True, exist_ok=False)
     report = {
@@ -85,7 +106,7 @@ def export(destination):
                 postgres=version,
                 transaction_read_only=readonly,
             )
-            for label, query in QUERIES.items():
+            for label, query in (QUERIES if queries is None else queries).items():
                 path = destination / f"{label}.csv.gz"
                 with path.open("wb") as raw:
                     with gzip.GzipFile(
@@ -112,9 +133,13 @@ def export(destination):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--history-years", type=int, nargs="+")
     args = parser.parse_args()
     try:
-        export(args.output)
+        export(
+            args.output,
+            history_queries(args.history_years) if args.history_years else None,
+        )
     except psycopg2.Error as error:
         # Connection failures can contain credentials; do not echo their text.
         print(f"Staging export failed: {type(error).__name__}", file=sys.stderr)
