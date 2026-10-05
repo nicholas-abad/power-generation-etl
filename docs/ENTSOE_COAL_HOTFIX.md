@@ -1,9 +1,10 @@
-# Czech coal correction: prepared release
+# Czech coal correction: release preparation and rehearsal
 
 Scope authorized on 2026-10-05: prepare the extractor/ETL hotfix and the
-production-compatible repair. Production access, merges to main and production
-execution remain unauthorized. No staging or production data was modified while
-preparing this release. The frontend is `chienleng/global-coal-generation-tracker`;
+production-compatible repair, then rehearse them in an isolated local database.
+Production access, merges to main and production execution remain unauthorized.
+Staging was read only to export rehearsal inputs. No staging or production data
+was modified. The frontend is `chienleng/global-coal-generation-tracker`;
 publication to that repository is prohibited.
 
 This branch starts from production ETL main
@@ -33,7 +34,9 @@ The weekly ENTSO-E job pins the matching extractor commit. Both repository
 revisions must be published before that workflow is merged or run. The GitHub
 CI jobs run offline tests and disposable PostgreSQL tests, with no Neon access.
 Their remote results are still pending publication; local checks are recorded
-in `docs/validation/entsoe-coal-hotfix-2026-10-05.json`.
+in `docs/validation/entsoe-coal-hotfix-2026-10-05.json`. The subsequent full
+rehearsal is recorded in
+[`docs/validation/entsoe-coal-rehearsal-2026-10-05.json`](validation/entsoe-coal-rehearsal-2026-10-05.json).
 
 ## Exact historical repair
 
@@ -80,8 +83,9 @@ review; they are never overwritten by a blind restore. Backups remain retained.
 Reapplying an already rolled-back repair requires a new reviewed release ID.
 
 Use the versioned environment wrapper and owner role, with complete ignored
-environment credentials installed locally. The owner credential is not added to
-GitHub Actions. Example **staging plan**, once the next rehearsal is authorized:
+environment credentials installed locally. The role credential files are ignored
+by Git, and the owner credential is not added to GitHub Actions. Example
+**staging plan**:
 
 ```sh
 uv run python src/run_in_environment.py --environment staging --role owner -- \
@@ -99,16 +103,109 @@ The environment wrapper itself probes its selected database, so even a
 production plan command must wait for that approval. No production command was
 run while preparing this package.
 
+## Full rehearsal results — 2026-10-05
+
+**Passed** on 1,676,016 reconstructed records using the existing raw-table
+schema and materialized-view definitions. No all-fuel migration was applied.
+The actual repair archived 104,220 complete original rows, corrected 104,208
+durations and removed the twelve audited zero-valued duplicate copies.
+
+| Czech reported-unit coal scope | Before (MWh) | After (MWh) |
+| --- | ---: | ---: |
+| Full 2019 | 22,827,602.150 | 22,827,602.150 |
+| 2023-12-31 23:00 UTC only | 313.975 | 1,255.900 |
+| Full 2024 | 12,219,119.700 | 18,782,731.275 |
+
+Both full annual datasets matched every independently audited observation:
+224,876 for 2019 and 530,160 for 2024. All 600 source plant-month groups matched
+the refreshed view; its maximum floating-point difference was 0.000000004 MWh.
+The row-count view matched the raw table. Raw-row checks include exact IDs and
+metadata; derived view totals use an absolute tolerance of 0.00001 MWh because
+parallel floating-point sums are not byte-stable across refreshes.
+
+All 1,571,796 records outside the repair keys remained identical, including
+852,492 Czech 2025 coal records, 66,316 Czech 2024 gas records and 2,136 Polish
+control records. Plant mappings remained identical. Routine writer and reader
+roles had no access to the repair backup or ledger.
+
+The actual rollback restored every original record, including deleted IDs and
+metadata, and restored the views. Repeating apply and rollback each wrote zero
+rows. On a separate repaired copy, the actual loader ran as `etl_writer` for
+both full years twice: source quantities and durations stayed correct, no new
+observations appeared, and the second replay left raw records identical.
+
+Using the pinned frontend query and staging mappings, the two mapped Czech
+units increased from 2,004,460.450 to 2,863,828.750 MWh (+42.8728%). The full
+reported-unit Czech coal increase is +53.7159%; the frontend projection covers
+the two mapped units. This is a query-level rehearsal, not a live frontend check.
+
+Local apply took 9.532 seconds, rollback 7.259 seconds, and the post-apply view
+refresh 0.614 seconds. These timings cover the local subset and PostgreSQL 14;
+they are not a production maintenance-window estimate. All 110 ETL tests passed,
+including twelve real PostgreSQL integration tests and the rehearsal target
+guards. The runtime extractor/repair/loader code did not need further changes.
+
+The complete local evidence is under `output/coal-rehearsal-2026-10-05/`:
+`seed/` contains the read-only staging exports, `source/` contains the offline
+parser replay, and `run3/report.json` contains the successful complete run.
+The committed validation report pins their hashes and records monthly totals.
+Earlier failed rehearsal checks are retained under `run1/` and `run2/`.
+
+## Reproducing the isolated rehearsal
+
+The three rehearsal scripts have separate purposes:
+
+1. `scripts/export_entsoe_coal_rehearsal.py` accepts only the pinned staging
+   owner wrapper and uses a read-only repeatable-read transaction. It exports
+   the old-schema columns, including IDs and metadata, plus the original 2024
+   repair backup and Czech frontend mappings. Run it from an already configured
+   staging checkout, passing the hotfix script's absolute path and `--output`.
+2. `scripts/replay_entsoe_coal_archives.py` runs offline using the pinned
+   extractor checkout and its Python environment. It verifies every daily XML
+   hash, regenerates both years through the hotfix parser, and compares every
+   coal observation with the independently audited, hash-pinned annual JSONL.
+3. `scripts/rehearse_entsoe_coal_repair.py` accepts only an explicit local socket
+   or loopback connection and a new `coal_hotfix_rehearsal_*` database name.
+   It reconstructs the pre-repair population, applies the actual repair,
+   refreshes the existing views, checks rollback, and replays the actual loader
+   twice on a separate repaired database. Existing databases are never dropped
+   or overwritten. Evidence directories must also be new.
+
+Example offline replay and local rehearsal, using existing Python environments:
+
+```sh
+PYTHONPATH=/path/to/hotfix-extractor/src /path/to/extractor-python \
+  scripts/replay_entsoe_coal_archives.py \
+  --archive /path/to/retained-extractor-pilot \
+  --extractor /path/to/hotfix-extractor --output output/rehearsal/source
+
+/path/to/etl-python scripts/rehearse_entsoe_coal_repair.py \
+  --dsn 'host=/private/tmp port=5432 dbname=coal_hotfix_rehearsal_fresh user=postgres' \
+  --seed output/rehearsal/seed --source output/rehearsal/source \
+  --output output/rehearsal/run
+```
+
+The seed is a reconstruction from staging, not a current production snapshot.
+Original backed-up metadata is restored for affected 2024 rows; other metadata
+comes from the exported staging snapshot. The controls include all stored Czech
+2025 coal observations, Czech 2024 gas, and one Polish day. Unchanged controls
+are not certification that those populations are source-correct.
+
+The local PostgreSQL 14 rehearsal refreshes views as owner. The versioned Neon
+role migration relies on PostgreSQL 17's `pg_maintain` privilege for writer
+refresh. Production role
+permissions and full-table lock/refresh timings still require production
+preflight after explicit authorization. The frontend check replays the ENTSOE
+portion of `period-generation.ts` at commit
+`26f6b71b825958db483d199a437bb9104a5fe21e` with staging mappings; it does not verify
+the live browser, other providers, or current production mappings.
+
 ## Remaining release work
 
-The next step is a full rehearsal using an isolated reconstruction of the old
-schema and pre-repair records. Current all-fuel staging already contains the
-2024 correction, so a no-op there is not sufficient evidence for the full repair.
-Local representative integration tests establish implementation behavior; the
-full data rehearsal, migration timing and frontend results are still pending.
-
-After rehearsal, review the exact revisions, source hashes, affected rows,
-before/after monthly totals and rollback evidence. Following explicit production
+Review the exact revisions, source hashes, affected rows, before/after monthly
+totals and rollback evidence. Publish the two hotfix branches to the user's
+extractor and ETL repositories and obtain passing GitHub CI before release.
+There is no frontend publication step. Following explicit production
 approval, coordinate with scheduled ENTSO-E ingestion, perform the production
 preflight, deploy the pinned hotfixes, apply the repair, refresh existing ENTSO-E
 materialized views, and verify the frontend's actual queries. Only then update
