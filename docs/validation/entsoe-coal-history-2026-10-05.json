@@ -1,0 +1,414 @@
+{
+  "status": "completed",
+  "completed_at": "2026-10-05T08:48:14.314807+00:00",
+  "scope": "Czech identified coal generation, full UTC years 2019-2025 and 2026 through 2026-09-29T22:00:00+00:00 exclusively",
+  "production_access": "none",
+  "staging_changes": 0,
+  "frontend_publication": "none",
+  "method": "Hash-verified daily official XML, independent Decimal block integration, pinned extractor replay, and read-only staging comparison. Proven changes prepared and rehearsed only in isolated local databases.",
+  "years": {
+    "2019": {
+      "status": "unchanged_exact_source_match",
+      "start": "2019-01-01T00:00:00+00:00",
+      "end": "2020-01-01T00:00:00+00:00",
+      "source_days": 365,
+      "stored_rows": 224876,
+      "source_rows": 224876,
+      "stored_mwh": "22827602.15",
+      "source_mwh": "22827602.15",
+      "delta_mwh": "0.00",
+      "delta_percent": "0",
+      "comparison": {
+        "source_matched_keys": 224876
+      },
+      "unit_count": 26,
+      "monthly_source_mwh": {
+        "2019-01": "2278127.30",
+        "2019-02": "2087860.84",
+        "2019-03": "2263216.96",
+        "2019-04": "1837328.91",
+        "2019-05": "1636077.69",
+        "2019-06": "1321187.67",
+        "2019-07": "1423580.83",
+        "2019-08": "1753344.79",
+        "2019-09": "1928826.89",
+        "2019-10": "2070367.49",
+        "2019-11": "2039705.12",
+        "2019-12": "2187977.66"
+      },
+      "audit_path": "output/entsoe-coal-history-2026-10-05/2019/audit/audit.json",
+      "audit_sha256": "ab185f1aa1861f2ae9e714b5eb54a4a2959aa06b406da2dd9285161f4ce43ede",
+      "audit_script_sha256": "b2f7ae4a4eb29f104cf7783dc46540bb1bcb393f83ced2745c1f448fb2cd7106",
+      "staging_csv_sha256": "40381d7e5716def599ea81743591df1039e270748bfbf03fe57742f291642b6e",
+      "archive_manifest_sha256": "a3b80b45eb0e979cdacc1450e511be382ebe139fdcfba71773cb6ffbce384c52",
+      "data_type_labels_preserved": {
+        "Actual Aggregated": 224876
+      }
+    },
+    "2020": {
+      "status": "unchanged_exact_source_match",
+      "start": "2020-01-01T00:00:00+00:00",
+      "end": "2021-01-01T00:00:00+00:00",
+      "source_days": 366,
+      "stored_rows": 213627,
+      "source_rows": 213627,
+      "stored_mwh": "18802152.80",
+      "source_mwh": "18802152.80",
+      "delta_mwh": "0.00",
+      "delta_percent": "0",
+      "comparison": {
+        "source_matched_keys": 213627
+      },
+      "unit_count": 25,
+      "monthly_source_mwh": {
+        "2020-01": "2229274.88",
+        "2020-02": "1794746.05",
+        "2020-03": "1677351.37",
+        "2020-04": "1202401.30",
+        "2020-05": "982582.51",
+        "2020-06": "1114980.44",
+        "2020-07": "888889.35",
+        "2020-08": "1158486.6",
+        "2020-09": "1549905.03",
+        "2020-10": "1827339.67",
+        "2020-11": "2349311.67",
+        "2020-12": "2026883.93"
+      },
+      "audit_path": "output/entsoe-coal-history-2026-10-05/2020/audit/audit.json",
+      "audit_sha256": "f43a937fd296645ce7ccc2f22f5a9579144e90a3d0fceccfc033bc67a41714cd",
+      "audit_script_sha256": "b2f7ae4a4eb29f104cf7783dc46540bb1bcb393f83ced2745c1f448fb2cd7106",
+      "staging_csv_sha256": "6894c714c89eb7406b97bb3d006adf946b012a54feaa6992aee1b3b3025ff316",
+      "archive_manifest_sha256": "f02459b5f8fbe6b6ebf6a168f8f15e29c1b761018bc14a34b44988758a9cceb2",
+      "data_type_labels_preserved": {
+        "Fossil Brown coal/Lignite": 178586,
+        "Unknown": 8784,
+        "Fossil Hard coal": 26257
+      }
+    },
+    "2021": {
+      "status": "unchanged_exact_source_match",
+      "start": "2021-01-01T00:00:00+00:00",
+      "end": "2022-01-01T00:00:00+00:00",
+      "source_days": 365,
+      "stored_rows": 214894,
+      "source_rows": 214894,
+      "stored_mwh": "22067025.09",
+      "source_mwh": "22067025.09",
+      "delta_mwh": "0.00",
+      "delta_percent": "0",
+      "comparison": {
+        "source_matched_keys": 214894
+      },
+      "unit_count": 25,
+      "monthly_source_mwh": {
+        "2021-01": "2435303.29",
+        "2021-02": "1916955.72",
+        "2021-03": "1848767.26",
+        "2021-04": "1515038.81",
+        "2021-05": "1083484.39",
+        "2021-06": "1175014.63",
+        "2021-07": "1631373.48",
+        "2021-08": "1664009.55",
+        "2021-09": "1685767.60",
+        "2021-10": "2236771.03",
+        "2021-11": "2407688.39",
+        "2021-12": "2466850.94"
+      },
+      "audit_path": "output/entsoe-coal-history-2026-10-05/2021/audit/audit.json",
+      "audit_sha256": "96b24141410e302f51bf36394b67a950ed906d8170192a812923262ad221a38f",
+      "audit_script_sha256": "b2f7ae4a4eb29f104cf7783dc46540bb1bcb393f83ced2745c1f448fb2cd7106",
+      "staging_csv_sha256": "7a427f59ba36c0168efbfab39cd5eb817c84355eac80990af752dc86b20da222",
+      "archive_manifest_sha256": "9bca47c0d115c793788e70feef5d1ffa93cd1bfbd6ed2ad0869527416107af42",
+      "data_type_labels_preserved": {
+        "Fossil Brown coal/Lignite": 179854,
+        "Unknown": 8760,
+        "Fossil Hard coal": 26280
+      }
+    },
+    "2022": {
+      "status": "unchanged_exact_source_match",
+      "start": "2022-01-01T00:00:00+00:00",
+      "end": "2023-01-01T00:00:00+00:00",
+      "source_days": 365,
+      "stored_rows": 209678,
+      "source_rows": 209678,
+      "stored_mwh": "23393337.09",
+      "source_mwh": "23393337.09",
+      "delta_mwh": "0.00",
+      "delta_percent": "0",
+      "comparison": {
+        "source_matched_keys": 209678
+      },
+      "unit_count": 24,
+      "monthly_source_mwh": {
+        "2022-01": "2407703.95",
+        "2022-02": "1742637.57",
+        "2022-03": "2265805.88",
+        "2022-04": "1506226.51",
+        "2022-05": "1425306.40",
+        "2022-06": "1821768.43",
+        "2022-07": "1935365.37",
+        "2022-08": "1979594.08",
+        "2022-09": "1869878.51",
+        "2022-10": "1717561.81",
+        "2022-11": "2105980.09",
+        "2022-12": "2615508.49"
+      },
+      "audit_path": "output/entsoe-coal-history-2026-10-05/2022/audit/audit.json",
+      "audit_sha256": "ae85d62d7305b96b6d6d1626dd2e4e60995f64c9be6e01e31aaa70eb4b717c73",
+      "audit_script_sha256": "b2f7ae4a4eb29f104cf7783dc46540bb1bcb393f83ced2745c1f448fb2cd7106",
+      "staging_csv_sha256": "68de7d1934e4f6c1ca4e1ed58b656bcdb68685490c2141fd56f5494d40239381",
+      "archive_manifest_sha256": "336ba3a4dc1108af65d4df50b0bfe77a74d04d71bd7f9c9e13759de1d2e15ac9",
+      "data_type_labels_preserved": {
+        "Fossil Brown coal/Lignite": 174710,
+        "Unknown": 8760,
+        "Fossil Hard coal": 26208
+      }
+    },
+    "2023": {
+      "status": "correction_verified",
+      "start": "2023-01-01T00:00:00+00:00",
+      "end": "2024-01-01T00:00:00+00:00",
+      "source_days": 365,
+      "stored_rows": 210237,
+      "source_rows": 210237,
+      "stored_mwh": "19856201.675",
+      "source_mwh": "19857143.6",
+      "delta_mwh": "941.925",
+      "delta_percent": "0.004743732036051653368392800",
+      "comparison": {
+        "source_matched_keys": 210237,
+        "interval_rows": 24
+      },
+      "unit_count": 24,
+      "monthly_source_mwh": {
+        "2023-01": "2198557.5",
+        "2023-02": "1966852.6",
+        "2023-03": "1587206.3",
+        "2023-04": "1707017.9",
+        "2023-05": "922968.1",
+        "2023-06": "1004469.8",
+        "2023-07": "1384256.6",
+        "2023-08": "1580863.8",
+        "2023-09": "1693885.8",
+        "2023-10": "1956309.2",
+        "2023-11": "1964013.4",
+        "2023-12": "1890742.6"
+      },
+      "audit_path": "output/entsoe-coal-history-2026-10-05/2023/audit/audit.json",
+      "audit_sha256": "4e4c48517635c67de94fd57f8680f534ed4dfc19dfd12c17ceed7d4e3a0b236a",
+      "audit_script_sha256": "b2f7ae4a4eb29f104cf7783dc46540bb1bcb393f83ced2745c1f448fb2cd7106",
+      "staging_csv_sha256": "22cd90306b706f47a3207f847b12870c190335862203d590bec45cc4955a26fa",
+      "archive_manifest_sha256": "e18643afa4a3f7703fffeae17fbd61d96d8c9efe35fc162e33e689835cd3546e",
+      "data_type_labels_preserved": {
+        "Fossil Brown coal/Lignite": 175197,
+        "Unknown": 8760,
+        "Fossil Hard coal": 26280
+      }
+    },
+    "2024": {
+      "status": "previous_duration_correction_reverified",
+      "start": "2024-01-01T00:00:00+00:00",
+      "end": "2025-01-01T00:00:00+00:00",
+      "source_days": 366,
+      "stored_rows": 530172,
+      "source_rows": 530160,
+      "stored_mwh": "12219119.700",
+      "source_mwh": "18782731.275",
+      "delta_mwh": "6563611.575",
+      "delta_percent": "53.71591191630604944478938200",
+      "comparison": {
+        "interval_rows": 104184,
+        "duplicate_rows": 12
+      },
+      "baseline": "Reconstructed pre-repair2024 state from retained staging backup; no production query",
+      "unit_count": 24,
+      "monthly_source_mwh": {
+        "2024-01": "1847881.9",
+        "2024-02": "1704320.6",
+        "2024-03": "1659865.2",
+        "2024-04": "1150410.0",
+        "2024-05": "1179384.4",
+        "2024-06": "1230096.925",
+        "2024-07": "1354275.275",
+        "2024-08": "1400447.075",
+        "2024-09": "1538904.850",
+        "2024-10": "1787878.325",
+        "2024-11": "2103770.900",
+        "2024-12": "1825495.825"
+      },
+      "audit_path": "output/coal-verification-2026-10-05/independent-data-audit.json",
+      "audit_sha256": "5bc9b7f249f290b8c2e277bbdf4bf8caf82189cf95b732d8e3732e5fe582280b"
+    },
+    "2025": {
+      "status": "correction_verified",
+      "start": "2025-01-01T00:00:00+00:00",
+      "end": "2026-01-01T00:00:00+00:00",
+      "source_days": 365,
+      "stored_rows": 852492,
+      "source_rows": 835512,
+      "stored_mwh": "18751663.225",
+      "source_mwh": "18477679.325",
+      "delta_mwh": "-273983.900",
+      "delta_percent": "-1.461117857720058322986440050",
+      "comparison": {
+        "source_matched_keys": 835512,
+        "duplicate_rows": 16980
+      },
+      "unit_count": 24,
+      "monthly_source_mwh": {
+        "2025-01": "2376904.875",
+        "2025-02": "2210781.575",
+        "2025-03": "1993217.125",
+        "2025-04": "1368528.400",
+        "2025-05": "978769.525",
+        "2025-06": "586912.625",
+        "2025-07": "1340850.000",
+        "2025-08": "1088536.950",
+        "2025-09": "1146684.050",
+        "2025-10": "1620960.425",
+        "2025-11": "1981039.325",
+        "2025-12": "1784494.450"
+      },
+      "audit_path": "output/entsoe-coal-history-2026-10-05/2025/audit-v2/audit.json",
+      "audit_sha256": "b1698f545156cbdfed29ab7ce20c3f2c87c24faf595db79afaa5154e37331bab",
+      "audit_script_sha256": "b2f7ae4a4eb29f104cf7783dc46540bb1bcb393f83ced2745c1f448fb2cd7106",
+      "staging_csv_sha256": "a328b28bb66e9522ecaa1eb60a23032333dbc316d1e947af8026216bf0128baf",
+      "archive_manifest_sha256": "dc04492cb8766eb3e90ba10155a9c7791802168f815ba35ccd9846f94905d496",
+      "data_type_labels_preserved": {
+        "Actual Aggregated": 16980,
+        "Fossil Brown coal/Lignite": 695560,
+        "Unknown": 35132,
+        "Fossil Hard coal": 104820
+      }
+    },
+    "2026": {
+      "status": "current_source_refresh_verified",
+      "start": "2026-01-01T00:00:00+00:00",
+      "end": "2026-09-29T22:00:00+00:00",
+      "source_days": 272,
+      "stored_rows": 571128,
+      "source_rows": 574488,
+      "stored_mwh": "13176392.9600",
+      "source_mwh": "13274607.9600",
+      "delta_mwh": "98215.0000",
+      "delta_percent": "0.745386087817465941756491100",
+      "comparison": {
+        "source_matched_keys": 571120,
+        "source_without_stored": 3360,
+        "mw_mismatch_keys": 8
+      },
+      "unit_count": 27,
+      "monthly_source_mwh": {
+        "2026-01": "2469583.3850",
+        "2026-02": "1970885.9275",
+        "2026-03": "1828285.5500",
+        "2026-04": "1169607.7225",
+        "2026-05": "899730.6575",
+        "2026-06": "1145704.9675",
+        "2026-07": "1191052.400",
+        "2026-08": "1220020.2250",
+        "2026-09": "1379737.125"
+      },
+      "audit_path": "output/entsoe-coal-history-2026-10-05/2026/audit/audit.json",
+      "audit_sha256": "8e06c61ebe3683ee87ab74babe642471639ce89a6be51ba00ec14b328b026f48",
+      "audit_script_sha256": "b2f7ae4a4eb29f104cf7783dc46540bb1bcb393f83ced2745c1f448fb2cd7106",
+      "staging_csv_sha256": "de5c49a3da3e18530bdd008e8b6151663daf03d51dd5c09e21621756b3a69586",
+      "archive_manifest_sha256": "0e4ff2b1aba065b3dccc6e3ca3ce263241a96c8f320b6e859ec437fdfdefb314",
+      "data_type_labels_preserved": {
+        "Unknown": 571128
+      }
+    }
+  },
+  "evidence": {
+    "review": {
+      "path": "output/entsoe-coal-history-2026-10-05/review.json",
+      "sha256": "005dbc5f319c52c89f2328ced73fb0c7c5ea3f85199d4f8b6931699ef4fda22f"
+    },
+    "boundaries": {
+      "path": "output/entsoe-coal-history-2026-10-05/boundaries.json",
+      "sha256": "3a063dc90241614ad74a5810c5f649cebfa0802c3142a74be05d2b6b33499b23"
+    },
+    "benchmark_parser": {
+      "path": "output/entsoe-coal-history-2026-10-05/benchmarks/pinned-source/manifest.json",
+      "sha256": "28a49690f34806814574c44d12c0091a0e6cd791cc2b1d9fc514bad034b2d2a6"
+    },
+    "benchmark_rehearsal": {
+      "path": "output/entsoe-coal-history-2026-10-05/benchmarks/rehearsal/report.json",
+      "sha256": "5f034ad7f927d4d4b7f282ed59083c0533f09048648323ed1ac4fbbf9b258554"
+    },
+    "2023_rehearsal": {
+      "path": "output/entsoe-coal-history-2026-10-05/2023/rehearsal/rehearsal.json",
+      "sha256": "8235c150334a377be0ba3ab270767b93de356df835d962d1c412ae25a515b84c"
+    },
+    "2023_existing_payload_coverage": {
+      "path": "output/entsoe-coal-history-2026-10-05/2023/existing-repair-coverage.json",
+      "sha256": "157331a10d9b334d5613a19caa0f9e25deec408b2b1217dd9622dc3cb6ae509e"
+    },
+    "2025_rehearsal": {
+      "path": "output/entsoe-coal-history-2026-10-05/2025/rehearsal-v4/rehearsal.json",
+      "sha256": "3c6234b96f5932b0e93279a9ef2bdd0757f259e75b27932b6c2eccf702504bc2"
+    },
+    "2025_mapping_projection": {
+      "path": "output/entsoe-coal-history-2026-10-05/2025/retained-mapping-impact.json",
+      "sha256": "9b35d17542fafdd8b29c1662bd4379c2dae4d38081e87c27ff96c4102aab1765"
+    },
+    "2026_second_source_requests": {
+      "path": "output/entsoe-coal-history-2026-10-05/2026/independent-request-check/manifest.json",
+      "sha256": "fc0167405e8d496ec2aa1bf170ebe3fe85a01b78e8be1e26d3595cdb44a8cf34"
+    },
+    "2026_refresh_proposal": {
+      "path": "output/entsoe-coal-history-2026-10-05/2026/refresh-preparation/manifest.json",
+      "sha256": "8b83ed007b0dd1801ee782ffcd446b2d37d074315cea7ef0cae955fdb458e627"
+    },
+    "2026_refresh_rehearsal": {
+      "path": "output/entsoe-coal-history-2026-10-05/2026/refresh-preparation/rehearsal.json",
+      "sha256": "bcd6ea85d0020c4eb90aa8f20960d8a22b8e0080f7c2981c8ab874e6f983c6c5"
+    },
+    "2026_rehearsal_script": {
+      "path": "output/entsoe-coal-history-2026-10-05/2026/rehearse_refresh.py",
+      "sha256": "68b24b68556f4e0acaf54ee58213b3cbc1a6f6844bf3cb6a86aff51bcce04880"
+    },
+    "staging_snapshot": {
+      "path": "output/entsoe-coal-history-2026-10-05/staging/manifest.json",
+      "sha256": "ebff375236bf3778d3a2a24fd4342644a180dd7086e8352a4819535426ac6bcc"
+    },
+    "2019_staging_snapshot": {
+      "path": "output/entsoe-coal-history-2026-10-05/staging-2019-boundary/manifest.json",
+      "sha256": "2299b90667c25cbee78d756edc634e1eccd86d0ac0d362ad093e271442371c5c"
+    }
+  },
+  "source_observations_compared": 3013472,
+  "annual_archive_days": 2829,
+  "additional_boundary_observations_2018": 25,
+  "boundary_comparisons": 13,
+  "changes": {
+    "2019_2020_2021_2022": "No changes required",
+    "2023": "24 interval corrections at 2023-12-31T23:00Z, already covered by the committed 2023/2024 repair",
+    "2024": "104,184 duration corrections and 12 zero duplicate removals, unchanged from previous prepared repair",
+    "2025": "16,980 extra alias copies; remove 273983.900MWh; separate candidates and full-row rollback tested locally",
+    "2026": "Insert 3,360 currently missing observations and refresh 8 MW values; add 98215.000MWh. All changes reconfirmed through a second official B02-filtered request; actual loader replay and rollback passed locally."
+  },
+  "limitations": [
+    "These are reported identified Czech units, not the national coal total. Unit populations differ between years.",
+    "API-reported gaps remain missing; missing quantities were not filled with zero.",
+    "2026 is limited to the stored cutoff, not all data available as of 2026-10-05.",
+    "Original affected 2026 ingestion response archives are unavailable here; the audit cannot distinguish delayed publication, later source revisions, or incomplete original ingestion.",
+    "2025 and 2026 candidates are local preparations and do not automatically extend the committed 2023/2024 production repair command.",
+    "Raw-row rollback is exact. Derived floating-point monthly totals use an absolute tolerance of 0.00001 MWh.",
+    "Production state, production role permissions and current live frontend totals were not queried or certified."
+  ],
+  "code": {
+    "extractor_commit": "58b1c3ddfe156d8fce7058631bc9fef965de0a7b",
+    "runtime_etl_commit": "95d3b084a304269ad9d382d94aed081e726bccef",
+    "audit_tools_commit": "684107a3aa2414159ea98f4889eee955274b7a0d",
+    "extractor_pr": "https://github.com/nicholas-abad/energy-extractors/pull/17",
+    "etl_pr": "https://github.com/nicholas-abad/power-generation-etl/pull/114",
+    "tests": {
+      "entsoe": 59,
+      "etl": 127,
+      "ruff": "passed",
+      "docker_build_and_offline_cli": "passed"
+    }
+  }
+}

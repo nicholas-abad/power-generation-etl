@@ -56,8 +56,9 @@ and all 367 supporting daily XML hashes. The command rejects a modified payload.
 The twelve deleted copies contain zero generation. Every deletion requires the
 retained canonical observation to exist and match the audited MW, duration and
 fuel. Only the listed keys can be changed. Non-coal rows, other countries,
-2025 observations and plant mappings are excluded. The separately discovered
-2025 overlap still requires full reconciliation of the affected source period.
+2025 observations and plant mappings are excluded from this committed repair
+payload. The subsequent full-year audit verified the 2025 overlap separately;
+its candidate files and local rollback rehearsal are described below.
 
 If production still matches the audited original measurements, Czech 2024 coal
 changes from 12,219,119.700 to 18,782,731.275 MWh. This is a reported-unit total,
@@ -202,6 +203,87 @@ preflight after explicit authorization. The frontend check replays the ENTSOE
 portion of `period-generation.ts` at commit
 `26f6b71b825958db483d199a437bb9104a5fe21e` with staging mappings; it does not verify
 the live browser, other providers, or current production mappings.
+
+## Full-history audit and review fixes — 2026-10-05
+
+The cold review led to stricter malformed-source and unit-identity handling,
+retained exclusion counts, combined pagination validation, and consumption
+filtering before the legacy dataframe parser. The Docker image now includes
+its required configuration. Environment commands disable implicit dotenv
+loading, and disposable database tests reject routing overrides and verify the
+actual local server. CI uses the PostgreSQL service's Unix socket. Repair
+evidence checks remain active under optimized Python.
+
+The reviewed extractor is pinned at
+`58b1c3ddfe156d8fce7058631bc9fef965de0a7b`. The full 2019/2024 benchmark and
+repair/rollback/loader rehearsal passed again against runtime ETL revision
+`95d3b084a304269ad9d382d94aed081e726bccef`; see
+[the reviewed rehearsal](validation/entsoe-coal-reviewed-rehearsal-2026-10-05.json).
+The final local suites pass 59 ENTSO-E tests and 127 ETL tests, including real
+PostgreSQL tests. The Docker image builds and starts with network access disabled.
+
+The additional audit uses daily, hashed ENTSO-E XML, an independent Decimal
+block integral, an observation-level replay of the pinned extractor, and
+read-only staging exports. It retains source gaps as missing observations.
+Each year is checked separately; the 2026 window ends at the stored data cutoff,
+2026-09-29 22:00 UTC, exclusively. The first retained 2018 spillover hour and
+adjoining year-boundary days are also checked.
+
+The 2025 audit finds 16,980 duplicate copies at three Dětmarovice units,
+overstating the stored reported-unit total by 273,983.900 MWh (1.4611% of the
+stored total). Their removal leaves 835,512 observations and 18,477,679.325 MWh,
+with no remaining source differences. This is a separate correction from the
+2024 duration problem. The 2023 findings are exactly the 24 boundary rows
+already included in the committed 2023/2024 payload.
+
+| Year | Source total (MWh) | Change from audited stored baseline |
+| --- | ---: | --- |
+| 2019 | 22,827,602.150 | None |
+| 2020 | 18,802,152.800 | None |
+| 2021 | 22,067,025.090 | None |
+| 2022 | 23,393,337.090 | None |
+| 2023 | 19,857,143.600 | +941.925 MWh; 24 known boundary durations |
+| 2024 | 18,782,731.275 | +6,563,611.575 MWh versus reconstructed pre-repair data |
+| 2025 | 18,477,679.325 | −273,983.900 MWh; 16,980 extra copies |
+| 2026 through the stated cutoff | 13,274,607.960 | +98,215.000 MWh; 3,360 missing records and 8 MW revisions |
+
+The 2026 differences were reconfirmed through separate B02-filtered official
+API requests on all six affected UTC dates. They concern particular unit groups
+on the local dates 12 January, 31 May and 29 September; the eight changed values
+are on 31 May. This is a current-source refresh, not a duration correction.
+The original ingestion responses are unavailable here, so delayed publication,
+subsequent source revision and incomplete original ingestion cannot be
+distinguished. The actual loader successfully replayed the 3,368 source records
+in a new local clone; every 2026 source observation and monthly total matched,
+a repeated replay left raw records unchanged, and rollback removed the 3,360
+insertions and restored all eight original rows and their metadata exactly.
+
+The [full-history report](validation/entsoe-coal-history-2026-10-05.json)
+records all 3,013,472 compared source observations, 2,829 daily annual archives,
+the additional 2018 spillover hour, 13 adjoining boundary comparisons, artifact
+hashes, and scope limitations. The 2019–2022 datasets need no correction.
+
+Local evidence is under `output/entsoe-coal-history-2026-10-05/`: `staging/`
+contains the read-only annual exports; each year has `source/` and `audit/`
+evidence (2025's final audit is `audit-v2/`). Candidate files contain the exact
+original rows and are bound to their source and staging hashes. The final 2025
+rehearsal is `2025/rehearsal-v4/`; it backs up all affected rows, verifies source
+equality and the real monthly views, and restores every raw row and all control
+years. Derived floating-point view totals use the existing absolute tolerance
+of 0.00001 MWh; raw rows and row counts are exact. Earlier failed verification
+runs are retained as diagnostics and are not release evidence.
+The final 2023 rehearsal is `2023/rehearsal/`; the separate 2026 refresh inputs,
+eight-row backup and successful loader/rollback evidence are in
+`2026/refresh-preparation/`, with the one-off local script retained alongside it.
+
+The audit tools are `scripts/archive_entsoe_coal_history.py`,
+`scripts/audit_entsoe_coal_history.py`, and `scripts/audit_entsoe_coal_boundaries.py`.
+`scripts/export_entsoe_coal_rehearsal.py --history-years ...` exports the pinned
+staging environment read-only. `scripts/rehearse_coal_history_candidates.py`
+accepts only a new `coal_hotfix_rehearsal_history_*` local database and binds its
+seed to the audited snapshot before connecting. These local candidates do not
+extend the production repair command automatically. No new staging correction,
+production access, or frontend publication occurred during this audit.
 
 ## Remaining release work
 
