@@ -42,7 +42,9 @@ logs/
 
 # Environment
 .env
+.env.*
 .envrc
+output/
 
 # Documentation
 docs/_build

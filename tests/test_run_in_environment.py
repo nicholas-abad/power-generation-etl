@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import shutil
 from urllib.parse import unquote, urlsplit
 
 import pytest
@@ -135,3 +136,25 @@ def test_cli_rejects_wrong_or_missing_credentials_before_starting_command(
     assert "Environment check failed" in result.stderr
     assert credentials()["POSTGRES_PASSWORD"] not in result.stderr
     assert not sentinel.exists()
+
+
+def test_real_child_cannot_reload_dotenv_routing_overrides(tmp_path):
+    for folder in ("src", "config"):
+        shutil.copytree(ROOT / folder, tmp_path / folder)
+    (tmp_path / ".env").write_text("PGHOSTADDR=192.0.2.99\nPGSERVICE=untrusted\n")
+    child = build_environment(
+        "staging", "writer", credentials(), {"PYTHON_DOTENV_DISABLED": "0"}, CONFIG
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import os,database,get_latest_date,refresh_views; "
+            "assert 'PGHOSTADDR' not in os.environ; assert 'PGSERVICE' not in os.environ",
+        ],
+        cwd=tmp_path,
+        env={**child, "PYTHONPATH": str(tmp_path / "src")},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr

@@ -3,6 +3,9 @@
 from pathlib import Path
 from copy import deepcopy
 import runpy
+import json
+import subprocess
+import sys
 
 import psycopg2
 import pytest
@@ -96,3 +99,45 @@ def test_view_float_tolerance_never_hides_raw_drift_or_material_view_changes():
     repeated = deepcopy(original)
     repeated["plant_monthly"][0][1] = "another plant"
     assert not module["same_snapshot"](original, repeated)
+
+
+def test_builder_hash_checks_survive_python_optimization(tmp_path):
+    archive = tmp_path / "year2024-full"
+    archive.mkdir()
+    (archive / "entsoe_unit_manifest.json").write_text(
+        json.dumps(
+            {
+                "source_requests": [
+                    {"status": "success", "path": "day.xml", "sha256": "wrong"}
+                ]
+            }
+        )
+    )
+    (archive / "day.xml").write_text("changed source")
+    # The parser must never be reached for invalid evidence. No extractor
+    # dependency or database credentials are needed to exercise this guard.
+    code = """
+import runpy,sys,types
+for name in ('energy_extractors','energy_extractors.entsoe','energy_extractors.entsoe.periods'):
+    sys.modules[name] = types.ModuleType(name)
+def forbidden(*args, **kwargs):
+    raise RuntimeError('Unverified source reached parser')
+sys.modules['energy_extractors.entsoe.periods'].parse_coal_periods = forbidden
+script,archive=sys.argv[1:]
+sys.argv=[script,'--source-archive',archive,'--etl-audit',archive]
+runpy.run_path(script,run_name='__main__')
+"""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-O",
+            "-c",
+            code,
+            str(ROOT / "scripts/build_entsoe_coal_repair.py"),
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "Source XML hash mismatch" in result.stderr

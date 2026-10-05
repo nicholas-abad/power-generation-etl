@@ -7,10 +7,10 @@ import os
 from pathlib import Path
 import sys
 import threading
+from unittest.mock import patch
 
 import pandas as pd
 import psycopg2
-from psycopg2.extensions import parse_dsn
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from database import PowerGenerationDatabase
 from entsoe_coal import check_coal_records
 import repair_entsoe_coal as repair
+from local_postgres import local_settings, verify_local_connection
 
 ROOT = Path(__file__).resolve().parents[1]
 RUN_ID = "11111111-2222-3333-4444-555555555555"
@@ -30,41 +31,43 @@ def pg():
     dsn = os.getenv("COAL_TEST_PG_DSN")
     if not dsn:
         pytest.skip("Set COAL_TEST_PG_DSN to a disposable local database")
-    parts = parse_dsn(dsn)
-    host = parts.get("host", "")
-    assert host in {"localhost", "127.0.0.1", "/private/tmp", "/tmp"}
-    assert (
-        parts.get("dbname", "").startswith("coal_hotfix_")
-        or parts.get("dbname") == "power_generation_test"
-    )
-    conn = psycopg2.connect(dsn)
-    with conn:
-        with conn.cursor() as cur:
-            cur.execute("DROP SCHEMA IF EXISTS ingestion CASCADE")
-            cur.execute((ROOT / "schema/entsoe_generation.sql").read_text())
-            cur.execute("SET search_path=ingestion,public")
-            cur.execute("SELECT 1 FROM pg_roles WHERE rolname='etl_writer'")
-            if not cur.fetchone():
-                cur.execute("CREATE ROLE etl_writer")
-            cur.execute(
-                "ALTER DEFAULT PRIVILEGES IN SCHEMA ingestion GRANT ALL ON TABLES TO etl_writer"
+    with patch.dict(os.environ):
+        parts = local_settings(
+            dsn, r"(?:coal_hotfix_tests_[a-z0-9_]+|power_generation_test)"
+        )
+        conn = psycopg2.connect(**parts, connect_timeout=5)
+        engine = None
+        try:
+            with conn:
+                verify_local_connection(conn, parts["dbname"])
+                with conn.cursor() as cur:
+                    cur.execute("DROP SCHEMA IF EXISTS ingestion CASCADE")
+                    cur.execute((ROOT / "schema/entsoe_generation.sql").read_text())
+                    cur.execute("SET search_path=ingestion,public")
+                    cur.execute("SELECT 1 FROM pg_roles WHERE rolname='etl_writer'")
+                    if not cur.fetchone():
+                        cur.execute("CREATE ROLE etl_writer")
+                    cur.execute(
+                        "ALTER DEFAULT PRIVILEGES IN SCHEMA ingestion GRANT ALL ON TABLES TO etl_writer"
+                    )
+            engine = create_engine(
+                URL.create(
+                    "postgresql+psycopg2",
+                    username=parts["user"],
+                    password=parts.get("password"),
+                    host=parts["host"],
+                    port=int(parts.get("port", 5432)),
+                    database=parts["dbname"],
+                ),
+                connect_args={"options": "-c search_path=ingestion,public"},
             )
-    engine = create_engine(
-        URL.create(
-            "postgresql+psycopg2",
-            username=parts.get("user"),
-            password=parts.get("password"),
-            host=host,
-            port=int(parts.get("port", 5432)),
-            database=parts["dbname"],
-        ),
-        connect_args={"options": "-c search_path=ingestion,public"},
-    )
-    db = PowerGenerationDatabase.__new__(PowerGenerationDatabase)
-    db._engine = engine
-    yield conn, db
-    engine.dispose()
-    conn.close()
+            db = PowerGenerationDatabase.__new__(PowerGenerationDatabase)
+            db._engine = engine
+            yield conn, db
+        finally:
+            if engine is not None:
+                engine.dispose()
+            conn.close()
 
 
 def record(name="ECHV_G1___", minutes=60, mw=100, **kw):

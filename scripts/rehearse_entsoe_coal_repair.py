@@ -24,7 +24,6 @@ from unittest.mock import patch
 
 import psycopg2
 from psycopg2 import sql
-from psycopg2.extensions import parse_dsn
 from psycopg2.extras import execute_values
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
@@ -33,6 +32,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 import repair_entsoe_coal as repair  # noqa: E402
 from entsoe_coal import ALIASES  # noqa: E402
+from local_postgres import (
+    local_settings as checked_local_settings,
+    verify_local_connection,
+)  # noqa: E402
 
 RAW = repair.TABLE
 COAL = "country_code='CZ' AND psr_type IN ('B02','B03','B05')"
@@ -65,31 +68,7 @@ def sha(path):
 
 
 def local_settings(dsn):
-    parts = parse_dsn(dsn)
-    require(
-        set(parts) <= {"host", "port", "dbname", "user", "password"},
-        "Only explicit local DSN settings are allowed",
-    )
-    require(
-        parts.get("host") in {"127.0.0.1", "/tmp", "/private/tmp"},
-        "Only local PostgreSQL is allowed",
-    )
-    require(
-        re.fullmatch(r"coal_hotfix_rehearsal_[a-z0-9_]{1,28}", parts.get("dbname", "")),
-        "Use a new coal_hotfix_rehearsal_* database",
-    )
-    require(
-        parts.get("user") == "postgres" and parts.get("port", "5432").isdigit(),
-        "Use the disposable local postgres owner",
-    )
-    # libpq environment/service settings cannot reroute these connections.
-    for name in list(os.environ):
-        if name.startswith(("PG", "POSTGRES_")) or name in {
-            "DATABASE_URL",
-            "DIRECT_DATABASE_URL",
-        }:
-            del os.environ[name]
-    return parts
+    return checked_local_settings(dsn, r"coal_hotfix_rehearsal_[a-z0-9_]{1,28}")
 
 
 def connect(parts):
@@ -99,11 +78,7 @@ def connect(parts):
         options="-c timezone=UTC -c search_path=public,ingestion",
     )
     with connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT inet_server_addr() IS NULL OR inet_server_addr()='127.0.0.1'::inet"
-            )
-            require(cursor.fetchone()[0], "Connection is not local")
+        verify_local_connection(connection, parts["dbname"])
     return connection
 
 

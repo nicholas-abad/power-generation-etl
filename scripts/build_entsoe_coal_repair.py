@@ -23,6 +23,11 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
 def key(row, name=None):
     return int(row["timestamp_ms"]), row["psr_type"], name or row["plant_name"]
 
@@ -41,9 +46,9 @@ def main():
     expected = {}
     source_hashes = {}
     for request in manifest["source_requests"]:
-        assert request["status"] == "success"
+        require(request["status"] == "success", "Incomplete source request")
         xml = year_dir / request["path"]
-        assert sha(xml) == request["sha256"]
+        require(sha(xml) == request["sha256"], "Source XML hash mismatch")
         source_hashes[xml.name] = sha(xml)
         rows, _ = parse_coal_periods(
             xml.read_text(), "CZ", "10YCZ-CEPS-----N", request["start"], request["end"]
@@ -51,20 +56,24 @@ def main():
         for row in rows:
             name = names.get((row["psr_type"], row["plant_name"]), row["plant_name"])
             k = key(row, name)
-            assert k not in expected
+            require(k not in expected, "Duplicate source observation")
             expected[k] = row
-    assert len(source_hashes) == 366 and len(expected) == 530160
+    require(
+        len(source_hashes) == 366 and len(expected) == 530160,
+        "Incomplete 2024 source population",
+    )
     total = sum(
         Decimal(str(r["generation_mw"])) * r["resolution_minutes"] / 60
         for r in expected.values()
     )
-    assert total == Decimal("18782731.275")
+    require(total == Decimal("18782731.275"), "2024 source energy changed")
     boundary_xml = (
         args.source_archive / "year-interval-screen/source_xml/CZ_20231231.xml"
     )
-    assert (
+    require(
         sha(boundary_xml)
-        == "8acce3e454b715307ce6028a7335e2e59ca6577d2b8ea90df9e898f6ffa0b75f"
+        == "8acce3e454b715307ce6028a7335e2e59ca6577d2b8ea90df9e898f6ffa0b75f",
+        "2023 boundary XML hash mismatch",
     )
     boundary, _ = parse_coal_periods(
         boundary_xml.read_text(),
@@ -73,7 +82,7 @@ def main():
         "2023-12-31T23:00Z",
         "2024-01-01T00:00Z",
     )
-    assert len(boundary) == 24
+    require(len(boundary) == 24, "Incomplete 2023 boundary")
     for row in boundary:
         expected[
             key(row, names.get((row["psr_type"], row["plant_name"]), row["plant_name"]))
@@ -100,11 +109,20 @@ def main():
         action = "interval"
         if source is None:
             source = expected[key(row, canonical)]
-            assert canonical != row["plant_name"]
+            require(
+                canonical != row["plant_name"],
+                "Duplicate must retain another canonical row",
+            )
             action = "duplicate"
-        assert Decimal(row["generation_mw"]) == Decimal(str(source["generation_mw"]))
+        require(
+            Decimal(row["generation_mw"]) == Decimal(str(source["generation_mw"])),
+            "Source MW differs from original observation",
+        )
         before, after = int(row["resolution_minutes"]), source["resolution_minutes"]
-        assert (before, after) == ((15, 60) if action == "interval" else (15, 15))
+        require(
+            (before, after) == ((15, 60) if action == "interval" else (15, 15)),
+            "Unexpected interval correction",
+        )
         changes.append(
             {
                 "action": action,
@@ -118,8 +136,10 @@ def main():
             }
         )
     counts = Counter(r["action"] for r in changes)
-    assert counts == {"interval": 104208, "duplicate": 12}
-    assert len({key(r) for r in changes}) == len(changes)
+    require(
+        counts == {"interval": 104208, "duplicate": 12}, "Unexpected repair population"
+    )
+    require(len({key(r) for r in changes}) == len(changes), "Duplicate repair key")
     changes.sort(key=key)
     payload = "".join(
         json.dumps(r, sort_keys=True, separators=(",", ":")) + "\n" for r in changes

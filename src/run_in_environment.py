@@ -89,6 +89,9 @@ def build_environment(environment, role, values, inherited, config):
         f"postgresql://{user}:{password}@{direct_host}:5432/{database}?{query}"
     )
     child["ETL_ENVIRONMENT"] = environment
+    # Children import modules that call load_dotenv(). Do not let an unrelated
+    # .env restore libpq routing settings after this environment was checked.
+    child["PYTHON_DOTENV_DISABLED"] = "1"
     child["NEON_BRANCH_ID"] = target["branch_id"]
     child["NEON_ENDPOINT_ID"] = endpoint
     child["PGCONNECT_TIMEOUT"] = "15"

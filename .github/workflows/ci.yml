@@ -40,8 +40,10 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: power_generation_test
-        ports:
-          - 5432:5432
+        # A local socket lets the destructive-test guard verify that this is
+        # the disposable service, without accepting remote bridge addresses.
+        volumes:
+          - /tmp/coal-hotfix-ci:/var/run/postgresql
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -66,8 +68,8 @@ jobs:
 
       - name: Run tests
         env:
-          COAL_TEST_PG_DSN: host=localhost port=5432 dbname=power_generation_test user=postgres password=postgres
-          POSTGRES_HOST: localhost
+          COAL_TEST_PG_DSN: host=/tmp/coal-hotfix-ci port=5432 dbname=power_generation_test user=postgres password=postgres
+          POSTGRES_HOST: /tmp/coal-hotfix-ci
           POSTGRES_PORT: 5432
           POSTGRES_DB: power_generation_test
           POSTGRES_USER: postgres
