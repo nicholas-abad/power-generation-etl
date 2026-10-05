@@ -9,6 +9,11 @@
   "repair_artifact_sha256": "1a5805c8a326e91e3ef569d21669e8dbead6d9d136ebc8976cd266e6ef2540b6",
   "full_release_rehearsal": "passed; isolated old-schema reconstruction",
   "production_access": "not authorized",
-  "github_publication": "pending",
+  "github_publication": "hotfix branches published; draft PRs open; production release not authorized",
+  "pull_requests": {
+    "extractor": "https://github.com/nicholas-abad/energy-extractors/pull/17",
+    "etl": "https://github.com/nicholas-abad/power-generation-etl/pull/114"
+  },
+  "github_ci": "Use the check results for each draft PR's current head revision",
   "rehearsal_report": "docs/validation/entsoe-coal-rehearsal-2026-10-05.json"
 }

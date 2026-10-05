@@ -30,11 +30,14 @@ Legacy files cannot change a stored Czech coal interval duration. Other
 countries and fuels retain their existing loading behavior. The generic loader
 still commits in batches; use the repair command for the atomic historical fix.
 
-The weekly ENTSO-E job pins the matching extractor commit. Both repository
-revisions must be published before that workflow is merged or run. The GitHub
-CI jobs run offline tests and disposable PostgreSQL tests, with no Neon access.
-Their remote results are still pending publication; local checks are recorded
-in `docs/validation/entsoe-coal-hotfix-2026-10-05.json`. The subsequent full
+The weekly ENTSO-E job pins the matching extractor commit. Both hotfix branches
+are published for review in
+[extractor PR #17](https://github.com/nicholas-abad/energy-extractors/pull/17) and
+[ETL PR #114](https://github.com/nicholas-abad/power-generation-etl/pull/114).
+The GitHub CI jobs run offline tests and disposable PostgreSQL tests, with no
+Neon access; inspect each PR's current-head checks for remote results. Local
+checks are recorded in `docs/validation/entsoe-coal-hotfix-2026-10-05.json`.
+The subsequent full
 rehearsal is recorded in
 [`docs/validation/entsoe-coal-rehearsal-2026-10-05.json`](validation/entsoe-coal-rehearsal-2026-10-05.json).
 
@@ -202,9 +205,10 @@ the live browser, other providers, or current production mappings.
 
 ## Remaining release work
 
-Review the exact revisions, source hashes, affected rows, before/after monthly
-totals and rollback evidence. Publish the two hotfix branches to the user's
-extractor and ETL repositories and obtain passing GitHub CI before release.
+Review the two draft PRs, exact revisions, source hashes, affected rows,
+before/after monthly totals and rollback evidence. Confirm passing GitHub CI
+for both approved head revisions before release. Publication for review does
+not authorize merging, production access or running the extraction workflow.
 There is no frontend publication step. Following explicit production
 approval, coordinate with scheduled ENTSO-E ingestion, perform the production
 preflight, deploy the pinned hotfixes, apply the repair, refresh existing ENTSO-E
