@@ -112,7 +112,7 @@ logger.add(
 # OpenElectricity all-fuel parts: `<NET>_<YYYY-MM>__<start>_<end>.jsonl`, the
 # network-local days the extractor requested; NEM and WEM use fixed offsets.
 _OE_PART_NAME = re.compile(
-    r"^([A-Z]+)_\d{4}-\d{2}__(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})\.jsonl$"
+    r"^([A-Z]+)_(\d{4}-\d{2})__(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})\.jsonl$"
 )
 _OE_UTC_OFFSET_HOURS = {"NEM": 10, "WEM": 8}
 
@@ -2103,7 +2103,15 @@ class PowerGenerationDatabase:
                     "(<NEM|WEM>_<YYYY-MM>__<start>_<end>.jsonl) — nothing written"
                 )
                 return False, None
-            net, first, last = m.group(1), m.group(2), m.group(3)
+            net, month, first, last = m.groups()
+            # The name decides what is deleted: keep it to days of its own month.
+            if not (
+                first.startswith(month) and last.startswith(month) and first <= last
+            ):
+                logger.error(
+                    f"{jsonl_file_path}: {first}..{last} is not within {month} — nothing written"
+                )
+                return False, None
             tz = timezone(timedelta(hours=_OE_UTC_OFFSET_HOURS[net]))
             lo = int(
                 datetime.fromisoformat(first).replace(tzinfo=tz).timestamp() * 1000

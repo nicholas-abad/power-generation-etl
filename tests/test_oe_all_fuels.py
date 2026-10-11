@@ -169,9 +169,10 @@ def test_any_invalid_record_writes_nothing(pg, tmp_path):
 def test_view_buckets_network_local_months(pg, tmp_path):
     conn, db = pg
     # 1 October local midnight (30 September in UTC) for both networks
+    assert db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec()]))[0]
     assert db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [
-        rec(), rec(timestamp_ms=OCT1_NEM - DAY, energy_mwh=7000.0),  # 30 September local
-    ], "NEM_2025-09__2025-09-30_2025-10-31.jsonl"))[0]
+        rec(timestamp_ms=OCT1_NEM - DAY, energy_mwh=7000.0),  # 30 September local
+    ], "NEM_2025-09__2025-09-30_2025-09-30.jsonl"))[0]
     assert db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [
         rec(network_code="WEM", unit_code="COLLIE_G1", timestamp_ms=OCT1_WEM, energy_mwh=5000.0),
     ], "WEM_2025-10__2025-10-01_2025-10-31.jsonl"))[0]
@@ -302,6 +303,8 @@ def test_a_reload_replaces_the_declared_days_even_when_one_is_gone(pg, tmp_path)
     ("NEM_2025-10__2025-10-02_2025-10-31.jsonl", [rec()]),  # a record before the range
     ("WEM_2025-10__2025-10-01_2025-10-31.jsonl", [rec()]),  # a NEM record in a WEM part
     ("NEM_2025-10__2025-10-01_2025-10-31.jsonl", []),  # empty: would replace nothing
+    ("NEM_2025-10__2024-01-01_2025-12-31.jsonl", [rec()]),  # range beyond its month
+    ("NEM_2025-10__2025-10-31_2025-10-01.jsonl", [rec()]),  # inverted range
 ])
 def test_a_part_that_does_not_match_its_name_is_refused(pg, tmp_path, name, records):
     conn, db = pg
