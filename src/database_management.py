@@ -165,6 +165,10 @@ def load_data(
         success, report = db.insert_chile_jsonl_data(
             jsonl_file, validation_report_path=validation_report
         )
+    elif data_source == "chile_all_fuels":
+        success, report = db.insert_chile_all_fuels_jsonl_data(
+            jsonl_file, validation_report_path=validation_report
+        )
     elif data_source == "climatetrace":
         success, report = db.insert_climatetrace_jsonl_data(
             jsonl_file, validation_report_path=validation_report
@@ -353,6 +357,7 @@ Examples:
             "oe_facility",
             "occto",
             "chile",
+            "chile_all_fuels",
             "climatetrace",
         ],
         help="Type of data source",

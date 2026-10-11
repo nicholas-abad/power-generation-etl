@@ -31,7 +31,8 @@ BEGIN
       'entsoe_generation_data', 'ons_generation_data', 'occto_generation_data',
       'npp_generation', 'chile_generation_data', 'eia_generation_data',
       'oe_facility_generation_data', 'oe_generation_data',
-      'climatetrace_generation_data', 'extraction_metadata');
+      'climatetrace_generation_data', 'chile_generation_all_fuels',
+      'extraction_metadata');
   IF shadow IS NOT NULL THEN
     RAISE EXCEPTION 'shadow tables in public (pre-006 DDL ran? they swallow writes silently): %', shadow;
   END IF;
