@@ -201,6 +201,9 @@ def test_qualification_and_utc_month_boundary(database):
     ]
     columns = list(rows[0])
     with conn.cursor() as cur:
+        # Collisions can no longer be loaded once migration 020's plant-hour
+        # key exists (#117), but the view must still exclude any loaded before.
+        cur.execute("DROP INDEX IF EXISTS ingestion.uq_ons_plant_hour")
         execute_values(
             cur,
             "INSERT INTO ingestion.ons_generation_data ("
