@@ -77,6 +77,50 @@ def month_predicate(year):
     return f"month >= '{year}-01-01' AND month < '{period_end(year).date()}'"
 
 
+def fuel_policy():
+    return json.loads(BENCHMARKS.read_text()).get("fuel_policy", {})
+
+
+def check_fuel_accounting(year):
+    """Every source fuel is either captured or explicitly approved as excluded.
+
+    The per-fuel table comes from scripts/audit_ons_fuels.py, which counts the
+    raw files independently of the extractor. A fuel with no accepted rows, or
+    eligible individual-plant rows rejected for identity/value/duplicate
+    reasons, fails unless config/ons-benchmarks.json records an approval.
+    """
+    fuels = benchmark(year).get("fuels")
+    if not fuels:
+        raise ValueError(f"No independent per-fuel audit recorded for {year}")
+    policy = fuel_policy()
+    without = policy.get("without_individual_plants", {})
+    approved = policy.get("eligible_rejections", {}).get(str(year), {})
+    for fuel, entry in fuels.items():
+        if entry["raw_rows"] and not entry["accepted_rows"] and fuel not in without:
+            raise ValueError(f"{fuel} has no accepted rows in {year} and no approval")
+        rejected = entry["rejected_eligible"]
+        if rejected and rejected != approved.get(fuel, {}).get("counts"):
+            raise ValueError(
+                f"{fuel} loses eligible rows in {year} ({rejected}) without approval"
+            )
+    if sum(entry["accepted_rows"] for entry in fuels.values()) != benchmark(year)[
+        "expected_observations"
+    ]:
+        raise ValueError("Per-fuel audit does not add up to the audited observations")
+    return {
+        fuel: {"accepted_rows": entry["accepted_rows"], "accepted_mwh": entry["accepted_mwh"]}
+        for fuel, entry in fuels.items()
+    }
+
+
+def normalized_counts(counts):
+    totals = {}
+    for label, count in counts.items():
+        label = label.strip() or "<missing>"
+        totals[label] = totals.get(label, 0) + count
+    return totals
+
+
 def extract_arguments(year):
     """energy-extract ons arguments that reproduce the audited source files."""
     arguments = ["--start-year", str(year), "--end-year", str(year)]
@@ -119,6 +163,13 @@ def check_extraction(metadata, year, audited):
             raise ValueError(
                 f"Source {item['label']} differs from the audited benchmark"
             )
+    fuels = check_fuel_accounting(year)
+    accepted = normalized_counts(
+        metadata.get("coverage_counts", {}).get("accepted", {}).get("fuel_type", {})
+    )
+    expected = {fuel: item["accepted_rows"] for fuel, item in fuels.items() if item["accepted_rows"]}
+    if accepted != expected:
+        raise ValueError("Accepted rows per fuel differ from the independent audit")
     if metadata.get("total_records") != audited["expected_observations"]:
         raise ValueError(
             "Qualified observation count differs from the audited benchmark"
@@ -178,7 +229,7 @@ def capture(cursor, year):
     }
 
 
-def reconcile(cursor, path, year, expected_count):
+def reconcile(cursor, path, year, expected_count, fuels=None):
     start, end = year_bounds(year)
     columns = ", ".join(COLUMNS)
     cursor.execute(
@@ -260,15 +311,26 @@ def reconcile(cursor, path, year, expected_count):
         "SELECT fuel_type,count(DISTINCT ons_plant_id),count(*),sum(generation_mwh) "
         "FROM ons_expected GROUP BY fuel_type ORDER BY fuel_type"
     )
-    fuels = [
+    loaded = [
         dict(zip(("fuel", "ons_ids", "observations", "generation_mwh"), row))
         for row in cursor.fetchall()
     ]
+    if fuels is not None:
+        captured = {fuel: item for fuel, item in fuels.items() if item["accepted_rows"]}
+        by_fuel = {row["fuel"].strip(): row for row in loaded}
+        if by_fuel.keys() != captured.keys():
+            raise ValueError("Loaded fuels differ from the independent audit")
+        for fuel, item in captured.items():
+            row = by_fuel[fuel]
+            if row["observations"] != item["accepted_rows"] or not math.isclose(
+                row["generation_mwh"], item["accepted_mwh"], rel_tol=1e-9, abs_tol=1e-6
+            ):
+                raise ValueError(f"Loaded {fuel} differs from the independent audit")
     return {
         "source_rows_reconciled": count,
         "qualified_monthly_rows": len(actual),
         "qualified_months": last_month(year),
-        "fuels": fuels,
+        "fuels": loaded,
     }
 
 
@@ -328,6 +390,7 @@ def main():
                         args.expected_jsonl,
                         args.year,
                         audited["expected_observations"],
+                        fuels=check_fuel_accounting(args.year),
                     )
                 )
                 for check in ("dashboard_ro_surface.sql", "no_shadow_tables.sql"):

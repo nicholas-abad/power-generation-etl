@@ -14,6 +14,7 @@ from check_ons_staging import (  # noqa: E402
     benchmark,
     capture,
     check_extraction,
+    check_fuel_accounting,
     extract_arguments,
     year_bounds,
 )
@@ -35,6 +36,15 @@ def metadata_for(year):
         "selected_records": raw_count,
         "total_records": audited["expected_observations"],
         "excluded_records": raw_count - audited["expected_observations"],
+        "coverage_counts": {
+            "accepted": {
+                "fuel_type": {
+                    fuel: item["accepted_rows"]
+                    for fuel, item in audited["fuels"].items()
+                    if item["accepted_rows"]
+                }
+            }
+        },
         "url_attempts": [
             {
                 "label": item["label"],
@@ -140,6 +150,18 @@ def test_extract_arguments_reproduce_complete_benchmarks():
     assert extract_arguments(2024) == ["--start-year", "2024", "--end-year", "2024", *selection]
 
 
+def fuel_entry(raw, accepted, rejected=None, eligible=None):
+    return {
+        "raw_rows": raw,
+        "raw_mwh": float(raw),
+        "rows_by_modality": {},
+        "eligible_rows": accepted if eligible is None else eligible,
+        "accepted_rows": accepted,
+        "accepted_mwh": float(accepted),
+        "rejected_eligible": rejected or {},
+    }
+
+
 @pytest.fixture
 def year_to_date(monkeypatch, tmp_path):
     """A 2026 Jan-Aug entry shaped like the committed monthly audits."""
@@ -155,7 +177,16 @@ def year_to_date(monkeypatch, tmp_path):
     manifest = tmp_path / "benchmarks.json"
     manifest.write_text(
         json.dumps(
-            {"years": {"2026": {"last_month": 8, "expected_observations": 40, "source_files": files}}}
+            {
+                "years": {
+                    "2026": {
+                        "last_month": 8,
+                        "expected_observations": 40,
+                        "source_files": files,
+                        "fuels": {"Carvão": fuel_entry(raw=80, accepted=40)},
+                    }
+                }
+            }
         )
     )
     monkeypatch.setattr(check_ons_staging, "BENCHMARKS", manifest)
@@ -210,3 +241,95 @@ def test_year_to_date_coal_baseline_month_count(year_to_date, count, ok):
     else:
         with pytest.raises(ValueError, match="Expected 8 coal baseline months"):
             capture(cursor, year_to_date)
+
+
+@pytest.mark.parametrize("year", [2019, 2020, 2021, 2022, 2023, 2024, 2025])
+def test_committed_fuel_audits_pass_the_gate(year):
+    fuels = check_fuel_accounting(year)
+    assert fuels["Carvão"]["accepted_rows"] > 0
+
+
+def test_unapproved_2026_null_generation_blocks_the_gate():
+    with pytest.raises(ValueError, match="loses eligible rows in 2026"):
+        check_fuel_accounting(2026)
+
+
+def gate_manifest(monkeypatch, tmp_path, fuels, policy=None, expected=None):
+    manifest = tmp_path / "gate.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "fuel_policy": policy or {},
+                "years": {
+                    "2030": {
+                        "expected_observations": expected
+                        if expected is not None
+                        else sum(f["accepted_rows"] for f in fuels.values()),
+                        "fuels": fuels,
+                    }
+                },
+            }
+        )
+    )
+    monkeypatch.setattr(check_ons_staging, "BENCHMARKS", manifest)
+
+
+def test_gate_requires_an_independent_audit(monkeypatch, tmp_path):
+    gate_manifest(monkeypatch, tmp_path, {})
+    with pytest.raises(ValueError, match="No independent per-fuel audit"):
+        check_fuel_accounting(2030)
+
+
+def test_fuel_without_accepted_rows_needs_approval(monkeypatch, tmp_path):
+    fuels = {"Carvão": fuel_entry(10, 10), "Nova": fuel_entry(5, 0, eligible=0)}
+    gate_manifest(monkeypatch, tmp_path, fuels)
+    with pytest.raises(ValueError, match="Nova has no accepted rows"):
+        check_fuel_accounting(2030)
+    gate_manifest(
+        monkeypatch, tmp_path, fuels, {"without_individual_plants": {"Nova": "approved"}}
+    )
+    assert check_fuel_accounting(2030)["Nova"]["accepted_rows"] == 0
+
+
+@pytest.mark.parametrize(
+    "approved, ok",
+    [
+        (None, False),
+        ({"counts": {"unresolved_identity": 2}}, True),
+        ({"counts": {"unresolved_identity": 3}}, False),
+        ({"counts": {"invalid_generation": 2}}, False),
+    ],
+)
+def test_partly_lost_fuel_needs_exact_approval(monkeypatch, tmp_path, approved, ok):
+    """An eligible fuel losing only some rows still fails without approval."""
+    fuels = {"Gás": fuel_entry(12, 10, {"unresolved_identity": 2}, eligible=12)}
+    policy = {"eligible_rejections": {"2030": {"Gás": approved}}} if approved else {}
+    gate_manifest(monkeypatch, tmp_path, fuels, policy)
+    if ok:
+        check_fuel_accounting(2030)
+    else:
+        with pytest.raises(ValueError, match="loses eligible rows"):
+            check_fuel_accounting(2030)
+
+
+def test_fuel_table_must_add_up(monkeypatch, tmp_path):
+    gate_manifest(monkeypatch, tmp_path, {"Carvão": fuel_entry(10, 10)}, expected=11)
+    with pytest.raises(ValueError, match="does not add up"):
+        check_fuel_accounting(2030)
+
+
+@pytest.mark.parametrize(
+    "fuel_counts",
+    [
+        {"Carvão": 1},  # a fuel the extractor dropped
+        {"Carvão": 1, "Gás": 1, "Nova": 1},  # a fuel the audit never saw
+    ],
+)
+def test_extractor_fuel_counts_must_match_the_audit(fuel_counts):
+    metadata = metadata_for(2024)
+    accepted = metadata["coverage_counts"]["accepted"]["fuel_type"]
+    metadata["coverage_counts"]["accepted"]["fuel_type"] = {
+        fuel: accepted.get(fuel, count) for fuel, count in fuel_counts.items()
+    }
+    with pytest.raises(ValueError, match="per fuel differ"):
+        check_extraction(metadata, 2024, benchmark(2024))

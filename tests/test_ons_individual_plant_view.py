@@ -282,10 +282,21 @@ def test_year_to_date_reconciliation_respects_audited_cutoff(
     migrate(dsn)
     with conn.cursor() as cur:
         cur.execute("SET TIME ZONE 'UTC'")
-        result = reconcile(cur, source, 2026, len(rows))
+        audit = {
+            "Carvão": {"accepted_rows": len(rows), "accepted_mwh": 12.5 * len(rows)},
+            "Eólica": {"accepted_rows": 0, "accepted_mwh": 0.0},
+        }
+        result = reconcile(cur, source, 2026, len(rows), fuels=audit)
         assert result["qualified_months"] == 8
         assert result["qualified_monthly_rows"] == 8
         cur.execute("DROP TABLE ons_expected")
+        for changed, message in [
+            ({"Carvão": {"accepted_rows": len(rows), "accepted_mwh": 1.0}}, "Loaded Carvão differs"),
+            ({**audit, "Gás": {"accepted_rows": 1, "accepted_mwh": 1.0}}, "Loaded fuels differ"),
+        ]:
+            with pytest.raises(ValueError, match=message):
+                reconcile(cur, source, 2026, len(rows), fuels=changed)
+            cur.execute("DROP TABLE ons_expected")
 
         with pytest.raises(ValueError, match="outside 2026"):
             reconcile(cur, later, 2026, 1)

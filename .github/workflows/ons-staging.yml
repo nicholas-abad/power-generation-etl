@@ -19,6 +19,7 @@ on:
           - '2023'
           - '2024'
           - '2025'
+          - '2026'
       extractors_commit:
         description: 'Full 40-character energy-extractors commit with individual-plant support'
         required: true

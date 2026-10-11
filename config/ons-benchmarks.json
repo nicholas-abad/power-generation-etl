@@ -1,6 +1,13 @@
 {
   "audited_on": "2026-10-04",
   "scope": "ONS qualifying individual-plant observations; not national generation totals",
+  "fuel_policy": {
+    "note": "Approvals for check_fuel_accounting in src/check_ons_staging.py. Per-year fuel tables come from scripts/audit_ons_fuels.py.",
+    "without_individual_plants": {
+      "Outras Multi-Combustível": "ONS reports this fuel only as forecast rows (TIPO III) in 2021-2026; excluded under the individual-plant scope the user chose on 2026-10-11"
+    },
+    "eligible_rejections": {}
+  },
   "years": {
     "2019": {
       "expected_observations": 2424001,
@@ -11,7 +18,130 @@
           "sha256": "4fee764a541f11c47abaa3add1a7797ddb79683d383475b7c5834acb9709bf2b",
           "raw_records": 4394570
         }
-      ]
+      ],
+      "fuels": {
+        "Biomassa": {
+          "raw_rows": 386208,
+          "raw_mwh": 9340173.671,
+          "rows_by_modality": {
+            "forecast": 209496,
+            "group": 96360,
+            "individual": 80352
+          },
+          "eligible_rows": 80352,
+          "accepted_rows": 80352,
+          "accepted_mwh": 1203340.913,
+          "rejected_eligible": {}
+        },
+        "Carvão": {
+          "raw_rows": 77544,
+          "raw_mwh": 13963918.585,
+          "rows_by_modality": {
+            "individual": 77544
+          },
+          "eligible_rows": 77544,
+          "accepted_rows": 77544,
+          "accepted_mwh": 13963918.585,
+          "rejected_eligible": {}
+        },
+        "Eólica": {
+          "raw_rows": 928200,
+          "raw_mwh": 53389779.96223,
+          "rows_by_modality": {
+            "forecast": 8016,
+            "group": 823824,
+            "individual": 96360
+          },
+          "eligible_rows": 96360,
+          "accepted_rows": 96360,
+          "accepted_mwh": 1589317.437,
+          "rejected_eligible": {}
+        },
+        "Fotovoltaica": {
+          "raw_rows": 171816,
+          "raw_mwh": 4384555.167,
+          "rows_by_modality": {
+            "group": 163056,
+            "individual": 8760
+          },
+          "eligible_rows": 8760,
+          "accepted_rows": 8760,
+          "accepted_mwh": 73300.368,
+          "rejected_eligible": {}
+        },
+        "Gás": {
+          "raw_rows": 351792,
+          "raw_mwh": 46473994.694000006,
+          "rows_by_modality": {
+            "individual": 351792
+          },
+          "eligible_rows": 351792,
+          "accepted_rows": 351792,
+          "accepted_mwh": 46473994.694000006,
+          "rejected_eligible": {}
+        },
+        "Hidráulica": {
+          "raw_rows": 1882658,
+          "raw_mwh": 409741464.10899997,
+          "rows_by_modality": {
+            "forecast": 454152,
+            "group": 57985,
+            "individual": 1370521
+          },
+          "eligible_rows": 1370521,
+          "accepted_rows": 1370521,
+          "accepted_mwh": 391509536.709,
+          "rejected_eligible": {}
+        },
+        "Nuclear": {
+          "raw_rows": 17520,
+          "raw_mwh": 16128756.691,
+          "rows_by_modality": {
+            "individual": 17520
+          },
+          "eligible_rows": 17520,
+          "accepted_rows": 17520,
+          "accepted_mwh": 16128756.691,
+          "rejected_eligible": {}
+        },
+        "Resíduos Industriais": {
+          "raw_rows": 70080,
+          "raw_mwh": 9513103.835,
+          "rows_by_modality": {
+            "forecast": 17520,
+            "group": 17520,
+            "individual": 35040
+          },
+          "eligible_rows": 35040,
+          "accepted_rows": 35040,
+          "accepted_mwh": 5698258.982,
+          "rejected_eligible": {}
+        },
+        "Óleo Combustível": {
+          "raw_rows": 202536,
+          "raw_mwh": 1397759.5930000003,
+          "rows_by_modality": {
+            "forecast": 35040,
+            "individual": 167496
+          },
+          "eligible_rows": 167496,
+          "accepted_rows": 167496,
+          "accepted_mwh": 1397759.593,
+          "rejected_eligible": {}
+        },
+        "Óleo Diesel": {
+          "raw_rows": 306216,
+          "raw_mwh": 751082.686,
+          "rows_by_modality": {
+            "forecast": 87600,
+            "individual": 218616
+          },
+          "eligible_rows": 218616,
+          "accepted_rows": 218616,
+          "accepted_mwh": 296633.294,
+          "rejected_eligible": {}
+        }
+      }
     },
     "2020": {
       "expected_observations": 2438376,
@@ -22,7 +152,130 @@
           "sha256": "00af403583d86f51852720d55d98bdb327c2f983e58cedbfc6fc49b44e1d7a7c",
           "raw_records": 4479000
         }
-      ]
+      ],
+      "fuels": {
+        "Biomassa": {
+          "raw_rows": 414144,
+          "raw_mwh": 10013511.677000001,
+          "rows_by_modality": {
+            "forecast": 196536,
+            "group": 126672,
+            "individual": 90936
+          },
+          "eligible_rows": 90936,
+          "accepted_rows": 90936,
+          "accepted_mwh": 1134550.913,
+          "rejected_eligible": {}
+        },
+        "Carvão": {
+          "raw_rows": 79056,
+          "raw_mwh": 10885586.21,
+          "rows_by_modality": {
+            "individual": 79056
+          },
+          "eligible_rows": 79056,
+          "accepted_rows": 79056,
+          "accepted_mwh": 10885586.21,
+          "rejected_eligible": {}
+        },
+        "Eólica": {
+          "raw_rows": 997152,
+          "raw_mwh": 53911649.316,
+          "rows_by_modality": {
+            "forecast": 8784,
+            "group": 891744,
+            "individual": 96624
+          },
+          "eligible_rows": 96624,
+          "accepted_rows": 96624,
+          "accepted_mwh": 1634221.5,
+          "rejected_eligible": {}
+        },
+        "Fotovoltaica": {
+          "raw_rows": 204480,
+          "raw_mwh": 5413166.066,
+          "rows_by_modality": {
+            "group": 195696,
+            "individual": 8784
+          },
+          "eligible_rows": 8784,
+          "accepted_rows": 8784,
+          "accepted_mwh": 71654.883,
+          "rejected_eligible": {}
+        },
+        "Gás": {
+          "raw_rows": 359640,
+          "raw_mwh": 41998288.4445,
+          "rows_by_modality": {
+            "individual": 359640
+          },
+          "eligible_rows": 359640,
+          "accepted_rows": 359640,
+          "accepted_mwh": 41998288.4445,
+          "rejected_eligible": {}
+        },
+        "Hidráulica": {
+          "raw_rows": 1864896,
+          "raw_mwh": 404670934.59300005,
+          "rows_by_modality": {
+            "forecast": 433104,
+            "group": 52704,
+            "individual": 1379088
+          },
+          "eligible_rows": 1379088,
+          "accepted_rows": 1379088,
+          "accepted_mwh": 389786542.716,
+          "rejected_eligible": {}
+        },
+        "Nuclear": {
+          "raw_rows": 17568,
+          "raw_mwh": 14048853.61,
+          "rows_by_modality": {
+            "individual": 17568
+          },
+          "eligible_rows": 17568,
+          "accepted_rows": 17568,
+          "accepted_mwh": 14048853.61,
+          "rejected_eligible": {}
+        },
+        "Resíduos Industriais": {
+          "raw_rows": 71016,
+          "raw_mwh": 10672284.305,
+          "rows_by_modality": {
+            "forecast": 18312,
+            "group": 17568,
+            "individual": 35136
+          },
+          "eligible_rows": 35136,
+          "accepted_rows": 35136,
+          "accepted_mwh": 5942789.248,
+          "rejected_eligible": {}
+        },
+        "Óleo Combustível": {
+          "raw_rows": 193056,
+          "raw_mwh": 1361463.4869999997,
+          "rows_by_modality": {
+            "forecast": 25416,
+            "individual": 167640
+          },
+          "eligible_rows": 167640,
+          "accepted_rows": 167640,
+          "accepted_mwh": 1361463.487,
+          "rejected_eligible": {}
+        },
+        "Óleo Diesel": {
+          "raw_rows": 277992,
+          "raw_mwh": 1238143.496,
+          "rows_by_modality": {
+            "forecast": 74088,
+            "individual": 203904
+          },
+          "eligible_rows": 203904,
+          "accepted_rows": 203904,
+          "accepted_mwh": 832496.223,
+          "rejected_eligible": {}
+        }
+      }
     },
     "2021": {
       "expected_observations": 2564736,
@@ -33,7 +286,142 @@
           "sha256": "45104340064ad2898c9ce13e34aa2d41c86bc1830da6b7a785648fa89141f492",
           "raw_records": 4872192
         }
-      ]
+      ],
+      "fuels": {
+        "Biomassa": {
+          "raw_rows": 424800,
+          "raw_mwh": 8168997.408,
+          "rows_by_modality": {
+            "forecast": 120192,
+            "group": 133800,
+            "individual": 170808
+          },
+          "eligible_rows": 170808,
+          "accepted_rows": 170808,
+          "accepted_mwh": 2231685.74,
+          "rejected_eligible": {}
+        },
+        "Carvão": {
+          "raw_rows": 78840,
+          "raw_mwh": 16489487.873,
+          "rows_by_modality": {
+            "individual": 78840
+          },
+          "eligible_rows": 78840,
+          "accepted_rows": 78840,
+          "accepted_mwh": 16489487.873,
+          "rejected_eligible": {}
+        },
+        "Eólica": {
+          "raw_rows": 1206168,
+          "raw_mwh": 71092997.6265,
+          "rows_by_modality": {
+            "forecast": 103920,
+            "group": 1005888,
+            "individual": 96360
+          },
+          "eligible_rows": 96360,
+          "accepted_rows": 96360,
+          "accepted_mwh": 1747835.626,
+          "rejected_eligible": {}
+        },
+        "Fotovoltaica": {
+          "raw_rows": 319080,
+          "raw_mwh": 8825596.38709144,
+          "rows_by_modality": {
+            "forecast": 80520,
+            "group": 229800,
+            "individual": 8760
+          },
+          "eligible_rows": 8760,
+          "accepted_rows": 8760,
+          "accepted_mwh": 74479.92499999999,
+          "rejected_eligible": {}
+        },
+        "Gás": {
+          "raw_rows": 361680,
+          "raw_mwh": 68899277.748,
+          "rows_by_modality": {
+            "individual": 361680
+          },
+          "eligible_rows": 361680,
+          "accepted_rows": 361680,
+          "accepted_mwh": 68899277.748,
+          "rejected_eligible": {}
+        },
+        "Hidráulica": {
+          "raw_rows": 1789464,
+          "raw_mwh": 372794902.553,
+          "rows_by_modality": {
+            "forecast": 368544,
+            "group": 48096,
+            "individual": 1372824
+          },
+          "eligible_rows": 1372824,
+          "accepted_rows": 1372824,
+          "accepted_mwh": 351607873.502,
+          "rejected_eligible": {}
+        },
+        "Nuclear": {
+          "raw_rows": 17520,
+          "raw_mwh": 14695346.292,
+          "rows_by_modality": {
+            "individual": 17520
+          },
+          "eligible_rows": 17520,
+          "accepted_rows": 17520,
+          "accepted_mwh": 14695346.292,
+          "rejected_eligible": {}
+        },
+        "Outras Multi-Combustível": {
+          "raw_rows": 168072,
+          "raw_mwh": 13093059.477000002,
+          "rows_by_modality": {
+            "forecast": 168072
+          },
+          "eligible_rows": 0,
+          "accepted_rows": 0,
+          "accepted_mwh": 0.0,
+          "rejected_eligible": {}
+        },
+        "Resíduos Industriais": {
+          "raw_rows": 74376,
+          "raw_mwh": 9140465.615,
+          "rows_by_modality": {
+            "forecast": 14760,
+            "group": 20016,
+            "individual": 39600
+          },
+          "eligible_rows": 39600,
+          "accepted_rows": 39600,
+          "accepted_mwh": 5499663.959,
+          "rejected_eligible": {}
+        },
+        "Óleo Combustível": {
+          "raw_rows": 204216,
+          "raw_mwh": 9237599.034,
+          "rows_by_modality": {
+            "forecast": 1824,
+            "individual": 202392
+          },
+          "eligible_rows": 202392,
+          "accepted_rows": 202392,
+          "accepted_mwh": 9237599.034,
+          "rejected_eligible": {}
+        },
+        "Óleo Diesel": {
+          "raw_rows": 227976,
+          "raw_mwh": 3160209.774,
+          "rows_by_modality": {
+            "forecast": 12024,
+            "individual": 215952
+          },
+          "eligible_rows": 215952,
+          "accepted_rows": 215952,
+          "accepted_mwh": 3127006.8949999996,
+          "rejected_eligible": {}
+        }
+      }
     },
     "2022": {
       "expected_observations": 2667216,
@@ -110,7 +498,152 @@
           "sha256": "32f3c819a7eba8a5efa94ac1b35dd1982f062ae311c9b888432e2ae13dc5ed66",
           "raw_records": 462984
         }
-      ]
+      ],
+      "fuels": {
+        "Biomassa": {
+          "raw_rows": 449088,
+          "raw_mwh": 7973672.160999999,
+          "rows_by_modality": {
+            "forecast": 105120,
+            "group": 124680,
+            "individual": 219288
+          },
+          "eligible_rows": 219288,
+          "accepted_rows": 219288,
+          "accepted_mwh": 2001151.7280000004,
+          "rejected_eligible": {}
+        },
+        "Carvão": {
+          "raw_rows": 78840,
+          "raw_mwh": 6895551.344999999,
+          "rows_by_modality": {
+            "individual": 78840
+          },
+          "eligible_rows": 78840,
+          "accepted_rows": 78840,
+          "accepted_mwh": 6895551.344999999,
+          "rejected_eligible": {}
+        },
+        "Eólica": {
+          "raw_rows": 1372344,
+          "raw_mwh": 79570968.4005,
+          "rows_by_modality": {
+            "forecast": 122640,
+            "group": 1153344,
+            "individual": 96360
+          },
+          "eligible_rows": 96360,
+          "accepted_rows": 96360,
+          "accepted_mwh": 1428181.6409999998,
+          "rejected_eligible": {}
+        },
+        "Fotovoltaica": {
+          "raw_rows": 424032,
+          "raw_mwh": 13713306.069,
+          "rows_by_modality": {
+            "forecast": 96360,
+            "group": 311136,
+            "individual": 16536
+          },
+          "eligible_rows": 16536,
+          "accepted_rows": 16536,
+          "accepted_mwh": 76146.459,
+          "rejected_eligible": {}
+        },
+        "Gás": {
+          "raw_rows": 392760,
+          "raw_mwh": 24352623.062,
+          "rows_by_modality": {
+            "individual": 392760
+          },
+          "eligible_rows": 392760,
+          "accepted_rows": 392760,
+          "accepted_mwh": 24352623.062,
+          "rejected_eligible": {}
+        },
+        "Hidráulica": {
+          "raw_rows": 1800192,
+          "raw_mwh": 437953342.31799996,
+          "rows_by_modality": {
+            "forecast": 358416,
+            "group": 52560,
+            "individual": 1389216
+          },
+          "eligible_rows": 1389216,
+          "accepted_rows": 1389216,
+          "accepted_mwh": 411549369.74500006,
+          "rejected_eligible": {}
+        },
+        "Multi-Combustível Diesel/Óleo": {
+          "raw_rows": 912,
+          "raw_mwh": 8852.710000000001,
+          "rows_by_modality": {
+            "individual": 912
+          },
+          "eligible_rows": 912,
+          "accepted_rows": 912,
+          "accepted_mwh": 8852.710000000001,
+          "rejected_eligible": {}
+        },
+        "Nuclear": {
+          "raw_rows": 17520,
+          "raw_mwh": 14550864.474,
+          "rows_by_modality": {
+            "individual": 17520
+          },
+          "eligible_rows": 17520,
+          "accepted_rows": 17520,
+          "accepted_mwh": 14550864.474,
+          "rejected_eligible": {}
+        },
+        "Outras Multi-Combustível": {
+          "raw_rows": 201480,
+          "raw_mwh": 14462705.240999999,
+          "rows_by_modality": {
+            "forecast": 201480
+          },
+          "eligible_rows": 0,
+          "accepted_rows": 0,
+          "accepted_mwh": 0.0,
+          "rejected_eligible": {}
+        },
+        "Resíduos Industriais": {
+          "raw_rows": 70656,
+          "raw_mwh": 7884615.762000001,
+          "rows_by_modality": {
+            "forecast": 8760,
+            "group": 18096,
+            "individual": 43800
+          },
+          "eligible_rows": 43800,
+          "accepted_rows": 43800,
+          "accepted_mwh": 6228261.922,
+          "rejected_eligible": {}
+        },
+        "Óleo Combustível": {
+          "raw_rows": 201480,
+          "raw_mwh": 752244.0640000001,
+          "rows_by_modality": {
+            "individual": 201480
+          },
+          "eligible_rows": 201480,
+          "accepted_rows": 201480,
+          "accepted_mwh": 752244.0640000001,
+          "rejected_eligible": {}
+        },
+        "Óleo Diesel": {
+          "raw_rows": 210528,
+          "raw_mwh": 831137.0559999999,
+          "rows_by_modality": {
+            "individual": 210504,
+            "forecast": 24
+          },
+          "eligible_rows": 210504,
+          "accepted_rows": 210504,
+          "accepted_mwh": 831137.0559999999,
+          "rejected_eligible": {}
+        }
+      }
     },
     "2023": {
       "expected_observations": 2798736,
@@ -187,7 +720,151 @@
           "sha256": "d2c2bd4812f50ceadc202a9e10758af08dbb5cc0d99cd2ca7f3ccde3eafe547e",
           "raw_records": 504840
         }
-      ]
+      ],
+      "fuels": {
+        "Biomassa": {
+          "raw_rows": 491856,
+          "raw_mwh": 8921443.244,
+          "rows_by_modality": {
+            "forecast": 105120,
+            "group": 145584,
+            "individual": 241152
+          },
+          "eligible_rows": 241152,
+          "accepted_rows": 241152,
+          "accepted_mwh": 2236992.5300000003,
+          "rejected_eligible": {}
+        },
+        "Carvão": {
+          "raw_rows": 78840,
+          "raw_mwh": 7632620.355,
+          "rows_by_modality": {
+            "individual": 78840
+          },
+          "eligible_rows": 78840,
+          "accepted_rows": 78840,
+          "accepted_mwh": 7632620.355,
+          "rejected_eligible": {}
+        },
+        "Eólica": {
+          "raw_rows": 1463064,
+          "raw_mwh": 93675462.797,
+          "rows_by_modality": {
+            "forecast": 122640,
+            "group": 1244064,
+            "individual": 96360
+          },
+          "eligible_rows": 96360,
+          "accepted_rows": 96360,
+          "accepted_mwh": 1422425.3420000002,
+          "rejected_eligible": {}
+        },
+        "Fotovoltaica": {
+          "raw_rows": 717024,
+          "raw_mwh": 44711442.325,
+          "rows_by_modality": {
+            "forecast": 96360,
+            "group": 603144,
+            "individual": 17520
+          },
+          "eligible_rows": 17520,
+          "accepted_rows": 17520,
+          "accepted_mwh": 70245.34900000002,
+          "rejected_eligible": {}
+        },
+        "Gás": {
+          "raw_rows": 465432,
+          "raw_mwh": 20416031.567,
+          "rows_by_modality": {
+            "individual": 465432
+          },
+          "eligible_rows": 465432,
+          "accepted_rows": 465432,
+          "accepted_mwh": 20416031.567,
+          "rejected_eligible": {}
+        },
+        "Hidráulica": {
+          "raw_rows": 1815432,
+          "raw_mwh": 442119199.5164,
+          "rows_by_modality": {
+            "forecast": 359160,
+            "group": 45912,
+            "individual": 1410360
+          },
+          "eligible_rows": 1410360,
+          "accepted_rows": 1410360,
+          "accepted_mwh": 415215600.9484,
+          "rejected_eligible": {}
+        },
+        "Multi-Combustível Diesel/Óleo": {
+          "raw_rows": 8760,
+          "raw_mwh": 63302.48800000001,
+          "rows_by_modality": {
+            "individual": 8760
+          },
+          "eligible_rows": 8760,
+          "accepted_rows": 8760,
+          "accepted_mwh": 63302.48800000001,
+          "rejected_eligible": {}
+        },
+        "Nuclear": {
+          "raw_rows": 17520,
+          "raw_mwh": 14503722.890999999,
+          "rows_by_modality": {
+            "individual": 17520
+          },
+          "eligible_rows": 17520,
+          "accepted_rows": 17520,
+          "accepted_mwh": 14503722.890999999,
+          "rejected_eligible": {}
+        },
+        "Outras Multi-Combustível": {
+          "raw_rows": 201480,
+          "raw_mwh": 14780203.32,
+          "rows_by_modality": {
+            "forecast": 201480
+          },
+          "eligible_rows": 0,
+          "accepted_rows": 0,
+          "accepted_mwh": 0.0,
+          "rejected_eligible": {}
+        },
+        "Resíduos Industriais": {
+          "raw_rows": 70104,
+          "raw_mwh": 6934495.9580000015,
+          "rows_by_modality": {
+            "forecast": 8760,
+            "group": 17544,
+            "individual": 43800
+          },
+          "eligible_rows": 43800,
+          "accepted_rows": 43800,
+          "accepted_mwh": 5615309.026,
+          "rejected_eligible": {}
+        },
+        "Óleo Combustível": {
+          "raw_rows": 201480,
+          "raw_mwh": 525690.52,
+          "rows_by_modality": {
+            "individual": 201480
+          },
+          "eligible_rows": 201480,
+          "accepted_rows": 201480,
+          "accepted_mwh": 525690.52,
+          "rejected_eligible": {}
+        },
+        "Óleo Diesel": {
+          "raw_rows": 217512,
+          "raw_mwh": 60636.693999999996,
+          "rows_by_modality": {
+            "individual": 217512
+          },
+          "eligible_rows": 217512,
+          "accepted_rows": 217512,
+          "accepted_mwh": 60636.693999999996,
+          "rejected_eligible": {}
+        }
+      }
     },
     "2024": {
       "expected_observations": 2842224,
@@ -264,7 +941,151 @@
           "sha256": "72ad2602a8b34ecc050811bfcf5bce6301d46e179cf411bb6688c9490d43872f",
           "raw_records": 519696
         }
-      ]
+      ],
+      "fuels": {
+        "Biomassa": {
+          "raw_rows": 511176,
+          "raw_mwh": 9499357.284999998,
+          "rows_by_modality": {
+            "forecast": 98256,
+            "group": 166968,
+            "individual": 245952
+          },
+          "eligible_rows": 245952,
+          "accepted_rows": 245952,
+          "accepted_mwh": 2243357.8090000004,
+          "rejected_eligible": {}
+        },
+        "Carvão": {
+          "raw_rows": 79056,
+          "raw_mwh": 9108912.844000002,
+          "rows_by_modality": {
+            "individual": 79056
+          },
+          "eligible_rows": 79056,
+          "accepted_rows": 79056,
+          "accepted_mwh": 9108912.844000002,
+          "rejected_eligible": {}
+        },
+        "Eólica": {
+          "raw_rows": 1530600,
+          "raw_mwh": 105989194.698,
+          "rows_by_modality": {
+            "forecast": 122976,
+            "group": 1311000,
+            "individual": 96624
+          },
+          "eligible_rows": 96624,
+          "accepted_rows": 96624,
+          "accepted_mwh": 1279704.3059999999,
+          "rejected_eligible": {}
+        },
+        "Fotovoltaica": {
+          "raw_rows": 950256,
+          "raw_mwh": 74940598.128,
+          "rows_by_modality": {
+            "forecast": 96624,
+            "group": 819072,
+            "individual": 34560
+          },
+          "eligible_rows": 34560,
+          "accepted_rows": 34560,
+          "accepted_mwh": 228254.00100000002,
+          "rejected_eligible": {}
+        },
+        "Gás": {
+          "raw_rows": 484248,
+          "raw_mwh": 31608111.285,
+          "rows_by_modality": {
+            "individual": 484248
+          },
+          "eligible_rows": 484248,
+          "accepted_rows": 484248,
+          "accepted_mwh": 31608111.285,
+          "rejected_eligible": {}
+        },
+        "Hidráulica": {
+          "raw_rows": 1818384,
+          "raw_mwh": 428311766.04999995,
+          "rows_by_modality": {
+            "forecast": 360144,
+            "group": 43968,
+            "individual": 1414272
+          },
+          "eligible_rows": 1414272,
+          "accepted_rows": 1414272,
+          "accepted_mwh": 402761566.9459999,
+          "rejected_eligible": {}
+        },
+        "Multi-Combustível Diesel/Óleo": {
+          "raw_rows": 8784,
+          "raw_mwh": 51464.071,
+          "rows_by_modality": {
+            "individual": 8784
+          },
+          "eligible_rows": 8784,
+          "accepted_rows": 8784,
+          "accepted_mwh": 51464.071,
+          "rejected_eligible": {}
+        },
+        "Nuclear": {
+          "raw_rows": 17568,
+          "raw_mwh": 15729283.222,
+          "rows_by_modality": {
+            "individual": 17568
+          },
+          "eligible_rows": 17568,
+          "accepted_rows": 17568,
+          "accepted_mwh": 15729283.222,
+          "rejected_eligible": {}
+        },
+        "Outras Multi-Combustível": {
+          "raw_rows": 202032,
+          "raw_mwh": 13756957.622,
+          "rows_by_modality": {
+            "forecast": 202032
+          },
+          "eligible_rows": 0,
+          "accepted_rows": 0,
+          "accepted_mwh": 0.0,
+          "rejected_eligible": {}
+        },
+        "Resíduos Industriais": {
+          "raw_rows": 70272,
+          "raw_mwh": 6798384.458,
+          "rows_by_modality": {
+            "forecast": 8784,
+            "group": 17568,
+            "individual": 43920
+          },
+          "eligible_rows": 43920,
+          "accepted_rows": 43920,
+          "accepted_mwh": 5403746.601,
+          "rejected_eligible": {}
+        },
+        "Óleo Combustível": {
+          "raw_rows": 206424,
+          "raw_mwh": 704647.7329999999,
+          "rows_by_modality": {
+            "individual": 206424
+          },
+          "eligible_rows": 206424,
+          "accepted_rows": 206424,
+          "accepted_mwh": 704647.7329999999,
+          "rejected_eligible": {}
+        },
+        "Óleo Diesel": {
+          "raw_rows": 210816,
+          "raw_mwh": 157017.085,
+          "rows_by_modality": {
+            "individual": 210816
+          },
+          "eligible_rows": 210816,
+          "accepted_rows": 210816,
+          "accepted_mwh": 157017.085,
+          "rejected_eligible": {}
+        }
+      }
     },
     "2025": {
       "expected_observations": 2779008,
@@ -341,7 +1162,355 @@
           "sha256": "6eab1db070c3ea962a65bee8f18b53409ec0909e49d43ff4fb19e270099d1be7",
           "raw_records": 485496
         }
-      ]
+      ],
+      "fuels": {
+        "Biomassa": {
+          "raw_rows": 491976,
+          "raw_mwh": 6279125.232000001,
+          "rows_by_modality": {
+            "forecast": 94728,
+            "group": 159912,
+            "individual": 237336
+          },
+          "eligible_rows": 237336,
+          "accepted_rows": 237336,
+          "accepted_mwh": 1140306.463,
+          "rejected_eligible": {}
+        },
+        "Carvão": {
+          "raw_rows": 78816,
+          "raw_mwh": 10106435.863,
+          "rows_by_modality": {
+            "individual": 78816
+          },
+          "eligible_rows": 78816,
+          "accepted_rows": 78816,
+          "accepted_mwh": 10106435.863,
+          "rejected_eligible": {}
+        },
+        "Eólica": {
+          "raw_rows": 1492872,
+          "raw_mwh": 115067036.25199999,
+          "rows_by_modality": {
+            "forecast": 122640,
+            "group": 1273872,
+            "individual": 96360
+          },
+          "eligible_rows": 96360,
+          "accepted_rows": 96360,
+          "accepted_mwh": 1142294.692,
+          "rejected_eligible": {}
+        },
+        "Fotovoltaica": {
+          "raw_rows": 1018320,
+          "raw_mwh": 92255356.571,
+          "rows_by_modality": {
+            "forecast": 96360,
+            "group": 886920,
+            "individual": 35040
+          },
+          "eligible_rows": 35040,
+          "accepted_rows": 35040,
+          "accepted_mwh": 223776.698,
+          "rejected_eligible": {}
+        },
+        "Gás": {
+          "raw_rows": 479592,
+          "raw_mwh": 38048270.57399999,
+          "rows_by_modality": {
+            "individual": 479592
+          },
+          "eligible_rows": 479592,
+          "accepted_rows": 479592,
+          "accepted_mwh": 38048270.57399999,
+          "rejected_eligible": {}
+        },
+        "Hidráulica": {
+          "raw_rows": 1811592,
+          "raw_mwh": 403747969.70100003,
+          "rows_by_modality": {
+            "forecast": 353904,
+            "group": 43992,
+            "individual": 1413696
+          },
+          "eligible_rows": 1413696,
+          "accepted_rows": 1413696,
+          "accepted_mwh": 380041045.511,
+          "rejected_eligible": {}
+        },
+        "Multi-Combustível Diesel/Óleo": {
+          "raw_rows": 8760,
+          "raw_mwh": 22776.143,
+          "rows_by_modality": {
+            "individual": 8760
+          },
+          "eligible_rows": 8760,
+          "accepted_rows": 8760,
+          "accepted_mwh": 22776.143,
+          "rejected_eligible": {}
+        },
+        "Nuclear": {
+          "raw_rows": 17520,
+          "raw_mwh": 15809435.304000001,
+          "rows_by_modality": {
+            "individual": 17520
+          },
+          "eligible_rows": 17520,
+          "accepted_rows": 17520,
+          "accepted_mwh": 15809435.304000001,
+          "rejected_eligible": {}
+        },
+        "Outras Multi-Combustível": {
+          "raw_rows": 201480,
+          "raw_mwh": 13309722.323,
+          "rows_by_modality": {
+            "forecast": 201480
+          },
+          "eligible_rows": 0,
+          "accepted_rows": 0,
+          "accepted_mwh": 0.0,
+          "rejected_eligible": {}
+        },
+        "Resíduos Industriais": {
+          "raw_rows": 78096,
+          "raw_mwh": 6428030.844,
+          "rows_by_modality": {
+            "forecast": 8760,
+            "group": 25536,
+            "individual": 43800
+          },
+          "eligible_rows": 43800,
+          "accepted_rows": 43800,
+          "accepted_mwh": 5748140.46,
+          "rejected_eligible": {}
+        },
+        "Óleo Combustível": {
+          "raw_rows": 196824,
+          "raw_mwh": 119263.94649999999,
+          "rows_by_modality": {
+            "individual": 196824
+          },
+          "eligible_rows": 196824,
+          "accepted_rows": 196824,
+          "accepted_mwh": 119263.94649999999,
+          "rejected_eligible": {}
+        },
+        "Óleo Diesel": {
+          "raw_rows": 171264,
+          "raw_mwh": 81548.727,
+          "rows_by_modality": {
+            "individual": 171264
+          },
+          "eligible_rows": 171264,
+          "accepted_rows": 171264,
+          "accepted_mwh": 81548.727,
+          "rejected_eligible": {}
+        }
+      }
+    },
+    "2026": {
+      "last_month": 8,
+      "expected_observations": 1700339,
+      "source_files": [
+        {
+          "label": "2026-01",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_01.parquet",
+          "sha256": "57db2a68425f74fd51f13dc5bacb8271f53618d86f94461ffd0e2223915a282b",
+          "raw_records": 495227
+        },
+        {
+          "label": "2026-02",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_02.parquet",
+          "sha256": "a0995f815a5a503cc7677e3b772f18bebb9f77eb3684c6dd2eaf9d8218b05aa0",
+          "raw_records": 450264
+        },
+        {
+          "label": "2026-03",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_03.parquet",
+          "sha256": "082a67b10a69b74cce27107ebbcea4fd36a2adc85cfa0be810c48fdb4b760f87",
+          "raw_records": 490992
+        },
+        {
+          "label": "2026-04",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_04.parquet",
+          "sha256": "bc6c339cc135fd91f3587ce745abc75fc8e5566f191094b729a61be123c67236",
+          "raw_records": 473760
+        },
+        {
+          "label": "2026-05",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_05.parquet",
+          "sha256": "c90f2bed4471381a23a971e61ce3e93046555adabe1dfa5cafa5db87b074ddf5",
+          "raw_records": 530808
+        },
+        {
+          "label": "2026-06",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_06.parquet",
+          "sha256": "0787fe30e3c9ade5c8914ce846a41b23748866c6378fefae010205e39caea205",
+          "raw_records": 514728
+        },
+        {
+          "label": "2026-07",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_07.parquet",
+          "sha256": "b5a385e25ea3f09b5a6016d94aa558c000ce54c9445def5ec74d27d5eb750ce6",
+          "raw_records": 533832
+        },
+        {
+          "label": "2026-08",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_08.parquet",
+          "sha256": "3fda1f68650edc9c4a2ceae9a53e4591c1422c201bd119fed1828bcdd33059bc",
+          "raw_records": 536712
+        }
+      ],
+      "fuels": {
+        "Biomassa": {
+          "raw_rows": 332712,
+          "raw_mwh": 1547718.1916545287,
+          "rows_by_modality": {
+            "forecast": 46656,
+            "group": 128112,
+            "individual": 157944
+          },
+          "eligible_rows": 157944,
+          "accepted_rows": 116616,
+          "accepted_mwh": 701435.6405307573,
+          "rejected_eligible": {
+            "invalid_generation": 41328
+          }
+        },
+        "Carvão": {
+          "raw_rows": 52473,
+          "raw_mwh": 6245759.9715,
+          "rows_by_modality": {
+            "individual": 52473
+          },
+          "eligible_rows": 52473,
+          "accepted_rows": 52473,
+          "accepted_mwh": 6245759.9715,
+          "rejected_eligible": {}
+        },
+        "Eólica": {
+          "raw_rows": 976008,
+          "raw_mwh": 68908427.99633333,
+          "rows_by_modality": {
+            "forecast": 81648,
+            "group": 829008,
+            "individual": 65352
+          },
+          "eligible_rows": 65352,
+          "accepted_rows": 65352,
+          "accepted_mwh": 629844.831,
+          "rejected_eligible": {}
+        },
+        "Fotovoltaica": {
+          "raw_rows": 753192,
+          "raw_mwh": 66299533.518113084,
+          "rows_by_modality": {
+            "forecast": 64152,
+            "group": 663744,
+            "individual": 25296
+          },
+          "eligible_rows": 25296,
+          "accepted_rows": 25296,
+          "accepted_mwh": 148109.30550000002,
+          "rejected_eligible": {}
+        },
+        "Gás": {
+          "raw_rows": 312170,
+          "raw_mwh": 24733486.489150148,
+          "rows_by_modality": {
+            "individual": 312170
+          },
+          "eligible_rows": 312170,
+          "accepted_rows": 312170,
+          "accepted_mwh": 24733486.489150148,
+          "rejected_eligible": {}
+        },
+        "Hidráulica": {
+          "raw_rows": 1249560,
+          "raw_mwh": 283088334.5892528,
+          "rows_by_modality": {
+            "forecast": 227448,
+            "group": 77328,
+            "individual": 944784
+          },
+          "eligible_rows": 944784,
+          "accepted_rows": 941664,
+          "accepted_mwh": 266621409.6523384,
+          "rejected_eligible": {
+            "invalid_generation": 3120
+          }
+        },
+        "Multi-Combustível Diesel/Óleo": {
+          "raw_rows": 5832,
+          "raw_mwh": 22152.8975,
+          "rows_by_modality": {
+            "individual": 5832
+          },
+          "eligible_rows": 5832,
+          "accepted_rows": 5832,
+          "accepted_mwh": 22152.8975,
+          "rejected_eligible": {}
+        },
+        "Nuclear": {
+          "raw_rows": 11664,
+          "raw_mwh": 9341653.1995,
+          "rows_by_modality": {
+            "individual": 11664
+          },
+          "eligible_rows": 11664,
+          "accepted_rows": 11664,
+          "accepted_mwh": 9341653.1995,
+          "rejected_eligible": {}
+        },
+        "Outras Multi-Combustível": {
+          "raw_rows": 134136,
+          "raw_mwh": 7251655.627888889,
+          "rows_by_modality": {
+            "forecast": 134136
+          },
+          "eligible_rows": 0,
+          "accepted_rows": 0,
+          "accepted_mwh": 0.0,
+          "rejected_eligible": {}
+        },
+        "Resíduos Industriais": {
+          "raw_rows": 52558,
+          "raw_mwh": 3519377.335808373,
+          "rows_by_modality": {
+            "forecast": 5832,
+            "group": 17568,
+            "individual": 29158
+          },
+          "eligible_rows": 29158,
+          "accepted_rows": 23254,
+          "accepted_mwh": 3356212.324685604,
+          "rejected_eligible": {
+            "invalid_generation": 5904
+          }
+        },
+        "Óleo Combustível": {
+          "raw_rows": 95410,
+          "raw_mwh": 41972.64581309057,
+          "rows_by_modality": {
+            "individual": 95410
+          },
+          "eligible_rows": 95410,
+          "accepted_rows": 95410,
+          "accepted_mwh": 41972.64581309057,
+          "rejected_eligible": {}
+        },
+        "Óleo Diesel": {
+          "raw_rows": 50608,
+          "raw_mwh": 183785.7755,
+          "rows_by_modality": {
+            "individual": 50608
+          },
+          "eligible_rows": 50608,
+          "accepted_rows": 50608,
+          "accepted_mwh": 183785.7755,
+          "rejected_eligible": {}
+        }
+      }
     }
   }
 }
