@@ -1296,8 +1296,36 @@ class PowerGenerationDatabase:
                     # Insert valid records via upsert (skips duplicates)
                     if valid_records:
                         df = pd.DataFrame(valid_records)
+                        # Two source rows for one plant-hour (e.g. old and new
+                        # name of one ONS ID) must not be collapsed silently.
+                        plant_hour = df["ons_plant_id"].where(
+                            df["ons_plant_id"].fillna("") != "",
+                            "name:" + df["plant"],
+                        )
+                        clash = df.assign(_key=plant_hour).duplicated(
+                            ["timestamp_ms", "_key"], keep=False
+                        )
+                        if clash.any():
+                            first = df[clash].iloc[0]
+                            raise ValueError(
+                                f"{int(clash.sum())} ONS rows share a plant-hour, e.g. "
+                                f"{first['ons_plant_id'] or first['plant']} at "
+                                f"{first['timestamp_ms']}; refusing to choose one"
+                            )
 
                         def _upsert_chunk():
+                            # The conflict target needs migration 020's key.
+                            with self.engine.connect() as conn:
+                                key = conn.execute(
+                                    text(
+                                        "SELECT to_regclass('ingestion.uq_ons_plant_hour')"
+                                    )
+                                ).scalar()
+                            if key is None:
+                                raise ValueError(
+                                    "ingestion.uq_ons_plant_hour is missing: apply "
+                                    "migration 020 (after repair_ons_rename_duplicates.py)"
+                                )
                             return self._upsert_via_staging(
                                 df,
                                 "ons_generation_data",
