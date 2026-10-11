@@ -13,6 +13,7 @@ file-run-id metadata convention, and zero-written == success semantics.
 import json
 import sys
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -245,13 +246,13 @@ def test_loader_metadata_keyed_to_file_run_id(monkeypatch):
 
 def test_zero_written_is_success_not_failure(monkeypatch):
     # Re-loading an unchanged package writes 0 rows (no-op guard) — that is
-    # the weekly steady state, not a failure; and no metadata row is written.
+    # the weekly steady state, not a failure (its metadata row: see
+    # test_unchanged_load_still_records_a_successful_extraction).
     success, report, cap = _run_loader(
         monkeypatch, [_record(i) for i in range(2)], upsert_return=0
     )
     assert success is True
     assert report.valid_count == 2
-    assert "meta" not in cap
 
 
 def test_all_invalid_fails_loudly(monkeypatch):
@@ -265,3 +266,25 @@ def test_get_all_record_counts_includes_climatetrace():
 
     src = inspect.getsource(PowerGenerationDatabase.get_all_record_counts)
     assert "climatetrace_generation_data" in src
+
+
+def test_unchanged_load_still_records_a_successful_extraction(monkeypatch):
+    # Climate TRACE publishes monthly; a weekly run that changes nothing must
+    # still count as a successful extraction for the source freshness check.
+    recs = [_record(i) for i in range(3)]
+    success, report, cap = _run_loader(monkeypatch, recs, upsert_return=0)
+    assert success
+    meta = cap["meta"]
+    assert meta["source"] == "climatetrace" and meta["success"] is True
+    assert meta["total_records"] == 3
+    stamps = sorted(r["timestamp_ms"] for r in recs)
+
+    def day(ms):
+        return datetime.fromtimestamp(ms / 1000, tz=UTC).strftime("%Y-%m-%d")
+
+    assert (meta["start_date"], meta["end_date"]) == (day(stamps[0]), day(stamps[-1]))
+
+
+def test_load_with_no_valid_records_records_nothing(monkeypatch):
+    success, report, cap = _run_loader(monkeypatch, [])
+    assert "meta" not in cap
