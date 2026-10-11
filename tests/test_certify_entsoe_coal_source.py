@@ -26,7 +26,7 @@ DOMAIN = "10YPL-AREA-----S"
 UNIT = "19W000000000095U"
 
 
-def document(points=((1, "100"), (2, "200"))):
+def document(points=((1, "100"), (2, "200")), name="Belchatow 2"):
     pts = "".join(
         f"<Point><position>{p}</position><quantity>{q}</quantity></Point>"
         for p, q in points
@@ -38,7 +38,7 @@ def document(points=((1, "100"), (2, "200"))):
     <registeredResource.mRID codingScheme="A01">19W0000000000PRD</registeredResource.mRID>
     <quantity_Measure_Unit.name>MAW</quantity_Measure_Unit.name><curveType>A01</curveType>
     <MktPSRType><psrType>B02</psrType><PowerSystemResources>
-    <mRID codingScheme="A01">{UNIT}</mRID><name>Belchatow 2</name>
+    <mRID codingScheme="A01">{UNIT}</mRID><name>{name}</name>
     </PowerSystemResources></MktPSRType><Period><timeInterval>
     <start>2024-03-01T00:00Z</start><end>2024-03-02T00:00Z</end></timeInterval>
     <resolution>PT60M</resolution>{pts}</Period></TimeSeries></GL_MarketDocument>""".encode()
@@ -74,8 +74,12 @@ def extractor(monkeypatch):
     `mutate` lets a test make it disagree, as a parser defect would."""
     state = {"mutate": None}
 
-    def parse_coal_periods(xml, country, domain, start, end, psrs):
-        observations, _, _ = independent_day(xml, ms(start), ms(end), domain)
+    def parse_coal_periods(
+        xml, country, domain, start, end, psrs, include_unnamed=False
+    ):
+        observations, _, _ = independent_day(
+            xml, ms(start), ms(end), domain, include_unnamed=include_unnamed
+        )
         rows = [
             {
                 "timestamp_ms": ts,
@@ -162,3 +166,42 @@ def test_verified_no_data_is_complete(tmp_path):
         root, ["B02"], date(2024, 3, 1), date(2024, 3, 3)
     )
     assert domain == DOMAIN and [e["status"] for e in inventory] == ["ok", "no_data"]
+
+
+def certified(observations, day="2024-03-01"):
+    return CERTIFY.summarize([(day, "B02", observations, {})])
+
+
+def test_swapped_readings_keep_totals_but_change_the_digest():
+    one, two = 1709251200000, 1709254800000
+    a = {
+        (one, UNIT): ("B02", "Belchatow 2", Decimal("10"), 60, None),
+        (two, UNIT): ("B02", "Belchatow 2", Decimal("20"), 60, None),
+    }
+    b = {
+        (one, UNIT): ("B02", "Belchatow 2", Decimal("20"), 60, None),
+        (two, UNIT): ("B02", "Belchatow 2", Decimal("10"), 60, None),
+    }
+    (ra,), _, _, _ = certified(a)
+    (rb,), _, _, _ = certified(b)
+    assert (
+        (ra["observations"], ra["mwh"]) == (rb["observations"], rb["mwh"]) == (2, "30")
+    )
+    assert ra["observation_sha256"] != rb["observation_sha256"]
+
+
+def test_observation_line_is_a_fixed_serialization():
+    line = CERTIFY.observation_line(1, UNIT, "B02", Decimal("100.0"), 60, None, "X")
+    assert line == '[1,"19W000000000095U","B02","100",60,null,"X"]'
+    assert line == CERTIFY.observation_line(1, UNIT, "B02", "100", 60, None, "X")
+
+
+def test_unnamed_series_is_certified_and_listed(tmp_path, extractor):
+    root = archive(tmp_path, body=document(name=""))
+    result = CERTIFY.certify_request((str(root), entries(root)[0], "PL", DOMAIN))
+    assert {v[1] for v in result[2].values()} == {None}
+    rows, unnamed, counters, count = CERTIFY.summarize([result])
+    assert count == 2 and rows[0]["names"] == []
+    assert dict(unnamed) == {
+        (UNIT, "B02", "2024-03-01"): {"observations": 2, "mwh": Decimal("300")}
+    }

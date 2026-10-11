@@ -10,8 +10,13 @@ window:
   and the extractor's per-Period parser yield identical observations;
 - the Decimal block integral equals the sum of the expanded observations.
 
-Writes per unit-month observations and energy (Decimal strings) with the
-evidence hashes. Never opens a database connection.
+Series with a unit EIC but no unit name are included (name None) and listed
+per (EIC, PSR, day) under `unnamed`; the payload names them by EIC from the
+reviewed identity table or lists them as exclusions.
+
+Writes per unit-month observations, energy (Decimal strings) and an
+observation digest (sorted `observation_line`s, sha256) with the evidence
+hashes. Never opens a database connection.
 
 Run with the extractors venv (it imports the extractor's parser):
   PYTHONPATH=<extractor>/src python scripts/certify_entsoe_coal_source.py \
@@ -34,6 +39,27 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from audit_entsoe_coal_history import FUEL, independent_day, iso, ms, require  # noqa: E402
+
+
+def observation_line(timestamp_ms, unit_eic, psr, power, minutes, parent, name):
+    """The fixed serialization behind every observation digest.
+
+    MW is the source decimal value without trailing zeros; the payload builder
+    and later checks must reproduce exactly this line for each observation.
+    """
+    return json.dumps(
+        [
+            timestamp_ms,
+            unit_eic,
+            psr,
+            format(D(power).normalize(), "f"),
+            minutes,
+            parent,
+            name,
+        ],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
 
 def load_inventory(archive, psrs, start, end):
@@ -72,9 +98,17 @@ def certify_request(args):
         f"Source hash mismatch {entry['day']} {entry['psr']}",
     )
     lower, upper = ms(entry["start"]), ms(entry["end"])
-    independent, block_mwh, counters = independent_day(body, lower, upper, domain)
+    independent, block_mwh, counters = independent_day(
+        body, lower, upper, domain, include_unnamed=True
+    )
     parsed, _ = parse_coal_periods(
-        body, country, domain, entry["start"], entry["end"], {entry["psr"]}
+        body,
+        country,
+        domain,
+        entry["start"],
+        entry["end"],
+        {entry["psr"]},
+        include_unnamed=True,
     )
     replay = {}
     for row in parsed:
@@ -105,6 +139,59 @@ def certify_request(args):
     return entry["day"], entry["psr"], independent, dict(counters)
 
 
+def summarize(results):
+    """Per unit-month totals and digests, unnamed series and counts from
+    certified (day, psr, observations, stats) results."""
+    unit_months = defaultdict(
+        lambda: {
+            "observations": 0,
+            "mwh": D(0),
+            "names": set(),
+            "psr": set(),
+            "minutes": set(),
+            "lines": [],
+        }
+    )
+    unnamed = defaultdict(lambda: {"observations": 0, "mwh": D(0)})
+    seen, counters = set(), defaultdict(int)
+    for day, psr, observations, stats in results:
+        for key, (p, name, power, minutes, parent) in observations.items():
+            require(key not in seen, f"Observation repeated across requests {key}")
+            seen.add(key)
+            cell = unit_months[(key[1], iso(key[0])[:7])]
+            cell["observations"] += 1
+            cell["mwh"] += power * minutes / 60
+            if name is not None:
+                cell["names"].add(name)
+            cell["psr"].add(p)
+            cell["minutes"].add(minutes)
+            cell["lines"].append(
+                observation_line(key[0], key[1], p, power, minutes, parent, name)
+            )
+            if name is None:
+                gap = unnamed[(key[1], p, day)]
+                gap["observations"] += 1
+                gap["mwh"] += power * minutes / 60
+        for name, value in stats.items():
+            counters[name] += value
+    rows = [
+        {
+            "unit_eic": eic,
+            "month": month,
+            "psr": sorted(c["psr"]),
+            "names": sorted(c["names"]),
+            "minutes": sorted(c["minutes"]),
+            "observations": c["observations"],
+            "mwh": str(c["mwh"]),
+            "observation_sha256": hashlib.sha256(
+                "\n".join(sorted(c["lines"])).encode()
+            ).hexdigest(),
+        }
+        for (eic, month), c in sorted(unit_months.items())
+    ]
+    return rows, unnamed, dict(counters), len(seen)
+
+
 def certify(archive, country, psrs, start, end, extractor, workers=8):
     from energy_extractors.entsoe.periods import parse_coal_periods
 
@@ -123,44 +210,11 @@ def certify(archive, country, psrs, start, end, extractor, workers=8):
     ).strip()
     entries, domain = load_inventory(archive, psrs, start, end)
     ok = [e for e in entries if e["status"] == "ok"]
-    unit_months = defaultdict(
-        lambda: {
-            "observations": 0,
-            "mwh": D(0),
-            "names": set(),
-            "psr": set(),
-            "minutes": set(),
-        }
-    )
-    seen, counters = set(), defaultdict(int)
     with ProcessPoolExecutor(workers) as pool:
         jobs = [(str(archive), e, country, domain) for e in ok]
-        for day, psr, observations, stats in pool.map(
-            certify_request, jobs, chunksize=16
-        ):
-            for key, (p, name, power, minutes, _) in observations.items():
-                require(key not in seen, f"Observation repeated across requests {key}")
-                seen.add(key)
-                cell = unit_months[(key[1], iso(key[0])[:7])]
-                cell["observations"] += 1
-                cell["mwh"] += power * minutes / 60
-                cell["names"].add(name)
-                cell["psr"].add(p)
-                cell["minutes"].add(minutes)
-            for name, value in stats.items():
-                counters[name] += value
-    rows = [
-        {
-            "unit_eic": eic,
-            "month": month,
-            "psr": sorted(c["psr"]),
-            "names": sorted(c["names"]),
-            "minutes": sorted(c["minutes"]),
-            "observations": c["observations"],
-            "mwh": str(c["mwh"]),
-        }
-        for (eic, month), c in sorted(unit_months.items())
-    ]
+        rows, unnamed, counters, observation_count = summarize(
+            pool.map(certify_request, jobs, chunksize=16)
+        )
     yearly = defaultdict(lambda: D(0))
     for row in rows:
         yearly[row["month"][:4]] += D(row["mwh"])
@@ -174,12 +228,22 @@ def certify(archive, country, psrs, start, end, extractor, workers=8):
         "requests": len(entries),
         "ok": len(ok),
         "no_data": len(entries) - len(ok),
-        "observations": len(seen),
+        "observations": observation_count,
         "yearly_mwh": {y: str(v) for y, v in sorted(yearly.items())},
-        "parser_counts": dict(counters),
+        "parser_counts": counters,
         "independent_parser_mismatches": 0,
         "extractor_commit": commit,
         "manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+        "unnamed": [
+            {
+                "unit_eic": eic,
+                "psr": psr,
+                "day": day,
+                "observations": g["observations"],
+                "mwh": str(g["mwh"]),
+            }
+            for (eic, psr, day), g in sorted(unnamed.items())
+        ],
         "unit_months": rows,
     }
 
@@ -204,7 +268,9 @@ def main(argv=None):
         args.workers,
     )
     args.output.write_text(json.dumps(report, indent=1, ensure_ascii=False))
-    print(json.dumps({k: v for k, v in report.items() if k != "unit_months"}, indent=1))
+    summary = {k: v for k, v in report.items() if k not in {"unit_months", "unnamed"}}
+    summary["unnamed_series_days"] = len(report["unnamed"])
+    print(json.dumps(summary, indent=1))
 
 
 if __name__ == "__main__":
