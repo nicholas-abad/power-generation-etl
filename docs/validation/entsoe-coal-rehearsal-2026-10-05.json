@@ -1,0 +1,423 @@
+{
+  "status": "passed",
+  "scope": "Full isolated old-schema rehearsal; production never accessed",
+  "started_at": "2026-10-04T23:58:02.021883+00:00",
+  "finished_at": "2026-10-05T00:01:29.043250+00:00",
+  "extractor_commit": "d9606c5f9070e38f670cc4ea323da372631d14c7",
+  "tested_etl_code_commit": "2b211fd2edcca16023db88a4b9e7236d55f7d848",
+  "rehearsal_commit_binding": "The Git commit containing this report and the hash-bound scripts below.",
+  "repair_artifact_sha256": "1a5805c8a326e91e3ef569d21669e8dbead6d9d136ebc8976cd266e6ef2540b6",
+  "local_postgresql": "PostgreSQL 14.20 (Homebrew) on aarch64-apple-darwin25.1.0, compiled by Apple clang version 17.0.0 (clang-1700.4.4.1), 64-bit",
+  "staging_postgresql": "PostgreSQL 17.11 (fcae950) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+  "seed_snapshot_at": "2026-10-04T23:41:05.621144+00:00",
+  "staging_export_transaction_read_only": "on",
+  "reconstructed_rows": 1676016,
+  "repaired_rows": 1676004,
+  "plan": {
+    "status": "planned",
+    "rows_written": 0,
+    "repair_id": "entsoe-cz-coal-2023-2024-v1",
+    "artifact_sha256": "1a5805c8a326e91e3ef569d21669e8dbead6d9d136ebc8976cd266e6ef2540b6",
+    "target": "local/coal_hotfix_rehearsal_20261005_v3",
+    "interval_updates": 104208,
+    "duplicate_deletes": 12,
+    "already_correct": 0,
+    "mwh_change": "6564553.500",
+    "current_rows_sha256": "c55a4db8b1b8352ca1240a53a3fddbe70138756b4e9ea72eee7f2c4d9089df9d",
+    "plan_sha256": "11f13ead486b24ae59fc818d47a7fa9b0eda36502fb87261e3d3c1ac215f3506"
+  },
+  "apply": {
+    "repair_id": "entsoe-cz-coal-2023-2024-v1",
+    "artifact_sha256": "1a5805c8a326e91e3ef569d21669e8dbead6d9d136ebc8976cd266e6ef2540b6",
+    "target": "local/coal_hotfix_rehearsal_20261005_v3",
+    "interval_updates": 104208,
+    "duplicate_deletes": 12,
+    "already_correct": 0,
+    "mwh_change": "6564553.500",
+    "current_rows_sha256": "c55a4db8b1b8352ca1240a53a3fddbe70138756b4e9ea72eee7f2c4d9089df9d",
+    "plan_sha256": "11f13ead486b24ae59fc818d47a7fa9b0eda36502fb87261e3d3c1ac215f3506",
+    "status": "applied",
+    "rows_written": 104220
+  },
+  "repeat_apply": {
+    "repair_id": "entsoe-cz-coal-2023-2024-v1",
+    "artifact_sha256": "1a5805c8a326e91e3ef569d21669e8dbead6d9d136ebc8976cd266e6ef2540b6",
+    "target": "local/coal_hotfix_rehearsal_20261005_v3",
+    "interval_updates": 0,
+    "duplicate_deletes": 0,
+    "already_correct": 104220,
+    "mwh_change": "0",
+    "current_rows_sha256": "101f84021179777cc18e221adbce62ef09a589d1baa065e8707039a54615e915",
+    "plan_sha256": "78efb151744128c4336930ca60623b1a1e2f319ac28c658872d1354b17215350",
+    "status": "already_correct",
+    "rows_written": 0
+  },
+  "source_benchmarks": {
+    "2019": {
+      "before": {
+        "rows": 224876,
+        "generation_mwh": "22827602.150"
+      },
+      "after": {
+        "rows": 224876,
+        "generation_mwh": "22827602.150"
+      }
+    },
+    "2024": {
+      "before": {
+        "rows": 530172,
+        "generation_mwh": "12219119.700"
+      },
+      "after": {
+        "rows": 530160,
+        "generation_mwh": "18782731.275"
+      }
+    }
+  },
+  "2023_boundary": {
+    "utc": "2023-12-31T23:00:00Z",
+    "rows": 24,
+    "before_mwh": "313.975",
+    "after_mwh": "1255.900"
+  },
+  "2024_monthly": [
+    {
+      "month": "2024-01",
+      "before_rows": 17856,
+      "after_rows": 17856,
+      "before_mwh": "461970.475",
+      "after_mwh": "1847881.900"
+    },
+    {
+      "month": "2024-02",
+      "before_rows": 16704,
+      "after_rows": 16704,
+      "before_mwh": "426080.150",
+      "after_mwh": "1704320.600"
+    },
+    {
+      "month": "2024-03",
+      "before_rows": 17784,
+      "after_rows": 17784,
+      "before_mwh": "414966.300",
+      "after_mwh": "1659865.200"
+    },
+    {
+      "month": "2024-04",
+      "before_rows": 17280,
+      "after_rows": 17280,
+      "before_mwh": "287602.500",
+      "after_mwh": "1150410.000"
+    },
+    {
+      "month": "2024-05",
+      "before_rows": 17856,
+      "after_rows": 17856,
+      "before_mwh": "294846.100",
+      "after_mwh": "1179384.400"
+    },
+    {
+      "month": "2024-06",
+      "before_rows": 19008,
+      "after_rows": 19008,
+      "before_mwh": "322881.925",
+      "after_mwh": "1230096.925"
+    },
+    {
+      "month": "2024-07",
+      "before_rows": 71424,
+      "after_rows": 71424,
+      "before_mwh": "1354275.275",
+      "after_mwh": "1354275.275"
+    },
+    {
+      "month": "2024-08",
+      "before_rows": 71424,
+      "after_rows": 71424,
+      "before_mwh": "1400447.075",
+      "after_mwh": "1400447.075"
+    },
+    {
+      "month": "2024-09",
+      "before_rows": 69120,
+      "after_rows": 69120,
+      "before_mwh": "1538904.850",
+      "after_mwh": "1538904.850"
+    },
+    {
+      "month": "2024-10",
+      "before_rows": 71160,
+      "after_rows": 71160,
+      "before_mwh": "1787878.325",
+      "after_mwh": "1787878.325"
+    },
+    {
+      "month": "2024-11",
+      "before_rows": 69120,
+      "after_rows": 69120,
+      "before_mwh": "2103770.900",
+      "after_mwh": "2103770.900"
+    },
+    {
+      "month": "2024-12",
+      "before_rows": 71436,
+      "after_rows": 71424,
+      "before_mwh": "1825495.825",
+      "after_mwh": "1825495.825"
+    }
+  ],
+  "source_reconciliation": {
+    "missing_extra_or_mismatched_raw_observations": 0,
+    "source_monthly_groups": 600,
+    "maximum_monthly_absolute_error_mwh": "4E-9",
+    "row_count_mismatches": 0
+  },
+  "source_xml_days": {
+    "2019": 365,
+    "2024": 366
+  },
+  "unchanged_populations": {
+    "unaffected": {
+      "rows": 1571796,
+      "sha256": "1544fc6ae40d8098183226c4cedf8bd6260ad6ab7f1cab7d028268419ce9f827"
+    },
+    "2019_coal": {
+      "rows": 224876,
+      "sha256": "f23c37612d3af76069cc16084b64b63ff9d84bb75590d7ddd1941ee5e542959f"
+    },
+    "2025_coal": {
+      "rows": 852492,
+      "sha256": "46ab19bc0a24834aca75965ece0b2e443173440db1a829649d8a62b3a1cf5922"
+    },
+    "2024_gas": {
+      "rows": 66316,
+      "sha256": "10fa19747713d4cbc3b4a2a7bf8c61d3b16a5417c492fce28254080c90287594"
+    },
+    "poland": {
+      "rows": 2136,
+      "sha256": "e1f20fa5b82e00f6e5185251f38cdc4b932b9e24e375fd3e8f23cb8867d10d37"
+    }
+  },
+  "backup": {
+    "rows": 104220,
+    "routine_role_access": {
+      "etl_writer:ingestion.entsoe_coal_repair_backup": false,
+      "etl_writer:ingestion.entsoe_coal_repairs": false,
+      "dashboard_ro:ingestion.entsoe_coal_repair_backup": false,
+      "dashboard_ro:ingestion.entsoe_coal_repairs": false
+    }
+  },
+  "rollback": {
+    "repair_id": "entsoe-cz-coal-2023-2024-v1",
+    "artifact_sha256": "1a5805c8a326e91e3ef569d21669e8dbead6d9d136ebc8976cd266e6ef2540b6",
+    "target": "local/coal_hotfix_rehearsal_20261005_v3",
+    "interval_updates": 0,
+    "duplicate_deletes": 0,
+    "already_correct": 104220,
+    "mwh_change": "0",
+    "current_rows_sha256": "101f84021179777cc18e221adbce62ef09a589d1baa065e8707039a54615e915",
+    "plan_sha256": "78efb151744128c4336930ca60623b1a1e2f319ac28c658872d1354b17215350",
+    "status": "rolled_back",
+    "rows_written": 104220
+  },
+  "repeat_rollback": {
+    "repair_id": "entsoe-cz-coal-2023-2024-v1",
+    "artifact_sha256": "1a5805c8a326e91e3ef569d21669e8dbead6d9d136ebc8976cd266e6ef2540b6",
+    "target": "local/coal_hotfix_rehearsal_20261005_v3",
+    "interval_updates": 104208,
+    "duplicate_deletes": 12,
+    "already_correct": 0,
+    "mwh_change": "6564553.500",
+    "current_rows_sha256": "c55a4db8b1b8352ca1240a53a3fddbe70138756b4e9ea72eee7f2c4d9089df9d",
+    "plan_sha256": "11f13ead486b24ae59fc818d47a7fa9b0eda36502fb87261e3d3c1ac215f3506",
+    "status": "already_rolled_back",
+    "rows_written": 0
+  },
+  "rollback_verification": {
+    "all_rows_and_metadata_restored": true,
+    "views_and_mappings_restored": true,
+    "all_rows": {
+      "rows": 1676016,
+      "sha256": "2353bb0dc733431c68848407eaf518989ca238c4924dc034c5c73f793eee80fb"
+    }
+  },
+  "loader_replay": {
+    "role": "etl_writer",
+    "runs": [
+      {
+        "iteration": 1,
+        "seconds": 30.232,
+        "verification": {
+          "missing_extra_or_mismatched_raw_observations": 0,
+          "source_monthly_groups": 600,
+          "maximum_monthly_absolute_error_mwh": "2.9E-9",
+          "row_count_mismatches": 0
+        },
+        "all_rows": {
+          "rows": 1676004,
+          "sha256": "8b0d2d9df7e2c8d79736b2e7c9ba95d48ae9466c8e728ab505f1f1af0ed614aa"
+        },
+        "repeat_raw_rows_identical": false
+      },
+      {
+        "iteration": 2,
+        "seconds": 26.669,
+        "verification": {
+          "missing_extra_or_mismatched_raw_observations": 0,
+          "source_monthly_groups": 600,
+          "maximum_monthly_absolute_error_mwh": "2.9E-9",
+          "row_count_mismatches": 0
+        },
+        "all_rows": {
+          "rows": 1676004,
+          "sha256": "8b0d2d9df7e2c8d79736b2e7c9ba95d48ae9466c8e728ab505f1f1af0ed614aa"
+        },
+        "repeat_raw_rows_identical": true
+      }
+    ]
+  },
+  "frontend_projection": {
+    "query_commit": "26f6b71b825958db483d199a437bb9104a5fe21e",
+    "scope": "ENTSOE portion of period-generation.ts with staged CZ crosswalk and GCPT membership; no other providers, browser, or production checks",
+    "rows": {
+      "before": [
+        {
+          "gem_location_id": "L100000101799",
+          "months": 12,
+          "generation_mwh": "173156.050",
+          "hours": "8784.0000000000000000"
+        },
+        {
+          "gem_location_id": "L100000101803",
+          "months": 12,
+          "generation_mwh": "1831304.400",
+          "hours": "8784.0000000000000000"
+        }
+      ],
+      "after": [
+        {
+          "gem_location_id": "L100000101799",
+          "months": 12,
+          "generation_mwh": "254398.300",
+          "hours": "8784.0000000000000000"
+        },
+        {
+          "gem_location_id": "L100000101803",
+          "months": 12,
+          "generation_mwh": "2609430.450",
+          "hours": "8784.0000000000000000"
+        }
+      ]
+    },
+    "totals_mwh": {
+      "before": "2004460.450",
+      "after": "2863828.750"
+    },
+    "change_percent": "42.87279901182385514266445120"
+  },
+  "view_comparison": {
+    "raw_records": "Exact count and SHA-256, including IDs and all original-schema metadata",
+    "derived_totals_absolute_tolerance_mwh": "0.00001",
+    "reason": "Parallel floating-point aggregation can cross a rounding boundary without any raw-row change."
+  },
+  "timings_seconds": {
+    "seed_and_old_schema": 77.728,
+    "baseline_snapshot": 5.413,
+    "plan": 2.072,
+    "apply": 9.532,
+    "refresh_after_apply": 0.614,
+    "source_reconciliation": 0.792,
+    "after_snapshot": 5.36,
+    "repeat_apply": 3.905,
+    "clone_for_loader": 0.658,
+    "rollback": 7.259,
+    "refresh_after_rollback": 0.569,
+    "rollback_snapshot": 5.435,
+    "repeat_rollback": 5.106,
+    "full_loader_replay_twice": 62.427
+  },
+  "local_checks": {
+    "etl_pytest_passed": 110,
+    "real_postgresql_integration_tests": 12,
+    "ruff_check": "passed",
+    "ruff_format": "passed",
+    "git_diff_check": "passed"
+  },
+  "evidence": {
+    "directory": "output/coal-rehearsal-2026-10-05",
+    "full_report": "run3/report.json",
+    "full_report_sha256": "e140abb3a60020c4b363d6cf82ca1cd5356eeef6141bda8774d0e1a576ea063e",
+    "seed_manifest_sha256": "b478b6355dc9c7520b88726d67e48111dec0a8d75bbd7870cdd92915957e6ff4",
+    "source_manifest_sha256": "32c44d32726e42475fbd861edf18e0086b5cd5e7f24827ee851fd351c02a4eed",
+    "seed_files": {
+      "current2019coal": {
+        "path": "current2019coal.csv.gz",
+        "rows": 224876,
+        "sha256": "40381d7e5716def599ea81743591df1039e270748bfbf03fe57742f291642b6e"
+      },
+      "current2024fossil": {
+        "path": "current2024fossil.csv.gz",
+        "rows": 596472,
+        "sha256": "70b7cf57710a2f881675c2f8a16948141acda435fcdb19f22034ff0351e9390c"
+      },
+      "original2024fossil": {
+        "path": "original2024fossil.csv.gz",
+        "rows": 117232,
+        "sha256": "4c4d7bc8755fe6b83d4316d2fcdf476adc237053077721436b949ef964f2a609"
+      },
+      "boundary2023": {
+        "path": "boundary2023.csv.gz",
+        "rows": 24,
+        "sha256": "70d0a92a67fd0e28d74053893360309a07a6939387161f27c25145fd87e05cae"
+      },
+      "controls2025coal": {
+        "path": "controls2025coal.csv.gz",
+        "rows": 852492,
+        "sha256": "a328b28bb66e9522ecaa1eb60a23032333dbc316d1e947af8026216bf0128baf"
+      },
+      "controls2024pl": {
+        "path": "controls2024pl.csv.gz",
+        "rows": 2136,
+        "sha256": "4104b4777d846a982225ffe40840a1fd2d00f86a05c677ed855effdc7dbee534"
+      },
+      "frontend_crosswalk": {
+        "path": "frontend_crosswalk.csv.gz",
+        "rows": 24,
+        "sha256": "4655245cf67d06d653f1fabad59e8e455178758f0dc8f1cde6f6305fedfdbf56"
+      }
+    }
+  },
+  "scripts_sha256": {
+    "scripts/export_entsoe_coal_rehearsal.py": "cb7b6e79f408cc93f1eb85e56bfe95fe74b7531b8cc80846fc011e4f73bcb711",
+    "scripts/replay_entsoe_coal_archives.py": "6da92f5e57bc8e6c839378730ec491736fb24de1cc0172c517dc2431eaf66daa",
+    "scripts/rehearse_entsoe_coal_repair.py": "0f981c23230ec3a3c7affdce69dd29d062416be1cd1f16fa502b8f204f1b02d2",
+    "tests/test_coal_rehearsal_guards.py": "dd982d981bf9196e5ee5aa1bd3e4fff7eba26c8df4a741a6570d2a30b4d89291"
+  },
+  "schema_sha256": {
+    "entsoe_generation.sql": "9c16011a3f621a988872878af9aeea0d868d87193929d8a1d486e6c67c930f4f",
+    "materialized_views.sql": "33cd3ce316b65120dbd092b362d3f73cab76abe8b4a10be72ec5e7a7d077bccf",
+    "row_count_views.sql": "4ed1b650bdcdf1598609e8421fd9827112a1cce4465bad4bcf05a546973cf301"
+  },
+  "limitations": [
+    "Seed is a staging reconstruction: original backup metadata for affected 2024 rows, current staging metadata elsewhere; not a current production snapshot.",
+    "Local PostgreSQL 14 uses owner-run view refresh. Neon 17 pg_maintain authorization and production-scale refresh/lock timing are not established by this rehearsal.",
+    "2025, gas, and Polish controls are unchanged; their source correctness was not certified.",
+    "Frontend check is its pinned ENTSOE query projection with staging mappings, not the complete live frontend total.",
+    "No GitHub CI, publication, main merge, production preflight, or production execution occurred."
+  ],
+  "production_accessed": false,
+  "staging_modified": false,
+  "frontend_published": false,
+  "github_published": false,
+  "merged": false,
+  "retained_backups": {
+    "coal_hotfix_rehearsal_20261005_v3": {
+      "ledger_state": "rolled_back",
+      "full_originals_retained": 104220
+    },
+    "coal_hotfix_rehearsal_20261005_v3_loader": {
+      "ledger_state": "applied",
+      "full_originals_retained": 104220
+    }
+  }
+}

@@ -28,6 +28,7 @@ from tenacity import (
 )
 
 from validator import DataValidator, ValidationReport, save_report
+from entsoe_coal import check_coal_records, prepare_coal_upsert, source_coal
 
 # ENTSO-E PSR type codes to human-readable fuel type names.
 # Used to fix fuel_type during JSONL ingestion (records extracted before the
@@ -269,7 +270,8 @@ class PowerGenerationDatabase:
         columns = list(df.columns)
         for col in columns:
             _validate_identifier(col)
-        col_list = ", ".join(columns)
+        persisted_columns = [c for c in columns if c != "_source_resolution_verified"]
+        col_list = ", ".join(persisted_columns)
 
         if conflict_expr:
             conflict_target = f"({conflict_expr})"
@@ -304,11 +306,20 @@ class PowerGenerationDatabase:
                 f"ON COMMIT DROP"
             )
 
+            if target_table == "entsoe_generation_data":
+                cursor.execute(
+                    f"ALTER TABLE {staging} ADD COLUMN _source_resolution_verified "
+                    "boolean NOT NULL DEFAULT false"
+                )
+
             # 2. COPY data into staging table
             output = StringIO()
             df.to_csv(output, sep="\t", header=False, index=False, na_rep="\\N")
             output.seek(0)
             cursor.copy_from(output, staging, columns=columns, sep="\t", null="\\N")
+
+            if target_table == "entsoe_generation_data":
+                prepare_coal_upsert(cursor)
 
             # 3. INSERT from staging into target; conflicts are skipped
             # (DO NOTHING) or, with update_columns, revised in place.
@@ -764,27 +775,28 @@ class PowerGenerationDatabase:
 
                     # Clean plant_name: strip leaked fuel-type and data-type suffixes
                     plant_name = record.get("plant_name", "")
-                    consumption_via_suffix = False
-                    for suffix in _DATA_TYPE_SUFFIXES:
-                        if plant_name.endswith("_" + suffix):
-                            # Legacy format: data_type leaked into plant_name and
-                            # the data_type field is "Unknown"/a fuel name, so the
-                            # line-630 filter misses it. Stripping "_Actual
-                            # Consumption" here would collapse the name onto its
-                            # "_Actual Aggregated" sibling and displace real
-                            # generation at the shared natural key — the same bug
-                            # the field-level filter above prevents. Drop it too.
-                            if suffix == "Actual Consumption":
-                                consumption_via_suffix = True
-                            plant_name = plant_name[: -(len(suffix) + 1)]
-                            break
-                    if consumption_via_suffix:
-                        consumption_skipped += 1
-                        continue
-                    for suffix in _FUEL_TYPE_SUFFIXES:
-                        if plant_name.endswith("_" + suffix):
-                            plant_name = plant_name[: -(len(suffix) + 1)]
-                            break
+                    if not source_coal(record):
+                        consumption_via_suffix = False
+                        for suffix in _DATA_TYPE_SUFFIXES:
+                            if plant_name.endswith("_" + suffix):
+                                # Legacy format: data_type leaked into plant_name and
+                                # the data_type field is "Unknown"/a fuel name, so the
+                                # line-630 filter misses it. Stripping "_Actual
+                                # Consumption" here would collapse the name onto its
+                                # "_Actual Aggregated" sibling and displace real
+                                # generation at the shared natural key — the same bug
+                                # the field-level filter above prevents. Drop it too.
+                                if suffix == "Actual Consumption":
+                                    consumption_via_suffix = True
+                                plant_name = plant_name[: -(len(suffix) + 1)]
+                                break
+                        if consumption_via_suffix:
+                            consumption_skipped += 1
+                            continue
+                        for suffix in _FUEL_TYPE_SUFFIXES:
+                            if plant_name.endswith("_" + suffix):
+                                plant_name = plant_name[: -(len(suffix) + 1)]
+                                break
                     record["plant_name"] = plant_name
 
                     batch.append(record)
@@ -897,6 +909,8 @@ class PowerGenerationDatabase:
         Returns:
             Tuple of (inserted_count, valid_count, invalid_count, duplicate_count)
         """
+        check_coal_records(batch)
+
         # Validate batch
         valid_records, report = validator.validate_file(
             batch, "entsoe", f"batch_{batch_num}"
@@ -908,7 +922,8 @@ class PowerGenerationDatabase:
 
         # Convert to DataFrame
         df = pd.DataFrame(valid_records)
-        df = df[expected_columns]
+        df = df[expected_columns].copy()
+        df["_source_resolution_verified"] = [source_coal(row) for row in valid_records]
 
         # Insert via staging table upsert (handles existing UNIQUE constraint)
         def _upsert():

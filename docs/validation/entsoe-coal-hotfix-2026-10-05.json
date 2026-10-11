@@ -1,0 +1,65 @@
+{
+  "prepared_on": "2026-10-05",
+  "scope": "Preparation steps 1 and 2 only; coal hotfix and guarded repair package",
+  "extractor_commit": "d9606c5f9070e38f670cc4ea323da372631d14c7",
+  "etl_base_commit": "d8c6d781a34726e87001e2c43ec09b66aa9e0595",
+  "repair_artifact_sha256": "1a5805c8a326e91e3ef569d21669e8dbead6d9d136ebc8976cd266e6ef2540b6",
+  "checks": {
+    "extractor_tests_passed": 96,
+    "etl_tests_passed": 99,
+    "postgresql_integration_tests": 12,
+    "local_postgresql_version": "14.20",
+    "ruff_lint": "passed",
+    "ruff_format": "passed",
+    "actionlint": "passed",
+    "git_diff_check": "passed",
+    "full_release_data_rehearsal": "not run; next step",
+    "github_ci": "configured; not run remotely"
+  },
+  "parser_reconciliation": {
+    "2019": {
+      "archived_xml_days": 365,
+      "coal_observations": 224876,
+      "coal_mwh": "22827602.15",
+      "mismatched_source_fields": 0,
+      "missing_or_extra_coal_observations": 0,
+      "reference_jsonl_sha256": "4d202e529950f63bb1290ebd63f55f4fc5fe6e5fc11f64e07384c72f784eb2b0"
+    },
+    "2024": {
+      "archived_xml_days": 366,
+      "coal_observations": 530160,
+      "coal_mwh": "18782731.275",
+      "mismatched_source_fields": 0,
+      "missing_or_extra_coal_observations": 0,
+      "reference_jsonl_sha256": "b60dc36672ffbaa49971cdefea84d046397a731702f2ad5a5f7714a6bcb37793"
+    }
+  },
+  "repair_scope": {
+    "duration_updates_2024": 104184,
+    "duration_updates_2023_boundary": 24,
+    "duplicate_removals_2024": 12,
+    "duplicate_removal_mwh": "0",
+    "total_mwh_increase": "6564553.500"
+  },
+  "local_database_coverage": [
+    "pre-expansion raw table schema",
+    "legacy duration replay rejection",
+    "source and legacy alias replay",
+    "simultaneous alias writers",
+    "source quantity revisions",
+    "conflicting input/identity refusal",
+    "read-only plan",
+    "backups and write-privilege revocation",
+    "atomic apply and failure rollback",
+    "idempotent apply",
+    "data rollback with full original metadata",
+    "rollback refusal after later revisions",
+    "production refusal before connecting",
+    "artifact integrity checks"
+  ],
+  "staging_accessed": false,
+  "production_accessed": false,
+  "frontend_accessed": false,
+  "published": false,
+  "merged": false
+}
