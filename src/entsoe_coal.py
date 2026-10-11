@@ -100,6 +100,22 @@ def prepare_coal_upsert(cursor):
         raise ValueError(
             "Existing Czech coal aliases overlap; an audited repair is required"
         )
+    # An unverified row renamed onto the other alias's stored row must agree on
+    # MW; otherwise a conflicting copy split across batches would silently
+    # overwrite the stored value. Source-period rows may revise MW.
+    cursor.execute("""SELECT 1 FROM _staging_entsoe_generation_data s
+        JOIN _coal_names n ON s.country_code='CZ' AND s.timestamp_ms=n.timestamp_ms
+          AND s.psr_type=n.psr_type AND s.plant_name=n.incoming
+        JOIN entsoe_generation_data a ON a.country_code='CZ'
+          AND a.timestamp_ms=s.timestamp_ms AND a.psr_type=s.psr_type
+          AND a.plant_name=n.existing
+        WHERE n.existing IS NOT NULL AND n.existing<>n.incoming
+          AND NOT s._source_resolution_verified
+          AND a.generation_mw IS DISTINCT FROM s.generation_mw LIMIT 1""")
+    if cursor.fetchone():
+        raise ValueError(
+            "Conflicting Czech coal alias measurement; regenerate from source XML"
+        )
     cursor.execute("""UPDATE _staging_entsoe_generation_data s
         SET plant_name=COALESCE(n.existing,n.legacy)
         FROM _coal_names n WHERE s.country_code='CZ' AND s.timestamp_ms=n.timestamp_ms

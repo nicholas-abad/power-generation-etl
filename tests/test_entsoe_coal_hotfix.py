@@ -133,6 +133,16 @@ def test_alias_replay_cannot_undo_duration_or_insert_duplicate(pg):
     assert rows(conn) == before
 
 
+def test_unverified_alias_cannot_overwrite_other_alias_measurement(pg):
+    # The conflicting copy arrives in a later batch than the stored one.
+    conn, db = pg
+    insert(conn, record())
+    before = rows(conn)
+    with pytest.raises(ValueError, match="alias measurement"):
+        upsert(db, record("ECHV_G1____", mw=0))
+    assert rows(conn) == before
+
+
 def test_source_revision_preserves_existing_raw_name(pg):
     conn, db = pg
     insert(conn, record("ECHV_G1____"))

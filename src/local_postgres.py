@@ -46,7 +46,7 @@ def local_settings(dsn: str, database_pattern: str) -> dict[str, str]:
 def verify_local_connection(connection, database: str) -> None:
     """Verify the actual server and database before any destructive SQL."""
     with connection.cursor() as cursor:
-        cursor.execute("SELECT current_database(), inet_server_addr()::text")
+        cursor.execute("SELECT current_database(), host(inet_server_addr())")
         name, address = cursor.fetchone()
     if name != database or address not in {None, "127.0.0.1"}:
         raise ValueError("Connection is not the expected local database")

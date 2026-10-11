@@ -87,4 +87,4 @@ def test_server_identity_is_checked_before_destructive_sql(monkeypatch):
     monkeypatch.setattr(psycopg2, "connect", lambda **kwargs: FakeConnection())
     with pytest.raises(ValueError, match="expected local"):
         next(module["pg"].__wrapped__())
-    assert statements == ["SELECT current_database(), inet_server_addr()::text"]
+    assert statements == ["SELECT current_database(), host(inet_server_addr())"]
