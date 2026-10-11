@@ -324,8 +324,8 @@ def test_source_gaps_migration_loader_and_monthly_view(database):
 
     conn, _, dsn = database
     migrate(dsn)
-    migrate(dsn, "020_ons_source_gaps.sql")
-    migrate(dsn, "020_ons_source_gaps.sql")
+    migrate(dsn, "021_ons_source_gaps.sql")
+    migrate(dsn, "021_ons_source_gaps.sql")
     metadata = metadata_for(2026)
     for gap in metadata["source_gaps"]:
         gap["plant"] = f"Plant {gap['ons_plant_id']}"

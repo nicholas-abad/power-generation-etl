@@ -70,7 +70,7 @@ jobs:
         run: |
           uv sync --frozen
           uv sync --project extractors --frozen --extra ons
-      - name: Check staging identity and required migrations (017, 020)
+      - name: Check staging identity and required migrations (017, 021)
         run: |
           uv run python src/run_in_environment.py --environment staging --from-process -- \
             psql -X -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM public.mv_ons_individual_plant_monthly;' \

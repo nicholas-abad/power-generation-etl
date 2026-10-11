@@ -143,7 +143,7 @@ def check_source_gaps(year, gaps):
     """Every missing-generation run must fall inside an approved window.
 
     Returns the gaps with the approval's kind and note, as recorded in
-    ingestion.ons_source_gaps (migration 020).
+    ingestion.ons_source_gaps (migration 021).
     """
     windows = fuel_policy().get("source_gaps", {}).get(str(year), [])
     approved = []
