@@ -61,9 +61,11 @@ that would collide with later loads; the archive is kept and marked.
 > upserts and overwrites differing rows, so it must not be used for this
 > backfill. Build these in a follow-up PR and rehearse them on staging first.
 
-Staging evidence: 2019–2025 (`docs/validation/ons-staging-*.json`), 2026 Jan–Aug
-(`ons-staging-2026-2026-10-11.json`), regressions 2019 and 2024 re-run
-2026-10-11.
+Staging evidence: every year, 2019–2025 and 2026 Jan–Aug, re-run on 2026-10-11
+with the final code of both PRs (extractor `cb80bfe`, ETL `9b5818d`):
+`docs/validation/ons-staging-final-2019-2026-2026-10-11.json`. Each year matched
+its earlier summary (`docs/validation/ons-staging-*.json`) in source rows and
+coal hash.
 
 1. **Preconditions:** Part A done; the open decisions below settled; staging
    view refresh times within the weekly `refresh-views` timeout.
