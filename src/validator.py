@@ -279,6 +279,32 @@ CHILE_SCHEMA = {
     "duplicate_key": ("timestamp_ms", "plant", "chile_plant_id"),
 }
 
+# Chile all-fuel staging pilot (migration 019). The duplicate key is the
+# table's natural key, fuel included: CHILE_SCHEMA's fuel-blind key would
+# discard a gas row that shares a plant-hour with a coal row. Source labels
+# may be '' (a missing subtype), so they are typed but not non_empty.
+CHILE_ALL_FUELS_SCHEMA = {
+    "required_fields": {
+        "extraction_run_id": {"type": "str", "validation": "uuid"},
+        "created_at_ms": {"type": "int", "validation": "positive_timestamp"},
+        "timestamp_ms": {"type": "int", "validation": "positive_timestamp"},
+        "plant_key": {"type": "str", "validation": "non_empty"},
+        "plant": {"type": "str", "validation": "non_empty"},
+        "tipo_tecnologia": {"type": "str", "validation": None},
+        "subtipo_tecnologia": {"type": "str", "validation": None},
+        "fuel_type": {"type": "str", "validation": "non_empty"},
+        "generation_mwh": {"type": "float", "validation": "non_negative"},
+    },
+    "optional_fields": {
+        "chile_plant_id": {"type": "str_or_null", "validation": None},
+        "region": {"type": "str_or_null", "validation": None},
+        "comuna": {"type": "str_or_null", "validation": None},
+        "resolution_minutes": {"type": "int_or_null", "validation": None},
+        "unit_count": {"type": "int_or_null", "validation": None},
+    },
+    "duplicate_key": ("timestamp_ms", "plant_key", "tipo_tecnologia", "subtipo_tecnologia"),
+}
+
 CLIMATETRACE_SCHEMA = {
     "required_fields": {
         "extraction_run_id": {"type": "str", "validation": "uuid"},
@@ -319,6 +345,7 @@ class DataValidator:
             "oe_facility": OE_FACILITY_SCHEMA,
             "occto": OCCTO_SCHEMA,
             "chile": CHILE_SCHEMA,
+            "chile_all_fuels": CHILE_ALL_FUELS_SCHEMA,
             "climatetrace": CLIMATETRACE_SCHEMA,
         }
 
@@ -487,6 +514,10 @@ class DataValidator:
     def validate_chile_record(self, record: Dict[str, Any]) -> ValidationResult:
         """Validate a single Chile (Coordinador) record."""
         return self._validate_record(record, CHILE_SCHEMA)
+
+    def validate_chile_all_fuels_record(self, record: Dict[str, Any]) -> ValidationResult:
+        """Validate a single Chile all-fuel (plant × technology × hour) record."""
+        return self._validate_record(record, CHILE_ALL_FUELS_SCHEMA)
 
     def validate_climatetrace_record(self, record: Dict[str, Any]) -> ValidationResult:
         """Validate a single Climate TRACE (global, modeled) record."""

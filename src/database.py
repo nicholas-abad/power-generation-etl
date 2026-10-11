@@ -128,6 +128,7 @@ _KNOWN_TABLES = frozenset(
         "oe_facility_generation_data",
         "occto_generation_data",
         "chile_generation_data",
+        "chile_generation_all_fuels",
         "climatetrace_generation_data",
         "extraction_metadata",
         "plant_crosswalk",
@@ -1976,6 +1977,90 @@ class PowerGenerationDatabase:
 
         except Exception as e:
             logger.error(f"Failed to insert Chile data: {e}")
+            return False, None
+
+    def insert_chile_all_fuels_jsonl_data(
+        self,
+        jsonl_file_path: str,
+        validation_report_path: str = None,
+    ) -> Tuple[bool, Optional[ValidationReport]]:
+        """Load one Chile all-fuel part file (one plant-year) atomically.
+
+        Staging pilot (migration 019). Unlike the coal loader, nothing is
+        written unless EVERY record validates: the whole file is validated
+        first (duplicates checked across the file on the fuel-aware natural
+        key), then written in a single upsert transaction. A part file is one
+        plant-year (at most ~30k rows), so a failed load leaves nothing
+        partial and a replay of the same file is idempotent.
+        """
+        try:
+            keep_cols = [
+                "extraction_run_id",
+                "created_at_ms",
+                "plant_key",
+                "chile_plant_id",
+                "plant",
+                "region",
+                "comuna",
+                "tipo_tecnologia",
+                "subtipo_tecnologia",
+                "fuel_type",
+                "timestamp_ms",
+                "generation_mwh",
+                "resolution_minutes",
+                "unit_count",
+            ]
+            with open(jsonl_file_path, "r") as f:
+                records = [json.loads(line) for line in f if line.strip()]
+
+            valid_records, report = DataValidator().validate_file(
+                records, "chile_all_fuels", jsonl_file_path
+            )
+            if validation_report_path:
+                save_report(report, validation_report_path)
+            if report.invalid_count or report.duplicate_count:
+                logger.error(
+                    f"{jsonl_file_path}: {report.invalid_count} invalid, "
+                    f"{report.duplicate_count} duplicate records — nothing written"
+                )
+                return False, report
+            if not valid_records:
+                logger.warning(f"{jsonl_file_path}: no records")
+                return True, report
+
+            df = pd.DataFrame(valid_records)
+            df = df[[c for c in keep_cols if c in df.columns]]
+            written = self._execute_with_retry(
+                lambda: self._upsert_via_staging(
+                    df,
+                    "chile_generation_all_fuels",
+                    conflict_columns=[
+                        "timestamp_ms",
+                        "plant_key",
+                        "tipo_tecnologia",
+                        "subtipo_tecnologia",
+                    ],
+                    # Names and the derived fuel label are revisable; the key
+                    # is source values only.
+                    update_columns=[
+                        "generation_mwh",
+                        "plant",
+                        "chile_plant_id",
+                        "fuel_type",
+                        "region",
+                        "comuna",
+                        "unit_count",
+                        "extraction_run_id",
+                        "created_at_ms",
+                    ],
+                )
+            )
+            logger.success(
+                f"{jsonl_file_path}: {report.valid_count} valid, {written} inserted or updated"
+            )
+            return True, report
+        except Exception as e:
+            logger.error(f"Failed to insert Chile all-fuel data: {e}")
             return False, None
 
     def insert_climatetrace_jsonl_data(
