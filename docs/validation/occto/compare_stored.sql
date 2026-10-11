@@ -91,13 +91,15 @@ SELECT CASE WHEN bulk THEN 'berlin (2026-03-09 bulk)' ELSE 'utc (later runs)' EN
 FROM matched GROUP BY 1, 2 ORDER BY 1, 2;
 
 -- Source slots (coal/gas/oil) that no stored row carries correctly.
+-- Each value-equal stored row carries exactly one source slot (src_ts), so the
+-- covered slots come straight from matched; no re-join with the source.
 DROP TABLE IF EXISTS covered;
 CREATE TABLE covered AS
-SELECT DISTINCT s.plant, s.unit, s.ts
+SELECT DISTINCT t.plant, t.unit, m.src_ts AS ts
 FROM matched m JOIN st t ON t.id = m.id
-JOIN srck s ON s.plant = t.plant AND s.unit = t.unit AND s.ts = m.src_ts
 WHERE m.class = 'value_equal';
 CREATE INDEX ON covered (plant, unit, ts);
+ANALYZE covered;
 
 DROP TABLE IF EXISTS missing;
 CREATE TABLE missing AS
@@ -110,27 +112,33 @@ FROM missing GROUP BY 1 ORDER BY 1;
 
 -- Classify the missing slots.
 DROP TABLE IF EXISTS missing_class;
+-- Set-based (hash joins): per-row correlated subqueries over 13M stored rows
+-- never finish on the full history. Each lookup set is unique on its join
+-- key, so the joins cannot multiply rows.
 CREATE TABLE missing_class AS
+WITH unit_months AS (SELECT DISTINCT plant, unit, stored_month FROM st),
+differs AS (SELECT DISTINCT t.plant, t.unit, x.src_ts FROM matched x JOIN st t ON t.id = x.id
+            WHERE x.class = 'value_differs'),
+shared_berlin AS (SELECT plant, unit, ts_berlin FROM srck GROUP BY 1, 2, 3 HAVING count(*) > 1),
+bulk_keys AS (SELECT DISTINCT plant, unit, ts FROM st WHERE bulk)
 SELECT m.*,
        CASE
          -- the unit has no stored row at all in that source month
-         WHEN NOT EXISTS (SELECT 1 FROM st t WHERE t.plant = m.plant AND t.unit = m.unit
-                          AND t.stored_month = m.month) THEN 'unit_month_absent'
+         WHEN um.plant IS NULL THEN 'unit_month_absent'
          -- a stored row holds this key under its run's convention but another value
-         WHEN EXISTS (SELECT 1 FROM matched x WHERE x.src_ts = m.ts AND x.class = 'value_differs'
-                      AND EXISTS (SELECT 1 FROM st t WHERE t.id = x.id AND t.plant = m.plant AND t.unit = m.unit))
-           THEN 'value_differs'
+         WHEN d.plant IS NOT NULL THEN 'value_differs'
          -- two source slots share one Berlin key (spring-forward), a bulk-load
          -- row holds that key, and it carries the other slot's value
-         WHEN (SELECT count(*) FROM srck z WHERE z.plant = m.plant AND z.unit = m.unit
-               AND z.ts_berlin = m.ts_berlin) > 1
-              AND EXISTS (SELECT 1 FROM st t WHERE t.bulk AND t.plant = m.plant AND t.unit = m.unit
-                          AND t.ts = m.ts_berlin) THEN 'berlin_spring_collision'
+         WHEN sb.plant IS NOT NULL AND bk.plant IS NOT NULL THEN 'berlin_spring_collision'
          -- the first week (2024-03-25..31) predates the bulk load's 2024-04-01 start
          WHEN m.ts <= 1711929600000 THEN 'first_week_not_loaded'
          ELSE 'slot_absent'
        END AS reason
-FROM missing m;
+FROM missing m
+LEFT JOIN unit_months um ON um.plant = m.plant AND um.unit = m.unit AND um.stored_month = m.month
+LEFT JOIN differs d ON d.plant = m.plant AND d.unit = m.unit AND d.src_ts = m.ts
+LEFT JOIN shared_berlin sb ON sb.plant = m.plant AND sb.unit = m.unit AND sb.ts_berlin = m.ts_berlin
+LEFT JOIN bulk_keys bk ON bk.plant = m.plant AND bk.unit = m.unit AND bk.ts = m.ts_berlin;
 
 \echo '== 3. missing source slots by reason and fuel'
 SELECT reason, fuel_type, count(*) AS slots, count(DISTINCT (plant, unit)) AS units,
