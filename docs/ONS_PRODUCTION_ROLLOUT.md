@@ -52,6 +52,15 @@ that would collide with later loads; the archive is kept and marked.
 
 ## Part B — ONS all fuels (#19, #116)
 
+> **Blocked on tooling that does not exist yet.** Steps 6, 8 and the rollback
+> need (a) an additions-only ONS loader that inserts only missing plant-hours,
+> holds differing rows for review and records the inserted keys with value
+> hashes, (b) a production-capable reconciliation (`check_ons_staging.py`
+> refuses production by design) and (c) a rollback that deletes exactly the
+> recorded keys. The ordinary loader (`database_management.py load-data ons`)
+> upserts and overwrites differing rows, so it must not be used for this
+> backfill. Build these in a follow-up PR and rehearse them on staging first.
+
 Staging evidence: 2019–2025 (`docs/validation/ons-staging-*.json`), 2026 Jan–Aug
 (`ons-staging-2026-2026-10-11.json`), regressions 2019 and 2024 re-run
 2026-10-11.
@@ -60,13 +69,18 @@ Staging evidence: 2019–2025 (`docs/validation/ons-staging-*.json`), 2026 Jan�
    view refresh times within the weekly `refresh-views` timeout.
 2. ⚑ **Read-only inventory:** ledger (017 is expected present from the 2019
    pilot of 2026-10-03, per `docs/ONS_2019_PILOT.md`), definition of
-   `mv_ons_individual_plant_monthly`, rows per year by plant type, fuel and
+   `mv_ons_individual_plant_monthly` (compare
+   `md5(pg_get_viewdef('public.mv_ons_individual_plant_monthly'))` with staging:
+   017 uses `IF NOT EXISTS`, so re-running it keeps an older definition), rows per year by plant type, fuel and
    modality, current ONS drift baselines. Adjust the steps below to what exists.
 3. ⚑ Disable the weekly workflow for the whole rollout window.
 4. ⚑ Merge a one-line ETL PR pinning `extract-ons` to the current extractor
    commit, so merging #19 cannot change production by itself; then merge #19.
-5. ⚑ Migration 017 if absent (otherwise verify its definition), then migration
-   021 (owner role). Merge #116 with the pin moved to #19's merge commit.
+5. ⚑ Migration 017 if absent (otherwise verify its definition as in step 2;
+   recreate the view if it differs), then migration 021 (owner role). Only then
+   merge #116 with the pin moved to #19's merge commit: from the merge on, the
+   weekly `refresh-views` job refreshes `mv_ons_individual_plant_monthly` and
+   fails every week if 017 is missing.
 6. ⚑ **Per year, 2019 → 2026, additions only.** Extract with
    `check_ons_staging.py --print-extract-args`; preflight against the audited
    hashes, the per-fuel audit and the gap list; compare with stored rows and

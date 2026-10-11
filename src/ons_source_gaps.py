@@ -90,6 +90,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--year", type=int, required=True)
     parser.add_argument("--metadata", type=Path, required=True)
+    parser.add_argument(
+        "--report", type=Path, help="also write the summary as JSON here"
+    )
     args = parser.parse_args()
     if not os.environ.get("ETL_ENVIRONMENT"):
         parser.error("Run through run_in_environment.py")
@@ -99,6 +102,9 @@ def main():
             cursor.execute("SET LOCAL lock_timeout = '5s'")
             summary = record(cursor, args.year, rows)
     print(json.dumps(summary))
+    if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(json.dumps(summary) + "\n")
 
 
 if __name__ == "__main__":

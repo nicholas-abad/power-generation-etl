@@ -62,8 +62,14 @@ def classify(df):
             | blank(df["nom_usina"])
             | df["ceg"].astype("string").str.contains(r"[;,|]", regex=True, na=False),
         ),
-        ("unresolved_fuel", blank(df["nom_tipousina"]) | blank(df["nom_tipocombustivel"])),
-        ("invalid_timestamp", pd.to_datetime(df["din_instante"], errors="coerce").isna()),
+        (
+            "unresolved_fuel",
+            blank(df["nom_tipousina"]) | blank(df["nom_tipocombustivel"]),
+        ),
+        (
+            "invalid_timestamp",
+            pd.to_datetime(df["din_instante"], errors="coerce").isna(),
+        ),
         ("missing_generation", raw_value.isna() | raw_value.eq("")),
         (
             "invalid_generation",
@@ -73,15 +79,19 @@ def classify(df):
     for name, failed in checks:
         reason[eligible & reason.isna() & failed] = name
     candidate = eligible & reason.isna()
-    copies = df[candidate].groupby(
-        [df["din_instante"], df["id_ons"].astype("string").str.strip()]
-    )["din_instante"].transform("size")
+    copies = (
+        df[candidate]
+        .groupby([df["din_instante"], df["id_ons"].astype("string").str.strip()])[
+            "din_instante"
+        ]
+        .transform("size")
+    )
     reason[copies[copies > 1].index] = "duplicate_observation"
     return category, reason
 
 
 def account(df):
-    """Per-fuel table and source gaps for one source file."""
+    """Per-fuel table, source gaps and candidate plant-hours for one source file."""
     df = df.reset_index(drop=True)
     category, reason = classify(df)
     fuel = df["nom_tipocombustivel"].astype("string").str.strip().fillna(MISSING)
@@ -104,11 +114,22 @@ def account(df):
             "accepted_mwh": float(finite[rows & accepted].sum()),
             "rejected_eligible": {
                 key: int(value)
-                for key, value in reason[rows].dropna().value_counts().sort_index().items()
+                for key, value in reason[rows]
+                .dropna()
+                .value_counts()
+                .sort_index()
+                .items()
             },
         }
         table[label] = entry
-    return table, gaps(df, reason)
+    # Plant-hours that reached the collision check: must not recur in another file.
+    candidate = (category == "individual") & (
+        reason.isna() | (reason == "duplicate_observation")
+    )
+    stamps = pd.to_datetime(df.loc[candidate, "din_instante"]).astype("int64")
+    ids = df.loc[candidate, "id_ons"].astype("string").str.strip()
+    plant_hours = set(zip(stamps.tolist(), ids.tolist()))
+    return table, gaps(df, reason), plant_hours
 
 
 def gaps(df, reason):
@@ -147,9 +168,16 @@ def gaps(df, reason):
 def join_gaps(parts):
     """Join runs that continue across file boundaries."""
     joined = []
-    for gap in sorted((g for part in parts for g in part), key=lambda g: (g["ons_plant_id"], g["start_ms"])):
+    for gap in sorted(
+        (g for part in parts for g in part),
+        key=lambda g: (g["ons_plant_id"], g["start_ms"]),
+    ):
         last = joined[-1] if joined else None
-        if last and last["ons_plant_id"] == gap["ons_plant_id"] and last["end_ms"] == gap["start_ms"]:
+        if (
+            last
+            and last["ons_plant_id"] == gap["ons_plant_id"]
+            and last["end_ms"] == gap["start_ms"]
+        ):
             last["end_ms"] = gap["end_ms"]
             last["hours"] += gap["hours"]
         else:
@@ -173,7 +201,13 @@ def merge(tables):
                     "rejected_eligible": {},
                 },
             )
-            for key in ("raw_rows", "raw_mwh", "eligible_rows", "accepted_rows", "accepted_mwh"):
+            for key in (
+                "raw_rows",
+                "raw_mwh",
+                "eligible_rows",
+                "accepted_rows",
+                "accepted_mwh",
+            ):
                 into[key] += entry[key]
             for key in ("rows_by_modality", "rejected_eligible"):
                 for name, count in entry[key].items():
@@ -191,6 +225,7 @@ def main():
     entry = manifest["years"][str(args.year)]
     tables = []
     gap_parts = []
+    seen = set()
     for item in entry["source_files"]:
         path = args.source_dir / item["url"].rsplit("/", 1)[1]
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -199,7 +234,11 @@ def main():
         df = pd.read_parquet(path)
         if len(df) != item["raw_records"]:
             raise SystemExit(f"{path.name}: row count differs from the audited file")
-        table, file_gaps = account(df)
+        table, file_gaps, plant_hours = account(df)
+        if plant_hours & seen:
+            # The collision rule rejects both copies; per-file counts would not.
+            raise SystemExit(f"{path.name} repeats plant-hours of another audited file")
+        seen |= plant_hours
         tables.append(table)
         gap_parts.append(file_gaps)
         print(f"{item['label']}: {len(df):,} rows", flush=True)
@@ -211,7 +250,11 @@ def main():
             f"{entry['expected_observations']:,}"
         )
     source_gaps = join_gaps(gap_parts)
-    print(json.dumps({"fuels": fuels, "source_gaps": source_gaps}, indent=2, ensure_ascii=False))
+    print(
+        json.dumps(
+            {"fuels": fuels, "source_gaps": source_gaps}, indent=2, ensure_ascii=False
+        )
+    )
     if args.write:
         entry["fuels"] = fuels
         entry["source_gaps"] = source_gaps

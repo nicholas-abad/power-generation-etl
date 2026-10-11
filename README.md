@@ -35,7 +35,7 @@ All 5 data sources are extracted via the unified [`energy-extractors`](https://g
 - **EIA** — U.S. Energy Information Administration
 - **NPP** — India National Power Portal generation data
 - **ENTSOE** — European power generation data
-- **ONS** — Brazil ONS (Operador Nacional do Sistema Elétrico) hourly generation; thermal history plus an all-type individual-plant pilot for 2019
+- **ONS** — Brazil ONS (Operador Nacional do Sistema Elétrico) hourly generation; thermal history plus all-fuel individual plants (validated on staging for 2019 – Aug 2026; see `docs/ONS_PRODUCTION_ROLLOUT.md`)
 - **OE** — Australia OpenElectricity (NEM) generation data
 
 This repository **does not** contain scraping logic itself.

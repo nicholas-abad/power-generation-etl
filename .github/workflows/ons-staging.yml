@@ -112,11 +112,10 @@ jobs:
             output/validation-repeat.json
       - name: Record approved source gaps
         run: |
-          set -o pipefail
           metadata=(extracted_data/extraction_metadata_*.json)
           uv run python src/run_in_environment.py --environment staging --from-process -- \
             uv run python src/ons_source_gaps.py --year "$BENCHMARK_YEAR" \
-              --metadata "${metadata[0]}" | tee output/source-gaps.json
+              --metadata "${metadata[0]}" --report output/source-gaps.json
       - name: Refresh ONS views
         run: |
           uv run python src/run_in_environment.py --environment staging --from-process -- \
