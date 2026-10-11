@@ -4,11 +4,15 @@ Two public sources, neither of which is the OCCTO unit-level dataset:
 
   (a) TSO area supply-demand actuals (エリア需給実績), the common FY2024 format
       ``eria_jukyu_YYYYMM_NN.csv`` published by each transmission operator.
-      Rows are 30-minute periods labelled by period START (JST); values are MWh
-      per 30 minutes (published header unit; equal to 0.5 x average MW).
+      Rows are 30-minute periods in JST, labelled by period START except
+      Kyushu (period END, 0:30..24:00; shifted back here). Months are bucketed
+      by period END to match OCCTO's stored keys (23:30-24:00 on a month's last
+      day counts in the next month). Every file states
+      its unit as 単位[MW平均] (average MW over the half hour), so MWh = 0.5 x value.
+      Okinawa (10) is not fetched: its site refuses requests from here.
   (b) METI / 資源エネルギー庁 電力調査統計 table 2-(1) 発電実績, the
-      machine-readable layout (``2-1-YYYYn.xlsx``), monthly national totals in
-      MWh (published unit: 千kWh = MWh).
+      machine-readable layout (``2-1-YYYYn.xlsx``), the 合計 (all licensed
+      電気事業者) row of each month sheet, in MWh (published unit 1000kWh).
 
 Subcommands:
   fetch  download every source file once into RAW_DIR, keeping the bytes as
@@ -19,7 +23,9 @@ Usage (-I keeps the download directory off sys.path; files are untrusted data):
   python3 -I benchmarks.py fetch RAW_DIR [--last-month 2026-10]
   python3 -I benchmarks.py build RAW_DIR OUT_DIR
 
-Needs pandas and openpyxl for ``build`` (METI workbooks); ``fetch`` is stdlib.
+Needs pandas and openpyxl for ``build`` (METI workbooks), which the ETL project
+does not declare: ``uv run --with pandas --with openpyxl python -I benchmarks.py build ...``.
+``fetch`` is stdlib.
 """
 
 import argparse
@@ -65,7 +71,14 @@ OKINAWA_PAGE = "https://www.okiden.co.jp/business-support/service/supply-and-dem
 # Chubu only links the latest months individually; earlier months come as
 # fiscal-year zips of the same monthly CSVs.
 CHUBU_FY_ZIP = "https://powergrid.chuden.co.jp/denki_yoho_content_data/eria_jukyu_{fy}.zip"
+# Machine-readable layout. Only the current year's is linked from results.html;
+# earlier years exist at the same pattern (results_archive.html links only the
+# presentation layout 2-1-YYYY.xlsx).
 METI_URL = "https://www.enecho.meti.go.jp/statistics/electric_power/ep002/xls/{fy}/2-1-{fy}n.xlsx"
+METI_DOCS = [  # kept for the definitions they state (FAQ, results summary)
+    "https://www.enecho.meti.go.jp/statistics/electric_power/ep002/pdf/faq.pdf",
+    "https://www.enecho.meti.go.jp/statistics/electric_power/ep002/pdf/{fy}/0-{fy}.pdf",
+]
 
 
 # ---------------------------------------------------------------- fetch
@@ -149,6 +162,9 @@ def cmd_fetch(args):
     for fy in range(2024, fiscal_year(*last) + 1):
         url = METI_URL.format(fy=fy)
         fetch_one(url, raw / "meti" / url.rsplit("/", 1)[1], raw, done)
+    for doc in METI_DOCS:
+        url = doc.format(fy=fiscal_year(*last))
+        fetch_one(url, raw / "meti" / url.rsplit("/", 1)[1], raw, done)
 
 
 # ---------------------------------------------------------------- build (TSO)
@@ -220,10 +236,18 @@ def parse_tso_csv(text, source):
             cols[j] = TSO_COLUMNS[key]
         elif key not in TSO_IGNORED:
             raise ValueError(f"{source}: unmapped column {h!r}")
-    for r in rows[hdr_i + 1:]:
-        if not r or not r[0].strip():
-            continue
-        start = datetime.strptime(f"{r[0].strip()} {r[1].strip()}", "%Y/%m/%d %H:%M")
+    body = [r for r in rows[hdr_i + 1:] if r and r[0].strip()]
+    # Most TSOs label a row by period START (00:00 .. 23:30). Kyushu labels by
+    # period END (0:30 .. 24:00); detect per file and shift those back 30 min.
+    first_time = parse_clock(body[0][1])
+    if first_time == timedelta(0):
+        shift = timedelta(0)
+    elif first_time == timedelta(minutes=30) and any(parse_clock(r[1]) == timedelta(hours=24) for r in body):
+        shift = timedelta(minutes=-30)
+    else:
+        raise ValueError(f"{source}: cannot tell start/end labelling from first time {body[0][1]!r}")
+    for r in body:
+        start = parse_day(r[0]) + parse_clock(r[1]) + shift
         vals = {}
         for j, fuel in cols.items():
             cell = r[j].strip().replace(",", "") if j < len(r) else ""
@@ -233,13 +257,26 @@ def parse_tso_csv(text, source):
             yield start, vals
 
 
+def parse_day(text):
+    text = text.strip()
+    return datetime.strptime(text, "%Y%m%d" if text.isdigit() else "%Y/%m/%d")
+
+
+def parse_clock(text):
+    """'0:30', '00:30', '24:00' or '24:00:00' -> offset from midnight."""
+    parts = [int(x) for x in text.strip().split(":")]
+    return timedelta(hours=parts[0], minutes=parts[1])
+
+
 def tso_files(raw):
     """Yield (area, source_label, text) for every downloaded area-month CSV."""
     for code, (name, _) in AREAS.items():
         folder = raw / "tso" / name
         if not folder.is_dir():
             continue
-        for path in sorted(folder.iterdir()):
+        # zips first, so a standalone monthly CSV (the currently linked copy)
+        # overrides the same month inside a fiscal-year zip
+        for path in sorted(folder.iterdir(), key=lambda p: (p.suffix != ".zip", p.name)):
             if path.suffix == ".csv":
                 yield name, path.name, decode(path.read_bytes())
             elif path.suffix == ".zip":
@@ -250,8 +287,8 @@ def tso_files(raw):
 
 
 def build_area(raw, out):
-    # (area, start) -> values; a later file wins only if it is the same period
-    # republished, and identical duplicates are tolerated.
+    # (area, start) -> values. A period seen twice (Chubu: zip and monthly CSV)
+    # keeps the later file's values; differing duplicates are counted and reported.
     periods = {}
     conflicts = 0
     for area, source, text in tso_files(raw):
@@ -263,30 +300,41 @@ def build_area(raw, out):
                 conflicts += 1
             periods[key] = vals
     if conflicts:
-        print(f"warning: {conflicts} periods appeared twice with different values; last file wins",
+        print(f"note: {conflicts} periods appeared twice with different values; standalone CSV kept",
               file=sys.stderr)
 
+    # Bucket by period END, as OCCTO's stored keys are period-end: the half-hour
+    # 23:30-24:00 on a month's last day belongs to the next month, exactly as
+    # the OCCTO views count it. Completeness is per fuel: a blank or '-' cell, or
+    # a column the file lacks, is missing data, never a zero.
     agg = defaultdict(float)
     present = defaultdict(int)
     last_start = {}
     for (area, start), vals in periods.items():
-        month = f"{start.year}-{start.month:02d}"
-        present[(area, month)] += 1
+        end = start + timedelta(minutes=30)
+        month = f"{end.year}-{end.month:02d}"
         last_start[area] = max(last_start.get(area, start), start)
         for fuel, v in vals.items():
             agg[(area, month, fuel)] += v
+            present[(area, month, fuel)] += 1
 
+    # Every area x month x fuel in the window gets a row, so a missing one
+    # shows as present=0 with an empty mwh rather than silently disappearing.
+    last_month = max(int(mo[:4]) * 100 + int(mo[5:]) for _, mo, _ in present)
+    first_end = WINDOW_START + timedelta(minutes=30)
     rows = []
-    for (area, month), n in sorted(present.items()):
-        y, m = map(int, month.split("-"))
-        first = max(datetime(y, m, 1), WINDOW_START)
+    for y, m in months((first_end.year, first_end.month), divmod(last_month, 100)):
+        month = f"{y}-{m:02d}"
+        first = max(datetime(y, m, 1), first_end)
         nxt = datetime(y + (m == 12), m % 12 + 1, 1)
         expected = int((nxt - first) / timedelta(minutes=30))
-        for fuel in FUEL_ORDER:
-            rows.append({"month": month, "area": area, "fuel": fuel,
-                         "mwh": round(agg.get((area, month, fuel), 0.0), 3),
-                         "half_hours_present": n, "half_hours_expected": expected,
-                         "complete": n == expected})
+        for name, _ in AREAS.values():
+            for fuel in FUEL_ORDER:
+                n = present.get((name, month, fuel), 0)
+                mwh = round(agg[(name, month, fuel)], 3) if n else ""
+                rows.append({"month": month, "area": name, "fuel": fuel, "mwh": mwh,
+                             "half_hours_present": n, "half_hours_expected": expected,
+                             "complete": n == expected})
     write_csv(out / "area_month_fuel.csv", rows)
     for area, ts in sorted(last_start.items()):
         print(f"{area}: last period start {ts:%Y-%m-%d %H:%M}", file=sys.stderr)
@@ -303,8 +351,75 @@ def build_meti(raw, out):
     write_csv(out / "meti_month_fuel.csv", rows)
 
 
-def parse_meti_workbook(pd, path):  # filled in once the layout is inspected
-    raise NotImplementedError
+# Column header (row 3 of each month sheet, NFKC) -> (benchmark fuel, in_total).
+# "(再掲)" columns restate generation already counted under thermal, so they
+# are reported for reference but must not be added to a total.
+METI_COLUMNS = {
+    "一般": ("hydro", True),
+    "揚水式": ("pumped_storage", True),
+    "石炭": ("coal", True),
+    "LNG": ("lng", True),
+    "石油": ("oil", True),
+    "LPG": ("thermal_other", True),
+    "その他ガス": ("thermal_other", True),
+    "歴青質混合物": ("thermal_other", True),
+    "原子力発電所": ("nuclear", True),
+    "風力": ("wind", True),
+    "太陽光": ("solar", True),
+    "地熱": ("geothermal", True),
+    "(再掲)バイオマス": ("biomass_memo", False),
+    "(再掲)廃棄物": ("waste_memo", False),
+    "蓄電池": ("battery", True),
+}
+METI_ORDER = ["coal", "lng", "oil", "thermal_other", "nuclear", "hydro", "pumped_storage",
+              "geothermal", "solar", "wind", "battery", "other", "biomass_memo", "waste_memo", "total"]
+
+
+def parse_meti_workbook(pd, path):
+    """National monthly totals by fuel from the 合計 row of each month sheet."""
+    book = pd.read_excel(path, sheet_name=None, header=None, dtype=object)
+    for title, df in book.items():
+        if not re.fullmatch(r"\d{4}\.\d{1,2}", title):
+            continue  # cover sheet and the reference sheet for non-licensed suppliers
+        y, m = map(int, title.split("."))
+        group, item, unit = df.iloc[1], df.iloc[2], df.iloc[4]
+        total_rows = df.index[df.iloc[:, 2] == "合計"]
+        if len(total_rows) != 1:
+            raise ValueError(f"{path.name}[{title}]: expected one 合計 row, found {len(total_rows)}")
+        tot = df.loc[total_rows[0]]
+        sums = defaultdict(float)
+        flags = {}
+        for j in range(10, df.shape[1]):
+            if pd.isna(group[j]) and pd.isna(item[j]):
+                continue
+            if unit[j] != "1000kWh":
+                raise ValueError(f"{path.name}[{title}] col {j}: unit {unit[j]!r}")
+            g = unicodedata.normalize("NFKC", str(group[j]))
+            label = unicodedata.normalize("NFKC", str(item[j])) if not pd.isna(item[j]) else g
+            if label == "その他":  # thermal その他 vs the final その他 group
+                fuel, in_total = ("thermal_other", True) if g == "火力発電" else ("other", True)
+            elif label in ("小計", "計"):
+                if label == "計":
+                    fuel, in_total = "total", False
+                else:
+                    continue
+            elif label in METI_COLUMNS:
+                fuel, in_total = METI_COLUMNS[label]
+            else:
+                raise ValueError(f"{path.name}[{title}]: unmapped column {g}/{label}")
+            sums[fuel] += float(tot[j])  # 1000 kWh = MWh
+            flags[fuel] = in_total
+        parts = sum(v for f, v in sums.items() if flags[f])
+        # The published 計 and subtotals are not always the sum of their columns
+        # (new-energy 小計 runs up to ~3,400 MWh above wind+solar+geothermal+battery
+        # in some months); report it, keep the published figures as they are.
+        if abs(parts - sums["total"]) > 10:
+            print(f"note: {path.name}[{title}] fuel columns sum to {parts:,.0f} MWh, "
+                  f"published 計 is {sums['total']:,.0f} MWh", file=sys.stderr)
+        for fuel in METI_ORDER:
+            if fuel in sums:
+                yield {"month": f"{y}-{m:02d}", "fuel": fuel, "mwh": round(sums[fuel], 3),
+                       "in_total": flags[fuel], "source_file": path.name}
 
 
 def write_csv(path, rows):

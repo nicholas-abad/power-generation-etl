@@ -31,7 +31,6 @@ import gzip
 import hashlib
 import json
 import re
-import sys
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -142,6 +141,10 @@ def main():
             for e in by_day[day]:
                 body = json.loads(gzip.open(a.archive_dir / e["file"], "rb").read().decode("utf-8"))
                 for it in ((body.get("data") or {}).get("items") or []):
+                    if str(it.get("tgtDate", "")).replace("/", "-") != day:
+                        rejected.append({"reason": "item dated outside its leaf", "date": it.get("tgtDate"),
+                                         "leaf_date": day, "plant": label(it.get("htdnsNm"))})
+                        continue
                     plant, unit = label(it.get("htdnsNm")), label(it.get("unitNm"))
                     code = label(it.get("htdnsCd"))
                     fname = str(it.get("htdnNm") or "").strip()

@@ -88,7 +88,8 @@ power-generation-etl/
 │   └── checks/                 # read-only assertions run by the weekly workflow (dashboard_ro surface)
 ├── docs/
 │   ├── INFRASTRUCTURE.md       # the architecture, and why each piece was chosen
-│   └── DATA_UNITS.md           # MW vs MWh, per source
+│   ├── DATA_UNITS.md           # MW vs MWh, per source
+│   └── OCCTO_ALL_FUELS_REBUILD.md # staging-only audited rebuild of Japan (all fuels)
 ├── src/
 │   ├── database_management.py  # THE CLI: setup / load-data / stats / ...
 │   ├── database.py             # validation + staging-table upsert
@@ -97,7 +98,8 @@ power-generation-etl/
 │   ├── incremental_extract.py  # resolves the extraction window for a cron run
 │   ├── refresh_views.py        # refresh materialized views after a load
 │   ├── check_crosswalk_drift.py# plants upstream but missing from plant_crosswalk
-│   └── backfill_extraction_dates.py
+│   ├── backfill_extraction_dates.py
+│   └── rebuild_occto.py        # certified OCCTO rebuild: plan / apply / rollback (staging only)
 ├── tests/                      # pytest — validator, loaders, incremental logic
 └── pyproject.toml              # uv-managed; no requirements.txt
 ```

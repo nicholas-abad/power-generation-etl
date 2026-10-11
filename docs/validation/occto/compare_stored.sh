@@ -10,7 +10,14 @@
 # local (127.0.0.1 or a /tmp socket). Run from the ETL repository root.
 set -euo pipefail
 LOCAL_PG="${LOCAL_PG:-host=127.0.0.1 port=55432 dbname=occto_compare user=postgres}"
-case "$LOCAL_PG" in *host=127.0.0.1*|*host=/tmp*) ;; *) echo "LOCAL_PG must be local" >&2; exit 1 ;; esac
+# Nothing inherited may route libpq elsewhere; then the repository's local
+# guard validates the effective parameters (local host, disposable database).
+for var in $(env | sed -n 's/^\(PG[A-Z]*\)=.*/\1/p'); do unset "$var"; done
+unset DATABASE_URL DIRECT_DATABASE_URL
+uv run python -I -c 'import sys; sys.path.insert(0, "src")
+from local_postgres import local_settings
+local_settings(sys.argv[1], r"occto_compare[a-z0-9_]*")' "$LOCAL_PG" \
+  || { echo "LOCAL_PG must be a local occto_compare* database" >&2; exit 1; }
 here="$(cd "$(dirname "$0")" && pwd)"
 local_psql() { psql -X -q -v ON_ERROR_STOP=1 "$LOCAL_PG" "$@"; }
 

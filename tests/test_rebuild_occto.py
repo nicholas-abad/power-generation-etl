@@ -38,12 +38,18 @@ class RecordingCursor(psycopg2.extensions.cursor):
 
 @pytest.fixture
 def pg():
-    dsn = os.getenv("OCCTO_TEST_PG_DSN")
+    # CI provides COAL_TEST_PG_DSN (power_generation_test); locally any
+    # occto_rebuild_tests_* database. The fixture recreates the schema.
+    dsn = os.getenv("OCCTO_TEST_PG_DSN") or os.getenv("COAL_TEST_PG_DSN")
     if not dsn:
         pytest.skip("Set OCCTO_TEST_PG_DSN to a disposable local database")
     with patch.dict(os.environ):
-        parts = local_settings(dsn, r"occto_rebuild_tests_[a-z0-9_]+")
-        conn = psycopg2.connect(**parts, connect_timeout=5, cursor_factory=RecordingCursor)
+        parts = local_settings(
+            dsn, r"(?:occto_rebuild_tests_[a-z0-9_]+|power_generation_test)"
+        )
+        conn = psycopg2.connect(
+            **parts, connect_timeout=5, cursor_factory=RecordingCursor
+        )
         try:
             with conn:
                 verify_local_connection(conn, parts["dbname"])
@@ -56,8 +62,17 @@ def pg():
             conn.close()
 
 
-def canonical_line(ts, plant="砂川発電所", unit="３号機", kwh=1000, fuel=("03", "coal")):
-    return "\t".join(map(str, (ts, plant, unit, "123", fuel[0], fuel[1], "01", "北海道", 30, kwh))) + "\n"
+def canonical_line(
+    ts, plant="砂川発電所", unit="３号機", kwh=1000, fuel=("03", "coal")
+):
+    return (
+        "\t".join(
+            map(
+                str, (ts, plant, unit, "123", fuel[0], fuel[1], "01", "北海道", 30, kwh)
+            )
+        )
+        + "\n"
+    )
 
 
 def make_inputs(tmp_path, lines, *, b_digest=None, rejected=(), several_fuels=()):
@@ -68,9 +83,14 @@ def make_inputs(tmp_path, lines, *, b_digest=None, rejected=(), several_fuels=()
     certificate = {"ok": True, "digest": "cert", "end": "2024-02-29"}
     (tmp_path / "cert.json").write_text(json.dumps(certificate))
     report = {
-        "digest": b_digest or digest, "certificate_digest": "cert", "load_start": "2024-01-01",
-        "rejected": list(rejected), "duplicate_keys": [], "unit_months_with_several_fuels": list(several_fuels),
-        "excluded_days": [], "gaps": 0,
+        "digest": b_digest or digest,
+        "certificate_digest": "cert",
+        "load_start": "2024-01-01",
+        "rejected": list(rejected),
+        "duplicate_keys": [],
+        "unit_months_with_several_fuels": list(several_fuels),
+        "excluded_days": [],
+        "gaps": 0,
     }
     (tmp_path / "B.json").write_text(json.dumps(report))
     return canonical, tmp_path / "B.json", tmp_path / "cert.json"
@@ -102,15 +122,17 @@ def seed(conn, rows):
 
 def table(conn):
     with conn, conn.cursor() as cur:
-        cur.execute(f"SELECT id, {rebuild.COLS} FROM {rebuild.TABLE} ORDER BY timestamp_ms, plant, unit")
+        cur.execute(
+            f"SELECT id, {rebuild.COLS} FROM {rebuild.TABLE} ORDER BY timestamp_ms, plant, unit"
+        )
         return cur.fetchall()
 
 
 # Stored history keyed one hour early (the Berlin-local bulk load), so its
 # keys differ from the payload's: a rebuild must remove them, not add beside.
-STORED = [(JAN + i * HALF - 2 * HALF, "砂川発電所", "３号機", 1.0 + i) for i in range(1, 4)] + [
-    (FEB + HALF, "砂川発電所", "３号機", 9.0)
-]
+STORED = [
+    (JAN + i * HALF - 2 * HALF, "砂川発電所", "３号機", 1.0 + i) for i in range(1, 4)
+] + [(FEB + HALF, "砂川発電所", "３号機", 9.0)]
 
 
 def planned(conn, manifest, sha, windows):
@@ -130,11 +152,17 @@ def test_payload_splits_months_and_converts_exactly(tmp_path):
     assert windows[1]["end"] == MAR + 1
 
 
-@pytest.mark.parametrize("kw,message", [
-    ({"b_digest": "0" * 64}, "disagree"),
-    ({"rejected": [{"reason": "negative value"}]}, "rejected"),
-    ({"several_fuels": [[["2024-01", "p", "u"], ["coal", "unspecified"]]]}, "unit_months_with_several_fuels"),
-])
+@pytest.mark.parametrize(
+    "kw,message",
+    [
+        ({"b_digest": "0" * 64}, "disagree"),
+        ({"rejected": [{"reason": "negative value"}]}, "rejected"),
+        (
+            {"several_fuels": [[["2024-01", "p", "u"], ["coal", "unspecified"]]]},
+            "unit_months_with_several_fuels",
+        ),
+    ],
+)
 def test_payload_refuses_without_independent_agreement(tmp_path, kw, message):
     with pytest.raises(ValueError, match=message):
         build(tmp_path, SOURCE, **kw)
@@ -154,10 +182,15 @@ def test_apply_replaces_windows_and_rollback_restores_exactly(pg, tmp_path):
     assert [r["action"] for r in results] == ["applied", "applied"]
     rows = table(pg)
     assert [(r[1], r[10]) for r in rows] == [
-        (JAN + HALF, 1.001), (JAN + 2 * HALF, 1.002), (JAN + 3 * HALF, 1.003),
-        (FEB + HALF, 2.001), (FEB + 2 * HALF, 2.002),
+        (JAN + HALF, 1.001),
+        (JAN + 2 * HALF, 1.002),
+        (JAN + 3 * HALF, 1.003),
+        (FEB + HALF, 2.001),
+        (FEB + 2 * HALF, 2.002),
     ]
-    assert {r[4] for r in rows} == {"123"} and {r[7] for r in rows} == {"01"}  # area_code filled
+    assert {r[4] for r in rows} == {"123"} and {r[7] for r in rows} == {
+        "01"
+    }  # area_code filled
 
     # repeated apply is a no-op
     again = rebuild.apply(pg, manifest, sha, windows, approved, TARGET)
@@ -175,6 +208,10 @@ def test_apply_refuses_when_stored_rows_changed_after_plan(pg, tmp_path):
     with pytest.raises(ValueError, match="changed since the plan"):
         rebuild.apply(pg, manifest, sha, windows, approved, TARGET)
     assert len(table(pg)) == len(STORED) + 1  # nothing written
+    # the refusal did not bind the repair id: a fresh plan applies
+    fresh = planned(pg, manifest, sha, windows)
+    results = rebuild.apply(pg, manifest, sha, windows, fresh, TARGET)
+    assert [r["action"] for r in results] == ["applied", "applied"]
 
 
 def test_failed_window_leaves_earlier_windows_and_resumes(pg, tmp_path):
@@ -191,7 +228,12 @@ def test_failed_window_leaves_earlier_windows_and_resumes(pg, tmp_path):
     with patch.object(rebuild, "apply_window", fail_february):
         with pytest.raises(ValueError, match="simulated"):
             rebuild.apply(pg, manifest, sha, windows, approved, TARGET)
-    assert [r[10] for r in table(pg)] == [1.001, 1.002, 1.003, 9.0]  # Jan applied, Feb untouched
+    assert [r[10] for r in table(pg)] == [
+        1.001,
+        1.002,
+        1.003,
+        9.0,
+    ]  # Jan applied, Feb untouched
     results = rebuild.apply(pg, manifest, sha, windows, approved, TARGET)
     assert [r["action"] for r in results] == ["already applied", "applied"]
 
@@ -201,9 +243,11 @@ def test_rollback_refuses_after_a_later_write(pg, tmp_path):
     manifest, sha, windows = build(tmp_path, SOURCE)
     approved = planned(pg, manifest, sha, windows)
     rebuild.apply(pg, manifest, sha, windows, approved, TARGET)
-    seed(pg, [(FEB + 6 * HALF, "新規発電所", "1号機", 3.0)])
+    seed(pg, [(JAN + 20 * HALF, "新規発電所", "1号機", 3.0)])  # the older window
+    after_write = table(pg)
     with pytest.raises(ValueError, match="later writes"):
         rebuild.rollback(pg, manifest, sha, windows, approved, TARGET)
+    assert table(pg) == after_write  # February was not rolled back either
 
 
 def test_plan_bound_to_its_manifest_and_target(pg, tmp_path):
@@ -235,16 +279,26 @@ def test_every_statement_targets_only_occto_objects(pg, tmp_path):
     rebuild.apply(pg, manifest, sha, windows, approved, TARGET)
     rebuild.rollback(pg, manifest, sha, windows, approved, TARGET)
     allowed = {
-        rebuild.TABLE, rebuild.HEADER, rebuild.WINDOWS, rebuild.BACKUP, "_occto_payload",
-        "information_schema.columns", "pg_roles",
+        rebuild.TABLE,
+        rebuild.HEADER,
+        rebuild.WINDOWS,
+        rebuild.BACKUP,
+        "_occto_payload",
+        "information_schema.columns",
+        "pg_roles",
     }
     pattern = re.compile(
-        r"\b(?:FROM|INTO|UPDATE|ON|TABLE(?:\s+IF(?:\s+NOT)?\s+EXISTS)?)\s+([a-z_][a-z0-9_.]*)", re.I
+        r"\b(?:FROM|INTO|UPDATE|ON|TABLE(?:\s+IF(?:\s+NOT)?\s+EXISTS)?)\s+([a-z_][a-z0-9_.]*)",
+        re.I,
     )
     targets = set()
     for statement in RecordingCursor.statements:
         text = statement.decode() if isinstance(statement, bytes) else statement
-        targets |= {m for m in pattern.findall(text) if m.upper() not in {"STDIN", "PUBLIC", "SELECT"}}
+        targets |= {
+            m
+            for m in pattern.findall(text)
+            if m.upper() not in {"STDIN", "PUBLIC", "SELECT"}
+        }
     targets -= {"moved"}  # the DELETE ... RETURNING CTE inside apply_window
     assert targets <= allowed, targets - allowed
 
@@ -272,19 +326,38 @@ def test_guard_accepts_only_the_pinned_staging_owner():
         assert rebuild.checked_dsn()[1].startswith("staging/")
 
 
-def test_guard_refuses_production_before_connecting():
+def test_main_refuses_production_before_connecting(tmp_path):
+    manifest, _, _ = build(tmp_path, SOURCE)
+    payload = tmp_path / f"payload-{manifest['repair_id']}"
     _, config = staging_env()
     prod = config["environments"]["production"]
-    url = (f"postgresql://{config['roles']['owner']}:x@{prod['endpoint_id']}.{config['proxy_host']}"
-           f":5432/{config['database']}?sslmode=require")
+    url = (
+        f"postgresql://{config['roles']['owner']}:x@{prod['endpoint_id']}.{config['proxy_host']}"
+        f":5432/{config['database']}?sslmode=require"
+    )
     for env in (
         staging_env(DIRECT_DATABASE_URL=url)[0],
-        staging_env(ETL_ENVIRONMENT="production", NEON_ENDPOINT_ID=prod["endpoint_id"],
-                    NEON_BRANCH_ID=prod["branch_id"], DIRECT_DATABASE_URL=url)[0],
+        staging_env(
+            ETL_ENVIRONMENT="production",
+            NEON_ENDPOINT_ID=prod["endpoint_id"],
+            NEON_BRANCH_ID=prod["branch_id"],
+            DIRECT_DATABASE_URL=url,
+        )[0],
     ):
-        with patch.dict(os.environ, env, clear=True), patch.object(rebuild.psycopg2, "connect") as connect:
-            with pytest.raises(ValueError):
-                rebuild.checked_dsn()
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch.object(rebuild.psycopg2, "connect") as connect,
+        ):
+            code = rebuild.main(
+                [
+                    "plan",
+                    "--payload",
+                    str(payload),
+                    "--report",
+                    str(tmp_path / "r.json"),
+                ]
+            )
+            assert code == 1
             connect.assert_not_called()
 
 
@@ -292,8 +365,12 @@ def test_guard_refuses_pooler_and_non_owner():
     env, config = staging_env()
     st = config["environments"]["staging"]
     for url in (
-        env["DIRECT_DATABASE_URL"].replace(st["endpoint_id"] + ".", st["endpoint_id"] + "-pooler."),
-        env["DIRECT_DATABASE_URL"].replace(config["roles"]["owner"], config["roles"]["writer"]),
+        env["DIRECT_DATABASE_URL"].replace(
+            st["endpoint_id"] + ".", st["endpoint_id"] + "-pooler."
+        ),
+        env["DIRECT_DATABASE_URL"].replace(
+            config["roles"]["owner"], config["roles"]["writer"]
+        ),
     ):
         with patch.dict(os.environ, dict(env, DIRECT_DATABASE_URL=url), clear=True):
             with pytest.raises(ValueError, match="pinned direct staging owner"):

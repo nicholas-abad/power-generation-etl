@@ -473,6 +473,17 @@ def bind(connection, manifest, manifest_sha, approved, create):
                 )
 
 
+def ledger_states(cursor, repair_id):
+    """window_start -> state for a repair; empty before the first apply."""
+    cursor.execute("SELECT to_regclass(%s) IS NOT NULL", (WINDOWS,))
+    if not cursor.fetchone()[0]:
+        return {}
+    cursor.execute(
+        f"SELECT window_start, state FROM {WINDOWS} WHERE repair_id=%s", (repair_id,)
+    )
+    return dict(cursor.fetchall())
+
+
 def apply(
     connection,
     manifest,
@@ -486,28 +497,29 @@ def apply(
 ):
     results = [] if results is None else results
     planned = check_approval(manifest, manifest_sha, windows, approved, target)
-    bind(connection, manifest, manifest_sha, approved, create=True)
     with connection:
         with connection.cursor() as cursor:
-            cursor.execute(
-                f"SELECT window_start, state FROM {WINDOWS} WHERE repair_id=%s",
-                (manifest["repair_id"],),
-            )
-            states = dict(cursor.fetchall())
+            states = ledger_states(cursor, manifest["repair_id"])
             require(
                 "rolled_back" not in states.values(),
                 "This repair has rolled-back windows; use a new repair id",
             )
             pending = [w for w in windows if w["start"] not in states]
             # Every pending window must still match the plan before the first
-            # write, so drift cannot leave the table half rebuilt.
+            # write, so drift cannot leave the table half rebuilt. Checked before
+            # the repair id is bound, so a fresh plan can still be applied.
             drifted = [
                 w["month"]
                 for w in pending
                 if window_state(cursor, w)["sha256"]
                 != planned[w["month"]]["stored_sha256"]
             ]
-    require(not drifted, f"Stored rows changed since the plan in {drifted}; re-plan")
+    require(
+        not drifted,
+        f"Stored rows changed since the plan in {drifted}; run plan again and apply"
+        " the new plan (nothing was written)",
+    )
+    bind(connection, manifest, manifest_sha, approved, create=True)
     for window in windows:
         with connection:
             with connection.cursor() as cursor:
@@ -619,6 +631,26 @@ def rollback(
     results = [] if results is None else results
     check_approval(manifest, manifest_sha, windows, approved, target)
     bind(connection, manifest, manifest_sha, approved, create=False)
+    # Like apply: refuse before the first write if any applied window has
+    # changed, so a refusal never leaves the table half rolled back.
+    with connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT window_start, post_apply_sha256 FROM {WINDOWS}"
+                " WHERE repair_id=%s AND state='applied'",
+                (manifest["repair_id"],),
+            )
+            applied = dict(cursor.fetchall())
+            changed = [
+                w["month"]
+                for w in windows
+                if w["start"] in applied
+                and window_state(cursor, w)["sha256"] != applied[w["start"]]
+            ]
+    require(
+        not changed,
+        f"{changed} have later writes; rollback refused (nothing was written)",
+    )
     for window in reversed(windows):
         with connection:
             with connection.cursor() as cursor:
