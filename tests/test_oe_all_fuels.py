@@ -169,10 +169,12 @@ def test_any_invalid_record_writes_nothing(pg, tmp_path):
 def test_view_buckets_network_local_months(pg, tmp_path):
     conn, db = pg
     # 1 October local midnight (30 September in UTC) for both networks
-    db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [
-        rec(), rec(network_code="WEM", unit_code="COLLIE_G1", timestamp_ms=OCT1_WEM, energy_mwh=5000.0),
-        rec(timestamp_ms=OCT1_NEM - DAY, energy_mwh=7000.0),  # 30 September local
-    ]))
+    assert db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [
+        rec(), rec(timestamp_ms=OCT1_NEM - DAY, energy_mwh=7000.0),  # 30 September local
+    ], "nem.jsonl"))[0]
+    assert db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [
+        rec(network_code="WEM", unit_code="COLLIE_G1", timestamp_ms=OCT1_WEM, energy_mwh=5000.0),
+    ], "wem.jsonl"))[0]
     refresh(conn)
     with conn, conn.cursor() as cur:
         cur.execute("SELECT network_code, to_char(month,'YYYY-MM'), SUM(energy_mwh) FROM public.mv_oe_all_fuels_unit_monthly GROUP BY 1, 2 ORDER BY 1, 2")
@@ -218,3 +220,70 @@ def test_reconcile_flags_a_stale_view(pg, tmp_path):
         assert checks.reconcile(c, date(2025, 10, 1), date(2025, 10, 31), [str(manifest)]) == [
             "view 2025-10-01 NEM ER01 injection: view and table differ (refresh the view?)"
         ]
+
+
+# --- review fixes: replace on reload, finite energy, reconcile preconditions -------------
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan")])
+def test_non_finite_energy_rejected(value):
+    _, report = validate([rec(energy_mwh=value), rec(**{**NET, "energy_mwh": value})])
+    assert report.invalid_count == 2
+
+
+def test_reloading_a_month_replaces_rows_whose_direction_changed(pg, tmp_path):
+    conn, db = pg
+    # first extraction: the battery day only had its net aggregate
+    db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec(), rec(**{**NET, "unit_code": "BAT1"})], "v1.jsonl"))
+    # re-extraction: components now reported for the same unit-day
+    v2 = [rec(), rec(**{**DIS, "unit_code": "BAT1G1"}), rec(**{**CHG, "unit_code": "BAT1L1"})]
+    ok, _ = db.insert_oe_all_fuels_jsonl_data(write(tmp_path, v2, "v2.jsonl"))
+    assert ok
+    got = rows(conn)
+    assert ("BAT1", "net", "reported", -12.5) not in got
+    assert sorted((u, d) for u, d, _, _ in got) == [("BAT1G1", "injection"), ("BAT1L1", "withdrawal"), ("ER01", "injection")]
+
+
+def test_reload_never_touches_other_networks_or_days(pg, tmp_path):
+    conn, db = pg
+    db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec(network_code="WEM", unit_code="W1", timestamp_ms=OCT1_WEM)], "w.jsonl"))
+    db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec(timestamp_ms=OCT1_NEM + DAY, unit_code="ER09")], "n2.jsonl"))
+    db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec()], "n1.jsonl"))  # NEM, 1 October only
+    assert {u for u, *_ in rows(conn)} == {"W1", "ER09", "ER01"}
+
+
+def test_reconcile_preconditions(pg, tmp_path):
+    conn, db = pg
+    manifest = tmp_path / "m.jsonl"
+    manifest.write_text(json.dumps({"part_key": "NEM_2025-10", "status": "ok", "by_local_day": {}}) + "\n")
+    with db._engine.connect() as c:
+        with pytest.raises(ValueError, match="at least one manifest"):
+            checks.reconcile(c, date(2025, 10, 1), date(2025, 10, 31), [])
+        with pytest.raises(ValueError, match="after end"):
+            checks.reconcile(c, date(2025, 10, 31), date(2025, 10, 1), [str(manifest)])
+        with pytest.raises(ValueError, match="two manifests for NEM"):
+            checks.reconcile(c, date(2025, 10, 1), date(2025, 10, 31), [str(manifest), str(manifest)])
+        problems = checks.reconcile(c, date(2025, 10, 1), date(2025, 10, 31), [str(manifest)])
+    assert problems[0] == "NEM_2025-10: manifest line has no start/end"
+    assert checks.main(["reconcile", "2025-10-01", "2025-10-31"]) == 2
+
+
+def test_reconcile_flags_stale_region_labels(pg, tmp_path):
+    conn, db = pg
+    db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec()]))
+    refresh(conn)
+    with conn, conn.cursor() as cur:
+        cur.execute("UPDATE ingestion.oe_unit_generation_all_fuels SET network_region = 'QLD1'")
+    manifest = tmp_path / "m.jsonl"
+    manifest.write_text(json.dumps({"part_key": "NEM_2025-10", "status": "ok", "start": "2025-10-01",
+                                    "end": "2025-10-31", "by_local_day": {"2025-10-01": [1, 10000.0]}}) + "\n")
+    with db._engine.connect() as c:
+        assert checks.reconcile(c, date(2025, 10, 1), date(2025, 10, 31), [str(manifest)]) == [
+            "view 2025-10-01 NEM ER01 injection: view and table differ (refresh the view?)"
+        ]
+
+
+def test_a_file_mixing_networks_is_refused(pg, tmp_path):
+    conn, db = pg
+    ok, _ = db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec(), rec(network_code="WEM", unit_code="W1")]))
+    assert not ok and rows(conn) == []

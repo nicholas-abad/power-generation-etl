@@ -12,7 +12,7 @@ import uuid
 from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 from loguru import logger
@@ -230,8 +230,13 @@ class PowerGenerationDatabase:
         conflict_columns: list = None,
         conflict_expr: str = None,
         update_columns: list = None,
+        replace_where: Optional[Tuple[str, Dict[str, Any]]] = None,
     ) -> int:
         """Insert rows via a staging table, skipping duplicates on conflict.
+
+        ``replace_where`` (SQL condition, parameters) first deletes the target
+        rows it matches, in the same transaction, so a reloaded slice replaces
+        the previous one instead of leaving rows whose key no longer occurs.
 
         Uses CREATE TEMP TABLE + COPY + INSERT ... ON CONFLICT DO NOTHING
         for efficient bulk upsert.
@@ -300,6 +305,10 @@ class PowerGenerationDatabase:
         conn = self.engine.raw_connection()
         try:
             cursor = conn.cursor()
+
+            if replace_where:
+                condition, params = replace_where
+                cursor.execute(f"DELETE FROM {target_table} WHERE {condition}", params)
 
             # 1. Create temp staging table (dropped at end of transaction)
             cursor.execute(
@@ -2118,10 +2127,28 @@ class PowerGenerationDatabase:
 
             df = pd.DataFrame(valid_records)
             df = df[[c for c in keep_cols if c in df.columns]]
+            # The file replaces every stored row of its network and day range:
+            # a re-extracted month whose directions changed (e.g. a battery day
+            # first stored as net, later with components) leaves no stale rows.
+            networks = df["network_code"].unique().tolist()
+            if len(networks) != 1:
+                logger.error(
+                    f"{jsonl_file_path}: one network per part expected, got {networks}"
+                )
+                return False, report
+            replace = (
+                "network_code = %(net)s AND timestamp_ms BETWEEN %(lo)s AND %(hi)s",
+                {
+                    "net": networks[0],
+                    "lo": int(df["timestamp_ms"].min()),
+                    "hi": int(df["timestamp_ms"].max()),
+                },
+            )
             written = self._execute_with_retry(
                 lambda: self._upsert_via_staging(
                     df,
                     "oe_unit_generation_all_fuels",
+                    replace_where=replace,
                     conflict_columns=[
                         "timestamp_ms",
                         "network_code",

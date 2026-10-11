@@ -4,6 +4,7 @@ Data Validation Module for Power Generation ETL
 Validates incoming JSONL data before database insertion.
 """
 
+import math
 import json
 import re
 import time
@@ -555,6 +556,8 @@ class DataValidator:
         """Validate one OpenElectricity all-fuel (unit × day × direction) record."""
         result = self._validate_record(record, OE_ALL_FUELS_SCHEMA)
         direction, energy = record.get("direction"), record.get("energy_mwh")
+        if isinstance(energy, (int, float)) and not math.isfinite(energy):
+            result.errors.append(f"energy_mwh: not a finite number ({energy})")
         if direction not in OE_ALL_FUELS_DIRECTIONS:
             result.errors.append(
                 f"direction: {direction!r} not one of {sorted(OE_ALL_FUELS_DIRECTIONS)}"

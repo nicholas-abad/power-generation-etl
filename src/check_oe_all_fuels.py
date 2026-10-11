@@ -26,6 +26,7 @@ Usage: run_in_environment.py --environment staging --role writer -- \
 
 import csv
 import json
+import math
 import os
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -110,6 +111,10 @@ def _months(start: date, end: date):
 
 
 def reconcile(conn, start: date, end: date, manifest_paths: list[str]) -> list[str]:
+    if not manifest_paths:
+        raise ValueError("reconcile needs at least one manifest")
+    if start > end:
+        raise ValueError(f"start {start} is after end {end}")
     problems: list[str] = []
     expected: dict[tuple[str, str], list[float]] = {}
     networks = []
@@ -124,6 +129,10 @@ def reconcile(conn, start: date, end: date, manifest_paths: list[str]) -> list[s
         if network not in OFFSET_HOURS:
             problems.append(f"{path}: no network parts")
             continue
+        if network in networks:
+            raise ValueError(
+                f"two manifests for {network}: pass one manifest per network"
+            )
         networks.append(network)
         for lo, hi, label in _months(start, end):
             key = f"{network}_{label}"
@@ -134,7 +143,9 @@ def reconcile(conn, start: date, end: date, manifest_paths: list[str]) -> list[s
                 problems.append(
                     f"{key}: manifest status {rec.get('status')}: {str(rec.get('error', ''))[:200]}"
                 )
-            elif rec.get("start") > lo.isoformat() or rec.get("end") < hi.isoformat():
+            elif not rec.get("start") or not rec.get("end"):
+                problems.append(f"{key}: manifest line has no start/end")
+            elif rec["start"] > lo.isoformat() or rec["end"] < hi.isoformat():
                 problems.append(
                     f"{key}: covers {rec.get('start')}..{rec.get('end')}, needed {lo}..{hi}"
                 )
@@ -158,7 +169,11 @@ def reconcile(conn, start: date, end: date, manifest_paths: list[str]) -> list[s
                 {"net": network, "lo": lo, "hi": hi},
             ).one()
             want_n, want_m = expected.get((network, d.isoformat()), [0, 0.0])
-            if n != want_n or abs(float(s) - want_m) > TOLERANCE_MWH * max(
+            if not (math.isfinite(float(s)) and math.isfinite(want_m)):
+                problems.append(
+                    f"{network} {d}: non-finite energy (stored {s}, manifest {want_m})"
+                )
+            elif n != want_n or abs(float(s) - want_m) > TOLERANCE_MWH * max(
                 1.0, abs(float(s))
             ):
                 problems.append(
@@ -180,7 +195,8 @@ def reconcile(conn, start: date, end: date, manifest_paths: list[str]) -> list[s
 VIEW_VS_TABLE_SQL = f"""
 WITH t AS (
     SELECT DATE_TRUNC('month', {LOCAL_TS})::date AS month, network_code, unit_code, direction,
-           MAX(fueltech) AS fueltech, MAX(facility_code) AS facility_code, MAX(facility_name) AS facility_name,
+           MAX(fueltech) AS fueltech, MAX(fueltech_group) AS fueltech_group, MAX(network_region) AS network_region,
+           MAX(facility_code) AS facility_code, MAX(facility_name) AS facility_name,
            SUM(energy_mwh) AS mwh, COUNT(*) AS days, COUNT(*) FILTER (WHERE basis = 'derived') AS derived_days
     FROM ingestion.oe_unit_generation_all_fuels
     GROUP BY 1, 2, 3, 4
@@ -191,7 +207,8 @@ FROM t
 FULL JOIN public.mv_oe_all_fuels_unit_monthly v
   ON v.month = t.month AND v.network_code = t.network_code AND v.unit_code = t.unit_code AND v.direction = t.direction
 WHERE t.month IS NULL OR v.month IS NULL
-   OR v.fueltech IS DISTINCT FROM t.fueltech OR v.facility_code IS DISTINCT FROM t.facility_code
+   OR v.fueltech IS DISTINCT FROM t.fueltech OR v.fueltech_group IS DISTINCT FROM t.fueltech_group
+   OR v.network_region IS DISTINCT FROM t.network_region OR v.facility_code IS DISTINCT FROM t.facility_code
    OR v.facility_name IS DISTINCT FROM t.facility_name OR v.days <> t.days OR v.derived_days <> t.derived_days
    OR ABS(v.energy_mwh - t.mwh) > :tol * GREATEST(1.0, ABS(t.mwh))
 ORDER BY 1, 2, 3, 4

@@ -36,7 +36,7 @@ run_in_environment.py --environment staging --role writer -- \
 energy-extract openelectricity --all-fuels --network NEM --start-date 2024-01-01 --end-date 2024-12-31 --output ./out
 energy-extract openelectricity --all-fuels --network WEM --start-date 2024-01-01 --end-date 2024-12-31 --output ./out
 
-# 2. Load each network-month atomically
+# 2. Load each network-month atomically (a part replaces its network and day range)
 for f in ./out/oe_all_fuels/*/parts/*.jsonl; do
   run_in_environment.py --environment staging --role writer -- \
     uv run python src/database_management.py load-data oe_all_fuels "$f" || echo "FAILED $f"
@@ -86,9 +86,10 @@ md5 `255e7e6cadaf5eeb0e2fa196e15ec037`).
 - OE network-total check: every main fuel within 1% except NEM OCGT gas in Aug and Sep 2019
   (+1.2%, +1.3%).
 - Rooftop solar is network-level only in OE and is not in this table.
-- Batteries: most facility-days have both components (the aggregate is a cross-check, max difference
-  10.6 MWh/day in NEM 2025-10); others have a component derived from the aggregate, a few only the net
-  aggregate.
+- Batteries (aggregate battery series exist only from 2024-08 NEM / 2025-09 WEM, so this is from the
+  2025-10 qualification sample): most unit-days have both components and the aggregate is a cross-check
+  (9 NEM unit-days differ by more than 1 MWh, max 10.6, kept as derived net residuals); 273 have a
+  component derived from the aggregate under its own unit code; 4 have only the net aggregate.
 
 ## Known issue in the existing coal view (not changed here)
 

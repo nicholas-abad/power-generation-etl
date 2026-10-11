@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS ingestion.oe_unit_generation_all_fuels (
     CONSTRAINT valid_timestamps_oe_all_fuels CHECK (timestamp_ms > 0 AND created_at_ms > 0),
     CONSTRAINT valid_direction_oe_all_fuels CHECK (direction IN ('injection', 'withdrawal', 'auxiliary', 'net', 'anomaly')),
     CONSTRAINT valid_basis_oe_all_fuels CHECK (basis IN ('reported', 'derived')),
-    CONSTRAINT non_negative_unless_signed_oe_all_fuels CHECK (energy_mwh >= 0 OR direction IN ('net', 'anomaly'))
+    CONSTRAINT non_negative_unless_signed_oe_all_fuels CHECK (energy_mwh >= 0 OR direction IN ('net', 'anomaly')),
+    CONSTRAINT finite_energy_oe_all_fuels CHECK (energy_mwh NOT IN ('Infinity'::float8, '-Infinity'::float8, 'NaN'::float8))
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_oe_all_fuels_natural_key
