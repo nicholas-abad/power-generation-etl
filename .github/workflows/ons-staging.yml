@@ -70,10 +70,11 @@ jobs:
         run: |
           uv sync --frozen
           uv sync --project extractors --frozen --extra ons
-      - name: Check staging identity and required migration
+      - name: Check staging identity and required migrations (017, 020)
         run: |
           uv run python src/run_in_environment.py --environment staging --from-process -- \
-            psql -X -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM public.mv_ons_individual_plant_monthly;'
+            psql -X -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM public.mv_ons_individual_plant_monthly;' \
+              -c 'SELECT count(*) FROM ingestion.ons_source_gaps;'
       - name: Capture coal baseline
         run: |
           uv run python src/run_in_environment.py --environment staging --from-process -- \
@@ -109,6 +110,13 @@ jobs:
           done
           jq -e '.rows_written == 0 and .invalid_records == 0 and .duplicate_records == 0 and .total_records > 0' \
             output/validation-repeat.json
+      - name: Record approved source gaps
+        run: |
+          set -o pipefail
+          metadata=(extracted_data/extraction_metadata_*.json)
+          uv run python src/run_in_environment.py --environment staging --from-process -- \
+            uv run python src/ons_source_gaps.py --year "$BENCHMARK_YEAR" \
+              --metadata "${metadata[0]}" | tee output/source-gaps.json
       - name: Refresh ONS views
         run: |
           uv run python src/run_in_environment.py --environment staging --from-process -- \

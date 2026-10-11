@@ -102,7 +102,7 @@ def record(plant_id, **overrides):
     }
 
 
-def migrate(dsn):
+def migrate(dsn, migration="017_ons_individual_plant_view.sql"):
     result = subprocess.run(
         [
             "psql",
@@ -111,7 +111,7 @@ def migrate(dsn):
             "-v",
             "ON_ERROR_STOP=1",
             "-f",
-            str(ROOT / "schema/migrations/017_ons_individual_plant_view.sql"),
+            str(ROOT / "schema/migrations" / migration),
         ],
         capture_output=True,
         text=True,
@@ -315,3 +315,62 @@ def test_year_to_date_reconciliation_respects_audited_cutoff(
         )
         with pytest.raises(ValueError, match="every audited month"):
             reconcile(cur, missing_july, 2026, len(rows) - 1)
+
+
+def test_source_gaps_migration_loader_and_monthly_view(database):
+    from ons_source_gaps import approved_rows, record
+    from check_ons_staging import check_recorded_gaps
+    from tests.test_ons_benchmark import metadata_for
+
+    conn, _, dsn = database
+    migrate(dsn)
+    migrate(dsn, "020_ons_source_gaps.sql")
+    migrate(dsn, "020_ons_source_gaps.sql")
+    metadata = metadata_for(2026)
+    for gap in metadata["source_gaps"]:
+        gap["plant"] = f"Plant {gap['ons_plant_id']}"
+    rows = approved_rows(metadata, 2026)
+    with conn.cursor() as cur:
+        for relation in ("ingestion.ons_source_gaps", "public.ons_individual_plant_gap_monthly"):
+            cur.execute("SELECT has_table_privilege('dashboard_ro', %s, 'SELECT')", (relation,))
+            assert cur.fetchone() == (False,)
+            cur.execute("SELECT has_table_privilege('etl_writer', %s, 'SELECT')", (relation,))
+            assert cur.fetchone() == (True,)
+        outside = ("OLD", 1_735_689_600_000, 1_735_693_200_000, "Old", "Gás", 1, "source_gap", "2025", "run")
+        cur.execute(
+            "INSERT INTO ingestion.ons_source_gaps (ons_plant_id, start_ms, end_ms, plant, fuel_type, "
+            "hours, kind, note, extraction_run_id) VALUES %s",
+            (outside,),
+        )
+        summary = record(cur, 2026, rows)
+        assert (summary["recorded"], summary["gap_hours"]) == (24, 50352)
+        assert check_recorded_gaps(cur, 2026) == {"source_gaps": 24, "gap_hours": 50352}
+        cur.execute("SET TIME ZONE 'America/Sao_Paulo'")
+        cur.execute(
+            "SELECT (month AT TIME ZONE 'UTC')::date::text, ons_plant_id, kind, gap_hours "
+            "FROM public.ons_individual_plant_gap_monthly "
+            "WHERE ons_plant_id IN ('MGUSIM', 'SPUTQT') ORDER BY 2, 1"
+        )
+        assert cur.fetchall() == [
+            ("2026-07-01", "MGUSIM", "source_gap", 24),
+            ("2026-05-01", "SPUTQT", "publication_change", 744),
+            ("2026-06-01", "SPUTQT", "publication_change", 720),
+            ("2026-07-01", "SPUTQT", "publication_change", 744),
+            ("2026-08-01", "SPUTQT", "publication_change", 744),
+        ]
+        cur.execute("SELECT sum(gap_hours) FROM public.ons_individual_plant_gap_monthly WHERE ons_plant_id <> 'OLD'")
+        assert cur.fetchone() == (50352,)
+        # ONS later fills 22 July: the next audited load removes those gaps only.
+        filled = [row for row in rows if row[5] != 24]
+        assert record(cur, 2026, filled)["replaced"] == 24
+        cur.execute("SELECT count(*), sum(hours) FROM ingestion.ons_source_gaps WHERE ons_plant_id <> 'OLD'")
+        assert cur.fetchone() == (17, 17 * 2952)
+        cur.execute("SELECT count(*) FROM ingestion.ons_source_gaps WHERE ons_plant_id = 'OLD'")
+        assert cur.fetchone() == (1,)
+        with pytest.raises(ValueError, match="differ from the approved audit"):
+            check_recorded_gaps(cur, 2026)
+        with pytest.raises(psycopg2.errors.CheckViolation):
+            cur.execute(
+                "INSERT INTO ingestion.ons_source_gaps (ons_plant_id, start_ms, end_ms, plant, fuel_type, "
+                "hours, kind, note, extraction_run_id) VALUES ('X', 0, 3600000, 'X', 'Gás', 2, 'source_gap', 'n', 'r')"
+            )

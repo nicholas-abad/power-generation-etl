@@ -95,10 +95,15 @@ def check_fuel_accounting(year):
     policy = fuel_policy()
     without = policy.get("without_individual_plants", {})
     approved = policy.get("eligible_rejections", {}).get(str(year), {})
+    gap_hours = {}
+    for gap in check_source_gaps(year, benchmark(year).get("source_gaps", [])):
+        gap_hours[gap["fuel_type"]] = gap_hours.get(gap["fuel_type"], 0) + gap["hours"]
     for fuel, entry in fuels.items():
         if entry["raw_rows"] and not entry["accepted_rows"] and fuel not in without:
             raise ValueError(f"{fuel} has no accepted rows in {year} and no approval")
-        rejected = entry["rejected_eligible"]
+        rejected = dict(entry["rejected_eligible"])
+        if rejected.pop("missing_generation", 0) != gap_hours.get(fuel, 0):
+            raise ValueError(f"{fuel} missing generation in {year} differs from its source gaps")
         if rejected and rejected != approved.get(fuel, {}).get("counts"):
             raise ValueError(
                 f"{fuel} loses eligible rows in {year} ({rejected}) without approval"
@@ -111,6 +116,44 @@ def check_fuel_accounting(year):
         fuel: {"accepted_rows": entry["accepted_rows"], "accepted_mwh": entry["accepted_mwh"]}
         for fuel, entry in fuels.items()
     }
+
+
+def hour_ms(text):
+    return int(datetime.fromisoformat(text).replace(tzinfo=UTC).timestamp() * 1000)
+
+
+def gap_key(gap):
+    return (gap["ons_plant_id"], gap["start_ms"], gap["end_ms"], gap["hours"], gap["fuel_type"].strip())
+
+
+def check_source_gaps(year, gaps):
+    """Every missing-generation run must fall inside an approved window.
+
+    Returns the gaps with the approval's kind and note, as recorded in
+    ingestion.ons_source_gaps (migration 020).
+    """
+    windows = fuel_policy().get("source_gaps", {}).get(str(year), [])
+    approved = []
+    for gap in gaps:
+        match = next(
+            (
+                window
+                for window in windows
+                if gap["ons_plant_id"] in window["ons_plant_ids"]
+                and hour_ms(window["start"]) <= gap["start_ms"]
+                and gap["end_ms"] <= hour_ms(window["end"])
+            ),
+            None,
+        )
+        if match is None:
+            raise ValueError(
+                f"Unapproved source gap in {year}: {gap['ons_plant_id']} "
+                f"{gap['hours']} h from {gap['start_ms']}"
+            )
+        approved.append(
+            {**gap, "fuel_type": gap["fuel_type"].strip(), "kind": match["kind"], "note": match["note"]}
+        )
+    return approved
 
 
 def normalized_counts(counts):
@@ -170,6 +213,10 @@ def check_extraction(metadata, year, audited):
     expected = {fuel: item["accepted_rows"] for fuel, item in fuels.items() if item["accepted_rows"]}
     if accepted != expected:
         raise ValueError("Accepted rows per fuel differ from the independent audit")
+    if sorted(map(gap_key, metadata.get("source_gaps", []))) != sorted(
+        map(gap_key, audited.get("source_gaps", []))
+    ):
+        raise ValueError("Extracted source gaps differ from the independent audit")
     if metadata.get("total_records") != audited["expected_observations"]:
         raise ValueError(
             "Qualified observation count differs from the audited benchmark"
@@ -334,6 +381,24 @@ def reconcile(cursor, path, year, expected_count, fuels=None):
     }
 
 
+def check_recorded_gaps(cursor, year):
+    """ingestion.ons_source_gaps holds exactly the year's approved gaps."""
+    start, end = year_bounds(year)
+    cursor.execute(
+        "SELECT ons_plant_id, start_ms, end_ms, hours, fuel_type, kind "
+        "FROM ingestion.ons_source_gaps WHERE start_ms >= %s AND start_ms < %s",
+        (start, end),
+    )
+    recorded = sorted(cursor.fetchall())
+    expected = sorted(
+        (*gap_key(gap), gap["kind"])
+        for gap in check_source_gaps(year, benchmark(year).get("source_gaps", []))
+    )
+    if recorded != expected:
+        raise ValueError("Recorded source gaps differ from the approved audit")
+    return {"source_gaps": len(recorded), "gap_hours": sum(row[3] for row in recorded)}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--year", type=int, choices=audited_years(), default=2019)
@@ -393,6 +458,7 @@ def main():
                         fuels=check_fuel_accounting(args.year),
                     )
                 )
+                report.update(check_recorded_gaps(cursor, args.year))
                 for check in ("dashboard_ro_surface.sql", "no_shadow_tables.sql"):
                     cursor.execute((ROOT / "schema/checks" / check).read_text())
                 report["status"] = "passed"

@@ -2,11 +2,55 @@
   "audited_on": "2026-10-04",
   "scope": "ONS qualifying individual-plant observations; not national generation totals",
   "fuel_policy": {
-    "note": "Approvals for check_fuel_accounting in src/check_ons_staging.py. Per-year fuel tables come from scripts/audit_ons_fuels.py.",
+    "note": "Approvals for check_fuel_accounting and check_source_gaps in src/check_ons_staging.py. Per-year fuel tables and source gaps come from scripts/audit_ons_fuels.py.",
     "without_individual_plants": {
       "Outras Multi-Combustível": "ONS reports this fuel only as forecast rows (TIPO III) in 2021-2026; excluded under the individual-plant scope the user chose on 2026-10-11"
     },
-    "eligible_rejections": {}
+    "eligible_rejections": {},
+    "source_gaps": {
+      "2026": [
+        {
+          "kind": "publication_change",
+          "start": "2026-05-01T00:00:00",
+          "end": "2026-09-01T00:00:00",
+          "ons_plant_ids": [
+            "GOASO2",
+            "GOUCDR",
+            "GOUTCA",
+            "MGUTIT",
+            "MGUTVS",
+            "MSSUZR",
+            "MTFSSR",
+            "MTSLRO",
+            "RSUTCM",
+            "RSUTIN",
+            "SPBBIO",
+            "SPGASA",
+            "SPPRN",
+            "SPSJBV",
+            "SPUTPD",
+            "SPUTQT",
+            "SPUVAP"
+          ],
+          "note": "From May 2026 ONS publishes these plants with null generation (all names reformatted, aggregate rows replaced). Before May they reported about zero (0-1,336 MWh in Jan 2025-Apr 2026). Approved by the user on 2026-10-11; extend only after review."
+        },
+        {
+          "kind": "source_gap",
+          "start": "2026-07-22T00:00:00",
+          "end": "2026-07-23T00:00:00",
+          "ons_plant_ids": [
+            "MGUSCL",
+            "MGUSFU",
+            "MGUSIM",
+            "MGUSMM",
+            "MGUSMR",
+            "MGUTCS",
+            "MGVGRA"
+          ],
+          "note": "Large Minas Gerais hydro plants null for all of 22 July 2026; ONS's own Southeast subsystem total is equally short (about 50 GWh), so no ONS source can fill it. Recorded as a gap, never imputed. Approved by the user on 2026-10-11."
+        }
+      ]
+    }
   },
   "years": {
     "2019": {
@@ -141,7 +185,8 @@
           "accepted_mwh": 296633.294,
           "rejected_eligible": {}
         }
-      }
+      },
+      "source_gaps": []
     },
     "2020": {
       "expected_observations": 2438376,
@@ -275,7 +320,8 @@
           "accepted_mwh": 832496.223,
           "rejected_eligible": {}
         }
-      }
+      },
+      "source_gaps": []
     },
     "2021": {
       "expected_observations": 2564736,
@@ -421,7 +467,8 @@
           "accepted_mwh": 3127006.8949999996,
           "rejected_eligible": {}
         }
-      }
+      },
+      "source_gaps": []
     },
     "2022": {
       "expected_observations": 2667216,
@@ -643,7 +690,8 @@
           "accepted_mwh": 831137.0559999999,
           "rejected_eligible": {}
         }
-      }
+      },
+      "source_gaps": []
     },
     "2023": {
       "expected_observations": 2798736,
@@ -864,7 +912,8 @@
           "accepted_mwh": 60636.693999999996,
           "rejected_eligible": {}
         }
-      }
+      },
+      "source_gaps": []
     },
     "2024": {
       "expected_observations": 2842224,
@@ -1085,7 +1134,8 @@
           "accepted_mwh": 157017.085,
           "rejected_eligible": {}
         }
-      }
+      },
+      "source_gaps": []
     },
     "2025": {
       "expected_observations": 2779008,
@@ -1306,7 +1356,8 @@
           "accepted_mwh": 81548.727,
           "rejected_eligible": {}
         }
-      }
+      },
+      "source_gaps": []
     },
     "2026": {
       "last_month": 8,
@@ -1374,7 +1425,7 @@
           "accepted_rows": 116616,
           "accepted_mwh": 701435.6405307573,
           "rejected_eligible": {
-            "invalid_generation": 41328
+            "missing_generation": 41328
           }
         },
         "Carvão": {
@@ -1437,7 +1488,7 @@
           "accepted_rows": 941664,
           "accepted_mwh": 266621409.6523384,
           "rejected_eligible": {
-            "invalid_generation": 3120
+            "missing_generation": 3120
           }
         },
         "Multi-Combustível Diesel/Óleo": {
@@ -1485,7 +1536,7 @@
           "accepted_rows": 23254,
           "accepted_mwh": 3356212.324685604,
           "rejected_eligible": {
-            "invalid_generation": 5904
+            "missing_generation": 5904
           }
         },
         "Óleo Combustível": {
@@ -1510,7 +1561,177 @@
           "accepted_mwh": 183785.7755,
           "rejected_eligible": {}
         }
-      }
+      },
+      "source_gaps": [
+        {
+          "ons_plant_id": "GOASO2",
+          "fuel_type": "Biomassa",
+          "start_ms": 1777593600000,
+          "end_ms": 1788220800000,
+          "hours": 2952
+        },
+        {
+          "ons_plant_id": "GOUCDR",
+          "fuel_type": "Biomassa",
+          "start_ms": 1777593600000,
+          "end_ms": 1788220800000,
+          "hours": 2952
+        },
+        {
+          "ons_plant_id": "GOUTCA",
+          "fuel_type": "Biomassa",
+          "start_ms": 1777593600000,
+          "end_ms": 1788220800000,
+          "hours": 2952
+        },
+        {
+          "ons_plant_id": "MGUSCL",
+          "fuel_type": "Hidráulica",
+          "start_ms": 1784678400000,
+          "end_ms": 1784764800000,
+          "hours": 24
+        },
+        {
+          "ons_plant_id": "MGUSFU",
+          "fuel_type": "Hidráulica",
+          "start_ms": 1784678400000,
+          "end_ms": 1784764800000,
+          "hours": 24
+        },
+        {
+          "ons_plant_id": "MGUSIM",
+          "fuel_type": "Hidráulica",
+          "start_ms": 1784678400000,
+          "end_ms": 1784764800000,
+          "hours": 24
+        },
+        {
+          "ons_plant_id": "MGUSMM",
+          "fuel_type": "Hidráulica",
+          "start_ms": 1784678400000,
+          "end_ms": 1784764800000,
+          "hours": 24
+        },
+        {
+          "ons_plant_id": "MGUSMR",
+          "fuel_type": "Hidráulica",
+          "start_ms": 1784678400000,
+          "end_ms": 1784764800000,
+          "hours": 24
+        },
+        {
+          "ons_plant_id": "MGUTCS",
+          "fuel_type": "Hidráulica",
+          "start_ms": 1784678400000,
+          "end_ms": 1784764800000,
+          "hours": 24
+        },
+        {
+          "ons_plant_id": "MGUTIT",
+          "fuel_type": "Biomassa",
+          "start_ms": 1777593600000,
+          "end_ms": 1788220800000,
+          "hours": 2952
+        },
+        {
+          "ons_plant_id": "MGUTVS",
+          "fuel_type": "Biomassa",
+          "start_ms": 1777593600000,
+          "end_ms": 1788220800000,
+          "hours": 2952
+        },
+        {
+          "ons_plant_id": "MGVGRA",
+          "fuel_type": "Hidráulica",
+          "start_ms": 1784678400000,
+          "end_ms": 1784764800000,
+          "hours": 24
+        },
+        {
+          "ons_plant_id": "MSSUZR",
+          "fuel_type": "Biomassa",
+          "start_ms": 1777593600000,
+          "end_ms": 1788220800000,
+          "hours": 2952
+        },
+        {
+          "ons_plant_id": "MTFSSR",
+          "fuel_type": "Biomassa",
+          "start_ms": 1777593600000,
+          "end_ms": 1788220800000,
+          "hours": 2952
+        },
+        {
+          "ons_plant_id": "MTSLRO",
+          "fuel_type": "Hidráulica",
+          "start_ms": 1777593600000,
+          "end_ms": 1788220800000,
+          "hours": 2952
+        },
+        {
+          "ons_plant_id": "RSUTCM",
+          "fuel_type": "Resíduos Industriais",
+          "start_ms": 1777593600000,
+          "end_ms": 1788220800000,
+          "hours": 2952
+        },
+        {
+          "ons_plant_id": "RSUTIN",
+          "fuel_type": "Resíduos Industriais",
+          "start_ms": 1777593600000,
+          "end_ms": 1788220800000,
+          "hours": 2952
+        },
+        {
+          "ons_plant_id": "SPBBIO",
+          "fuel_type": "Biomassa",
+          "start_ms": 1777593600000,
+          "end_ms": 1788220800000,
+          "hours": 2952
+        },
+        {
+          "ons_plant_id": "SPGASA",
+          "fuel_type": "Biomassa",
+          "start_ms": 1777593600000,
+          "end_ms": 1788220800000,
+          "hours": 2952
+        },
+        {
+          "ons_plant_id": "SPPRN",
+          "fuel_type": "Biomassa",
+          "start_ms": 1777593600000,
+          "end_ms": 1788220800000,
+          "hours": 2952
+        },
+        {
+          "ons_plant_id": "SPSJBV",
+          "fuel_type": "Biomassa",
+          "start_ms": 1777593600000,
+          "end_ms": 1788220800000,
+          "hours": 2952
+        },
+        {
+          "ons_plant_id": "SPUTPD",
+          "fuel_type": "Biomassa",
+          "start_ms": 1777593600000,
+          "end_ms": 1788220800000,
+          "hours": 2952
+        },
+        {
+          "ons_plant_id": "SPUTQT",
+          "fuel_type": "Biomassa",
+          "start_ms": 1777593600000,
+          "end_ms": 1788220800000,
+          "hours": 2952
+        },
+        {
+          "ons_plant_id": "SPUVAP",
+          "fuel_type": "Biomassa",
+          "start_ms": 1777593600000,
+          "end_ms": 1788220800000,
+          "hours": 2952
+        }
+      ]
     }
   }
 }

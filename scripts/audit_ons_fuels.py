@@ -3,16 +3,19 @@
 Reads the raw Parquet files listed for one year in config/ons-benchmarks.json,
 verifies their hashes, and counts rows and MWh per source fuel label: all rows,
 rows in individual-plant modalities, accepted rows, and eligible rows rejected
-by reason. The selection rules are re-implemented here from the documented
-policy (energy-extractors ONS README and migration 017), deliberately without
-importing the extractor, so the two implementations check each other.
+by reason. Missing (null) generation in eligible plants is also listed as
+source gaps: contiguous hourly runs per ONS ID. The selection rules are
+re-implemented here from the documented policy (energy-extractors ONS README
+and migration 017), deliberately without importing the extractor, so the two
+implementations check each other.
 
 No database connection. The ETL environment has no Parquet engine, so run:
 
     uv run --with pyarrow python scripts/audit_ons_fuels.py --year 2026 \
         --source-dir <dir with the year's Parquet files> [--write]
 
---write stores the result as the year's "fuels" table in the benchmark file.
+--write stores the result as the year's "fuels" table and "source_gaps" list in
+the benchmark file.
 """
 
 import argparse
@@ -38,7 +41,10 @@ def blank(series):
 
 
 def classify(df):
-    """Return (modality category, rejection reason or None) per raw row."""
+    """Return (modality category, rejection reason or None) per raw row.
+
+    Expects a unique index (account and gaps reset it).
+    """
     mode = df["cod_modalidadeoperacao"].astype("string").str.strip().str.upper()
     category = pd.Series("unresolved", index=df.index, dtype="object")
     category[mode.isin(INDIVIDUAL)] = "individual"
@@ -48,6 +54,7 @@ def classify(df):
     reason = pd.Series(None, index=df.index, dtype="object")
     eligible = category == "individual"
     generation = pd.to_numeric(df["val_geracao"], errors="coerce")
+    raw_value = df["val_geracao"].astype("string").str.strip()
     checks = [
         (
             "unresolved_identity",
@@ -57,6 +64,7 @@ def classify(df):
         ),
         ("unresolved_fuel", blank(df["nom_tipousina"]) | blank(df["nom_tipocombustivel"])),
         ("invalid_timestamp", pd.to_datetime(df["din_instante"], errors="coerce").isna()),
+        ("missing_generation", raw_value.isna() | raw_value.eq("")),
         (
             "invalid_generation",
             ~np.isfinite(generation) | (generation < 0),
@@ -74,6 +82,7 @@ def classify(df):
 
 def account(df):
     """Per-fuel table for one or more source files."""
+    df = df.reset_index(drop=True)
     category, reason = classify(df)
     fuel = df["nom_tipocombustivel"].astype("string").str.strip().fillna(MISSING)
     fuel = fuel.mask(fuel.isin(["", "-"]), MISSING)
@@ -100,6 +109,54 @@ def account(df):
         }
         table[label] = entry
     return table
+
+
+def gaps(df):
+    """Contiguous hourly runs of missing generation in eligible plants."""
+    df = df.reset_index(drop=True)
+    category, reason = classify(df)
+    missing = df[reason == "missing_generation"]
+    if missing.empty:
+        return []
+    frame = pd.DataFrame(
+        {
+            "ons_plant_id": missing["id_ons"].astype("string").str.strip(),
+            "fuel_type": missing["nom_tipocombustivel"].astype("string").str.strip(),
+            "start": pd.to_datetime(missing["din_instante"]),
+        }
+    ).sort_values(["ons_plant_id", "start"])
+    new_run = frame.groupby("ons_plant_id")["start"].diff() != pd.Timedelta(hours=1)
+    runs = frame.groupby(new_run.cumsum()).agg(
+        ons_plant_id=("ons_plant_id", "first"),
+        fuel_type=("fuel_type", "first"),
+        start=("start", "min"),
+        last=("start", "max"),
+        hours=("start", "size"),
+    )
+    hour = pd.Timedelta(hours=1)
+    return [
+        {
+            "ons_plant_id": run.ons_plant_id,
+            "fuel_type": run.fuel_type,
+            "start_ms": run.start.value // 1_000_000,
+            "end_ms": (run.last + hour).value // 1_000_000,
+            "hours": int(run.hours),
+        }
+        for run in runs.itertuples()
+    ]
+
+
+def join_gaps(parts):
+    """Join runs that continue across file boundaries."""
+    joined = []
+    for gap in sorted((g for part in parts for g in part), key=lambda g: (g["ons_plant_id"], g["start_ms"])):
+        last = joined[-1] if joined else None
+        if last and last["ons_plant_id"] == gap["ons_plant_id"] and last["end_ms"] == gap["start_ms"]:
+            last["end_ms"] = gap["end_ms"]
+            last["hours"] += gap["hours"]
+        else:
+            joined.append(dict(gap))
+    return joined
 
 
 def merge(tables):
@@ -135,6 +192,7 @@ def main():
     manifest = json.loads(BENCHMARKS.read_text())
     entry = manifest["years"][str(args.year)]
     tables = []
+    gap_parts = []
     for item in entry["source_files"]:
         path = args.source_dir / item["url"].rsplit("/", 1)[1]
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -144,6 +202,7 @@ def main():
         if len(df) != item["raw_records"]:
             raise SystemExit(f"{path.name}: row count differs from the audited file")
         tables.append(account(df))
+        gap_parts.append(gaps(df))
         print(f"{item['label']}: {len(df):,} rows", flush=True)
     fuels = merge(tables)
     accepted = sum(f["accepted_rows"] for f in fuels.values())
@@ -152,9 +211,11 @@ def main():
             f"Independent count {accepted:,} differs from the extractor's "
             f"{entry['expected_observations']:,}"
         )
-    print(json.dumps(fuels, indent=2, ensure_ascii=False))
+    source_gaps = join_gaps(gap_parts)
+    print(json.dumps({"fuels": fuels, "source_gaps": source_gaps}, indent=2, ensure_ascii=False))
     if args.write:
         entry["fuels"] = fuels
+        entry["source_gaps"] = source_gaps
         BENCHMARKS.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
 
 

@@ -15,6 +15,7 @@ from check_ons_staging import (  # noqa: E402
     capture,
     check_extraction,
     check_fuel_accounting,
+    check_source_gaps,
     extract_arguments,
     year_bounds,
 )
@@ -36,6 +37,7 @@ def metadata_for(year):
         "selected_records": raw_count,
         "total_records": audited["expected_observations"],
         "excluded_records": raw_count - audited["expected_observations"],
+        "source_gaps": deepcopy(audited.get("source_gaps", [])),
         "coverage_counts": {
             "accepted": {
                 "fuel_type": {
@@ -249,12 +251,16 @@ def test_committed_fuel_audits_pass_the_gate(year):
     assert fuels["Carvão"]["accepted_rows"] > 0
 
 
-def test_unapproved_2026_null_generation_blocks_the_gate():
-    with pytest.raises(ValueError, match="loses eligible rows in 2026"):
-        check_fuel_accounting(2026)
+def test_committed_2026_gaps_are_approved_and_typed():
+    check_fuel_accounting(2026)
+    gaps = check_source_gaps(2026, benchmark(2026)["source_gaps"])
+    kinds = {}
+    for gap in gaps:
+        kinds[gap["kind"]] = kinds.get(gap["kind"], 0) + gap["hours"]
+    assert kinds == {"publication_change": 17 * 2952, "source_gap": 7 * 24}
 
 
-def gate_manifest(monkeypatch, tmp_path, fuels, policy=None, expected=None):
+def gate_manifest(monkeypatch, tmp_path, fuels, policy=None, expected=None, gaps=None):
     manifest = tmp_path / "gate.json"
     manifest.write_text(
         json.dumps(
@@ -266,6 +272,7 @@ def gate_manifest(monkeypatch, tmp_path, fuels, policy=None, expected=None):
                         if expected is not None
                         else sum(f["accepted_rows"] for f in fuels.values()),
                         "fuels": fuels,
+                        "source_gaps": gaps or [],
                     }
                 },
             }
@@ -333,3 +340,58 @@ def test_extractor_fuel_counts_must_match_the_audit(fuel_counts):
     }
     with pytest.raises(ValueError, match="per fuel differ"):
         check_extraction(metadata, 2024, benchmark(2024))
+
+
+DAY = 86_400_000
+JULY_22 = 1_784_678_400_000  # 2026-07-22T00:00 in the loader's encoding
+
+
+def gap(plant="P1", start=JULY_22, hours=24, fuel="Hidráulica"):
+    return {"ons_plant_id": plant, "start_ms": start, "end_ms": start + hours * 3_600_000,
+            "hours": hours, "fuel_type": fuel}
+
+
+WINDOW = {"source_gaps": {"2030": [{"kind": "source_gap", "note": "approved",
+                                    "start": "2026-07-22T00:00:00", "end": "2026-07-23T00:00:00",
+                                    "ons_plant_ids": ["P1"]}]}}
+
+
+@pytest.mark.parametrize(
+    "candidate, ok",
+    [
+        (gap(), True),
+        (gap(hours=12), True),  # inside the window
+        (gap(plant="P2"), False),  # another plant
+        (gap(start=JULY_22 + DAY), False),  # another day
+        (gap(start=JULY_22 - 3_600_000), False),  # starts before the window
+    ],
+)
+def test_source_gaps_need_an_approved_window(monkeypatch, tmp_path, candidate, ok):
+    gate_manifest(monkeypatch, tmp_path, {}, WINDOW)
+    if ok:
+        assert check_source_gaps(2030, [candidate])[0]["kind"] == "source_gap"
+    else:
+        with pytest.raises(ValueError, match="Unapproved source gap"):
+            check_source_gaps(2030, [candidate])
+
+
+@pytest.mark.parametrize("missing, ok", [(24, True), (23, False), (0, False)])
+def test_missing_generation_must_equal_recorded_gap_hours(monkeypatch, tmp_path, missing, ok):
+    rejected = {"missing_generation": missing} if missing else {}
+    fuels = {"Hidráulica": fuel_entry(100, 76, rejected, eligible=76 + missing)}
+    gate_manifest(monkeypatch, tmp_path, fuels, WINDOW, gaps=[gap()])
+    if ok:
+        check_fuel_accounting(2030)
+    else:
+        with pytest.raises(ValueError, match="differs from its source gaps"):
+            check_fuel_accounting(2030)
+
+
+def test_extracted_gaps_must_match_the_audit():
+    metadata = metadata_for(2026)
+    assert check_extraction(metadata, 2026, benchmark(2026))["status"] == "source_verified"
+    for change in (lambda g: g.pop(), lambda g: g[0].update(hours=g[0]["hours"] - 1)):
+        bad = deepcopy(metadata)
+        change(bad["source_gaps"])
+        with pytest.raises(ValueError, match="source gaps differ"):
+            check_extraction(bad, 2026, benchmark(2026))
