@@ -33,6 +33,7 @@ import io
 import json
 from pathlib import Path
 import re
+import subprocess
 
 import psycopg2
 
@@ -99,8 +100,18 @@ def month_ms(month):
     return int(datetime(year, number, 1, tzinfo=timezone.utc).timestamp() * 1000)
 
 
-def utc_month(now=None):
-    return (now or datetime.now(timezone.utc)).strftime("%Y-%m")
+# The month the weekly ENTSO-E job resumes from: the newest stored day in the
+# whole table plus one day, at the start of its month (src/get_latest_date.py,
+# src/incremental_extract.py).
+RESUME = (
+    "SELECT to_char(date_trunc('month', to_timestamp(max(timestamp_ms) / 1000.0)"
+    f" AT TIME ZONE 'UTC' + interval '1 day'), 'YYYY-MM') FROM {TABLE}"
+)
+
+
+def resume_month(cursor):
+    cursor.execute(RESUME)
+    return cursor.fetchone()[0]
 
 
 def load_payload(payload_dir):
@@ -262,6 +273,17 @@ def collisions(cursor, psrs):
     return cursor.fetchone()[0]
 
 
+def etl_commit():
+    try:
+        return subprocess.check_output(
+            ["git", "-C", str(Path(__file__).resolve().parent), "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
 def plan(connection, manifest, manifest_sha, windows, target):
     with connection:
         with connection.cursor() as cursor:
@@ -303,6 +325,14 @@ def plan(connection, manifest, manifest_sha, windows, target):
         "psrs": psrs,
         "manifest_sha256": manifest_sha,
         "inputs": manifest["inputs"],
+        # The scope config this plan was checked against; it must equal the one
+        # released with the weekly workflow's pinned commits (runbook step 6).
+        "etl": {
+            "commit": etl_commit(),
+            "scope_config_sha256": hashlib.sha256(
+                (entsoe_coal.CONFIG / "entsoe-coal-scopes.json").read_bytes()
+            ).hexdigest(),
+        },
         "blocking": {
             "stored_rows_in_other_coal_psrs": other_psrs,
             "unit_time_collisions": clashes,
@@ -320,6 +350,7 @@ def create_ledger(cursor):
     cursor.execute(f"""CREATE TABLE IF NOT EXISTS {HEADER} (
         repair_id text PRIMARY KEY, manifest_sha256 text NOT NULL,
         plan_sha256 text NOT NULL, views_state text NOT NULL DEFAULT 'pending',
+        tail_state text NOT NULL DEFAULT 'pending',
         created_at timestamptz NOT NULL DEFAULT now())""")
     cursor.execute(f"""CREATE TABLE IF NOT EXISTS {MONTHS} (
         repair_id text NOT NULL REFERENCES {HEADER}(repair_id),
@@ -411,13 +442,15 @@ def apply(
     lock_timeout="10s",
     statement_timeout="15min",
     results=None,
-    now=None,
+    defer_tail=False,
 ):
     results = [] if results is None else results
     planned = check_approval(manifest, manifest_sha, windows, approved)
     blocking = {k: v for k, v in approved["blocking"].items() if v}
     require(not blocking, f"The approved plan has blocking findings: {blocking}")
     bind(connection, manifest, manifest_sha, approved, create=True)
+    end_month = manifest["end"][:7]
+    tail_window = windows[-1]
     with connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -426,15 +459,27 @@ def apply(
             )
             done = {row[0] for row in cursor.fetchall()}
             pending = [w for w in selected(windows, only) if w["start"] not in done]
-            # The weekly job refetches only from the newest month in the whole
-            # table, so a tail deleted in a later month would never be refilled.
-            tail = [w for w in pending if w["end"] is None]
+            after = done | {w["start"] for w in pending}
+            # Finishing the certified months without the tail would leave legacy
+            # rows from the certified end on beside the new weekly rows.
             require(
-                not tail or utc_month(now) == manifest["end"][:7],
-                f"The tail window ({manifest['end']} onwards) can only be applied in"
-                f" {manifest['end'][:7]} (UTC), when the weekly job refills it;"
-                " certify and build through the current month first",
+                defer_tail
+                or tail_window["start"] in after
+                or not all(w["start"] in after for w in windows[:-1]),
+                "This run completes the certified months but leaves the tail"
+                f" ({manifest['end']} onwards) pending; include it, or pass"
+                " --defer-tail and re-certify through the current month before the"
+                " weekly job resumes",
             )
+            # The tail is refilled only if the weekly job resumes within it.
+            if tail_window in pending:
+                resume = resume_month(cursor)
+                require(
+                    resume is not None and resume <= end_month,
+                    f"The weekly job would resume from {resume}, after the tail"
+                    f" starts ({manifest['end']}); the tail would never be refilled."
+                    " Certify and build through the current month first",
+                )
             # Every pending month must still match the approved plan before the
             # first write, so drift cannot leave the country half rebuilt.
             drifted = [
@@ -444,6 +489,14 @@ def apply(
                 != planned[w["month"]]["stored_sha256"]
             ]
     require(not drifted, f"Stored rows changed since the plan in {drifted}; re-plan")
+    if defer_tail and tail_window not in pending:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"UPDATE {HEADER} SET tail_state='deferred' WHERE repair_id=%s"
+                    " AND tail_state<>'applied'",
+                    (manifest["repair_id"],),
+                )
     for window in selected(windows, only):
         expected = planned[window["month"]]
         with connection:
@@ -473,84 +526,99 @@ def apply(
                         action = "already applied; refilled by later loads"
                     else:
                         action = "already applied"
-                    results.append(
-                        {"month": window["month"], "action": action, "written": 0}
-                    )
-                    continue
-                require(
-                    state["sha256"] == expected["stored_sha256"]
-                    and state["rows"] == expected["stored_rows"],
-                    f"{window['month']}: stored rows changed since the plan",
-                )
-                staged = stage(cursor, window)
-                require(
-                    collisions(cursor, manifest["psrs"]) == 0,
-                    f"{window['month']}: unit/time key held by a retained row",
-                )
-                cursor.execute(
-                    f"WITH moved AS (DELETE FROM {TABLE} WHERE {WHERE} RETURNING id, {COLS})"
-                    f" INSERT INTO {BACKUP} (id, {COLS}, repair_id, window_start)"
-                    f" SELECT id, {COLS}, %s, %s FROM moved",
-                    scope(manifest, window) + (manifest["repair_id"], window["start"]),
-                )
-                require(
-                    cursor.rowcount == expected["stored_rows"],
-                    f"{window['month']}: deleted row count differs from the plan",
-                )
-                cursor.execute(
-                    f"INSERT INTO {TABLE} ({COLS}) SELECT {COLS} FROM _rebuild_payload"
-                )
-                require(
-                    cursor.rowcount == window["rows"],
-                    f"{window['month']}: inserted row count differs",
-                )
-                cursor.execute(
-                    f"SELECT (SELECT count(*) FROM (SELECT {COLS} FROM {TABLE} WHERE {WHERE}"
-                    f" EXCEPT ALL SELECT {COLS} FROM _rebuild_payload) a),"
-                    f" (SELECT count(*) FROM (SELECT {COLS} FROM _rebuild_payload"
-                    f" EXCEPT ALL SELECT {COLS} FROM {TABLE} WHERE {WHERE}) b)",
-                    scope(manifest, window) * 2,
-                )
-                require(
-                    cursor.fetchone() == (0, 0),
-                    f"{window['month']}: window differs from the payload after insert",
-                )
-                after = window_state(cursor, manifest, window)
-                require(
-                    D(after["mwh"]) == D(window["mwh"]),
-                    f"{window['month']}: window MWh differs from the payload",
-                )
-                require(
-                    after["sha256"] == staged,
-                    f"{window['month']}: window hash differs from the staged payload",
-                )
-                cursor.execute(
-                    f"INSERT INTO {MONTHS} (repair_id, window_start, window_end, month,"
-                    " payload_sha256, stored_sha256, post_apply_sha256, state)"
-                    " VALUES (%s, %s, %s, %s, %s, %s, %s, 'applied')",
-                    (
-                        manifest["repair_id"],
-                        window["start"],
-                        window["end"],
-                        window["month"],
-                        window["payload_sha256"],
-                        expected["stored_sha256"],
-                        after["sha256"],
-                    ),
-                )
-                cursor.execute(
-                    f"UPDATE {HEADER} SET views_state='pending' WHERE repair_id=%s",
-                    (manifest["repair_id"],),
-                )
-                results.append(
-                    {
-                        "month": window["month"],
-                        "action": "applied",
-                        "deleted": expected["stored_rows"],
-                        "inserted": window["rows"],
-                    }
-                )
+                    outcome = {"month": window["month"], "action": action, "written": 0}
+                else:
+                    outcome = apply_window(cursor, manifest, window, expected)
+        # Recorded only once the month's transaction has committed.
+        results.append(outcome)
     return results
+
+
+def apply_window(cursor, manifest, window, expected):
+    """Replace one window inside the caller's locked transaction."""
+    state = window_state(cursor, manifest, window)
+    require(
+        state["sha256"] == expected["stored_sha256"]
+        and state["rows"] == expected["stored_rows"],
+        f"{window['month']}: stored rows changed since the plan",
+    )
+    staged = stage(cursor, window)
+    require(
+        collisions(cursor, manifest["psrs"]) == 0,
+        f"{window['month']}: unit/time key held by a retained row",
+    )
+    cursor.execute(
+        f"WITH moved AS (DELETE FROM {TABLE} WHERE {WHERE} RETURNING id, {COLS})"
+        f" INSERT INTO {BACKUP} (id, {COLS}, repair_id, window_start)"
+        f" SELECT id, {COLS}, %s, %s FROM moved",
+        scope(manifest, window) + (manifest["repair_id"], window["start"]),
+    )
+    require(
+        cursor.rowcount == expected["stored_rows"],
+        f"{window['month']}: deleted row count differs from the plan",
+    )
+    cursor.execute(f"INSERT INTO {TABLE} ({COLS}) SELECT {COLS} FROM _rebuild_payload")
+    require(
+        cursor.rowcount == window["rows"],
+        f"{window['month']}: inserted row count differs",
+    )
+    cursor.execute(
+        f"SELECT (SELECT count(*) FROM (SELECT {COLS} FROM {TABLE} WHERE {WHERE}"
+        f" EXCEPT ALL SELECT {COLS} FROM _rebuild_payload) a),"
+        f" (SELECT count(*) FROM (SELECT {COLS} FROM _rebuild_payload"
+        f" EXCEPT ALL SELECT {COLS} FROM {TABLE} WHERE {WHERE}) b)",
+        scope(manifest, window) * 2,
+    )
+    require(
+        cursor.fetchone() == (0, 0),
+        f"{window['month']}: window differs from the payload after insert",
+    )
+    after = window_state(cursor, manifest, window)
+    require(
+        D(after["mwh"]) == D(window["mwh"]),
+        f"{window['month']}: window MWh differs from the payload",
+    )
+    require(
+        after["sha256"] == staged,
+        f"{window['month']}: window hash differs from the staged payload",
+    )
+    outcome = {
+        "month": window["month"],
+        "action": "applied",
+        "deleted": expected["stored_rows"],
+        "inserted": window["rows"],
+    }
+    if window["end"] is None:
+        # Under the lock and after deleting the tail: the weekly job must
+        # resume within the tail, or the tail would never be refilled.
+        resume = resume_month(cursor)
+        require(
+            resume is not None and resume <= manifest["end"][:7],
+            f"The weekly job would resume from {resume}, after the tail starts"
+            f" ({manifest['end']}); the tail would never be refilled",
+        )
+        outcome["weekly_resume_month"] = resume
+    cursor.execute(
+        f"INSERT INTO {MONTHS} (repair_id, window_start, window_end, month,"
+        " payload_sha256, stored_sha256, post_apply_sha256, state)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, 'applied')",
+        (
+            manifest["repair_id"],
+            window["start"],
+            window["end"],
+            window["month"],
+            window["payload_sha256"],
+            expected["stored_sha256"],
+            after["sha256"],
+        ),
+    )
+    cursor.execute(
+        f"UPDATE {HEADER} SET views_state='pending'"
+        + (", tail_state='applied'" if window["end"] is None else "")
+        + " WHERE repair_id=%s",
+        (manifest["repair_id"],),
+    )
+    return outcome
 
 
 def rollback(
@@ -578,43 +646,46 @@ def rollback(
                 )
                 ledger = cursor.fetchone()
                 if not ledger or ledger[0] != "applied":
-                    results.append({"month": window["month"], "action": "not applied"})
-                    continue
-                state = window_state(cursor, manifest, window)
-                if state["sha256"] != ledger[2]:
-                    hint = (
-                        " (the tail has been refilled by the weekly job; roll back"
-                        " the certified months with --months)"
-                        if window["end"] is None
-                        else ""
-                    )
-                    raise ValueError(
-                        f"{window['month']} has later writes; rollback refused{hint}"
-                    )
-                cursor.execute(
-                    f"DELETE FROM {TABLE} WHERE {WHERE}", scope(manifest, window)
-                )
-                cursor.execute(
-                    f"INSERT INTO {TABLE} (id, {COLS}) SELECT id, {COLS} FROM {BACKUP}"
-                    " WHERE repair_id=%s AND window_start=%s",
-                    (manifest["repair_id"], window["start"]),
-                )
-                restored = window_state(cursor, manifest, window)
-                require(
-                    restored["sha256"] == ledger[1],
-                    f"{window['month']}: restored rows differ from the original",
-                )
-                cursor.execute(
-                    f"UPDATE {MONTHS} SET state='rolled_back', rolled_back_at=now()"
-                    " WHERE repair_id=%s AND window_start=%s",
-                    (manifest["repair_id"], window["start"]),
-                )
-                cursor.execute(
-                    f"UPDATE {HEADER} SET views_state='pending' WHERE repair_id=%s",
-                    (manifest["repair_id"],),
-                )
-                results.append({"month": window["month"], "action": "rolled back"})
+                    outcome = {"month": window["month"], "action": "not applied"}
+                else:
+                    outcome = rollback_window(cursor, manifest, window, ledger)
+        # Recorded only once the month's transaction has committed.
+        results.append(outcome)
     return results
+
+
+def rollback_window(cursor, manifest, window, ledger):
+    """Restore one window's original rows inside the caller's locked transaction."""
+    state = window_state(cursor, manifest, window)
+    if state["sha256"] != ledger[2]:
+        hint = (
+            " (the tail has been refilled by the weekly job; roll back"
+            " the certified months with --months)"
+            if window["end"] is None
+            else ""
+        )
+        raise ValueError(f"{window['month']} has later writes; rollback refused{hint}")
+    cursor.execute(f"DELETE FROM {TABLE} WHERE {WHERE}", scope(manifest, window))
+    cursor.execute(
+        f"INSERT INTO {TABLE} (id, {COLS}) SELECT id, {COLS} FROM {BACKUP}"
+        " WHERE repair_id=%s AND window_start=%s",
+        (manifest["repair_id"], window["start"]),
+    )
+    restored = window_state(cursor, manifest, window)
+    require(
+        restored["sha256"] == ledger[1],
+        f"{window['month']}: restored rows differ from the original",
+    )
+    cursor.execute(
+        f"UPDATE {MONTHS} SET state='rolled_back', rolled_back_at=now()"
+        " WHERE repair_id=%s AND window_start=%s",
+        (manifest["repair_id"], window["start"]),
+    )
+    cursor.execute(
+        f"UPDATE {HEADER} SET views_state='pending' WHERE repair_id=%s",
+        (manifest["repair_id"],),
+    )
+    return {"month": window["month"], "action": "rolled back"}
 
 
 def refresh_views(connection, repair_id):
@@ -673,6 +744,11 @@ def main(argv=None):
     )
     parser.add_argument("--expect-plan-sha256")
     parser.add_argument("--months", type=months_arg, help="YYYY-MM or YYYY-MM..YYYY-MM")
+    parser.add_argument(
+        "--defer-tail",
+        action="store_true",
+        help="Complete the certified months without the tail (recorded as deferred)",
+    )
     parser.add_argument("--lock-timeout", default="10s")
     parser.add_argument("--statement-timeout", default="15min")
     parser.add_argument("--report", type=Path, required=True)
@@ -710,6 +786,7 @@ def main(argv=None):
                     args.lock_timeout,
                     args.statement_timeout,
                     results,
+                    args.defer_tail,
                 )
                 report = {"applied": results}
                 refresh_views(connection, manifest["repair_id"])
@@ -742,7 +819,13 @@ def main(argv=None):
         # Connection errors can contain credentials; do not echo DSNs.
         message = str(error) if isinstance(error, ValueError) else type(error).__name__
         # Windows already committed are recorded in the ledger; report them too.
-        partial = {"error": message, "completed": results, "views_state": "pending"}
+        partial = {
+            "error": message,
+            "completed": results,
+            "note": "Committed months are in ingestion.entsoe_coal_rebuild_months;"
+            " views_state in ingestion.entsoe_coal_rebuilds says whether views"
+            " need --refresh-views.",
+        }
         try:
             args.report.parent.mkdir(parents=True, exist_ok=True)
             args.report.write_text(json.dumps(partial, indent=2) + "\n")

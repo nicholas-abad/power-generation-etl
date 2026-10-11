@@ -26,21 +26,25 @@ reviewed names come from `config/entsoe-unit-names.json`.
    per month, byte-identical for the same inputs. Its observation digests must
    equal the certified ones; unnamed series without a reviewed or identity-map
    name are excluded and listed in the manifest.
-5. **Plan** (`src/rebuild_entsoe_coal.py`, read-only) and review the report:
-   stored rows, exact MWh and hash per month, and blocking findings (stored coal
-   in uncertified PSRs, unit/time key collisions, country not configured as
-   rebuilt).
-6. **Cutover**, within the certified end's own UTC month:
-   - release the extractor allow-list and the ETL scope config with the country
-     in `countries` and `rebuilt_countries` (legacy coal rows are then rejected
-     for it), and the pinned extractor commit;
-   - pause the weekly ENTSO-E job;
-   - `--apply --approved-plan <plan> --expect-plan-sha256 <sha>`; months are
-     applied one transaction at a time, and an interrupted run resumes;
-   - resume the weekly job: it refetches from the newest month in the table,
-     which refills the tail window (certified end onwards). The tool refuses the
-     tail outside that month, because a tail deleted later would never be
-     refetched.
+5. **Release, then pause.** Release the extractor allow-list and the ETL scope
+   config with the country in `countries` and `rebuilt_countries` (legacy coal
+   rows are then rejected for it), with the weekly workflow pinned to those
+   commits; then pause the weekly ENTSO-E job.
+6. **Plan** (`src/rebuild_entsoe_coal.py`, read-only) from that released
+   checkout and review the report: stored rows, exact MWh and hash per month;
+   the ETL commit and scope-config hash it was checked against (they must equal
+   the released ones); and blocking findings (stored coal in uncertified PSRs,
+   unit/time key collisions, country not configured as rebuilt).
+   **Apply**, within the certified end's own month:
+   `--apply --approved-plan <plan> --expect-plan-sha256 <sha>`. Months are
+   applied one transaction at a time; an interrupted run resumes. The tail
+   (certified end onwards) is applied only if the weekly job will resume within
+   it: the newest stored day in the whole table plus one day must not fall in a
+   later month, checked under the lock after the tail is deleted, and the
+   resume month is recorded. Completing the certified months without the tail
+   needs `--defer-tail` (recorded in the ledger); then re-certify through the
+   current month before resuming. Finally resume the weekly job, which refills
+   the tail.
 7. **Verify**: view refresh (UTC, `CONCURRENTLY`; `--refresh-views` retries a
    failure), totals per month equal the certified payload, other countries and
    fuels unchanged, crosswalk diff (no lost GEM links, site capacity conserved).

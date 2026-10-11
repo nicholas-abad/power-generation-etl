@@ -272,3 +272,55 @@ def test_one_file_with_identified_coal_and_legacy_gas_loads(entsoe_db, tmp_path)
             ("B02", "ECHV_G1___", "27W-GU-ECHVG1--C", "ECHV_G1____", 60),
             ("B04", "Gas plant", None, None, 15),
         ]
+
+
+def test_identified_batches_lock_before_the_identity_check(monkeypatch):
+    # Two identified writers must not both pass the identity check before
+    # either upserts: the table lock is taken first.
+    import pandas as pd
+    from database import PowerGenerationDatabase
+
+    executed = []
+
+    class Cursor:
+        rowcount = 0
+
+        def execute(self, sql, *args):
+            executed.append(sql)
+
+        def copy_from(self, *a, **k):
+            pass
+
+        def fetchone(self):
+            return (False,)
+
+    class Conn:
+        def cursor(self):
+            return Cursor()
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+        def close(self):
+            pass
+
+    db = PowerGenerationDatabase.__new__(PowerGenerationDatabase)
+    db._engine = type("E", (), {"raw_connection": lambda self: Conn()})()
+    monkeypatch.setattr("database.prepare_coal_upsert", lambda cursor: None)
+    frame = pd.DataFrame([record(psr_type="B04", plant_name="Gas")])
+    frame["_source_resolution_verified"] = False
+    db._upsert_via_staging(
+        frame,
+        "entsoe_generation_data",
+        ["timestamp_ms", "country_code", "psr_type", "plant_name"],
+        update_columns=["generation_mw", "unit_eic"],
+        identity_columns=["unit_eic", "production_unit_eic"],
+    )
+    lock = next(i for i, sql in enumerate(executed) if sql.startswith("LOCK TABLE"))
+    check = next(
+        i for i, sql in enumerate(executed) if "IS DISTINCT FROM s.unit_eic" in sql
+    )
+    assert lock < check

@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sys
 from unittest.mock import patch
 
@@ -26,9 +27,6 @@ HOUR = 3600000
 @pytest.fixture(autouse=True)
 def pl_rebuilt(monkeypatch):
     monkeypatch.setattr(entsoe_coal, "REBUILT", frozenset({"PL"}))
-    # The payloads end 2024-05-01: apply runs in that month, when the weekly
-    # job would refill the tail.
-    monkeypatch.setattr(rebuild, "utc_month", lambda now=None: "2024-05")
 
 
 @pytest.fixture
@@ -316,16 +314,35 @@ def test_production_is_refused_before_connecting():
         rebuild.checked_dsn("production", False)
 
 
-def test_tail_is_refused_outside_the_certified_end_month(pg, tmp_path, monkeypatch):
-    insert(pg, stored(MARCH), stored(MAY + HOUR))
+def test_tail_is_refused_when_the_weekly_job_would_resume_after_it(pg, tmp_path):
+    # Another country's data reaches the last hour of May, so the weekly job
+    # resumes in June and would never refill PL's May tail.
+    end_of_may = 1717196400000  # 2024-05-31T23:00Z
+    insert(pg, stored(MARCH), stored(MAY + HOUR), stored(end_of_may, country="CZ"))
     manifest, sha, windows, report = prepared(tmp_path, pg, MONTHS)
-    monkeypatch.setattr(rebuild, "utc_month", lambda now=None: "2024-06")
     before = table(pg)
-    with pytest.raises(ValueError, match="can only be applied in 2024-05"):
+    with pytest.raises(ValueError, match="would resume from 2024-06"):
         rebuild.apply(pg, manifest, sha, windows, report)
     assert table(pg) == before
-    # The certified months alone may still be applied later.
-    rebuild.apply(pg, manifest, sha, windows, report, only={"2024-03", "2024-04"})
+    # The certified months alone may be applied, but only as a recorded deferral.
+    with pytest.raises(ValueError, match="leaves the tail"):
+        rebuild.apply(pg, manifest, sha, windows, report, only={"2024-03", "2024-04"})
+    rebuild.apply(
+        pg, manifest, sha, windows, report, only={"2024-03", "2024-04"}, defer_tail=True
+    )
+    with pg, pg.cursor() as cur:
+        cur.execute("SELECT tail_state FROM ingestion.entsoe_coal_rebuilds")
+        assert cur.fetchone()[0] == "deferred"
+
+
+def test_applying_the_tail_records_the_weekly_resume_month(pg, tmp_path):
+    insert(pg, stored(MARCH), stored(MAY + HOUR))
+    manifest, sha, windows, report = prepared(tmp_path, pg, MONTHS)
+    results = rebuild.apply(pg, manifest, sha, windows, report)
+    assert results[-1]["weekly_resume_month"] == "2024-04"
+    with pg, pg.cursor() as cur:
+        cur.execute("SELECT tail_state FROM ingestion.entsoe_coal_rebuilds")
+        assert cur.fetchone()[0] == "applied"
 
 
 def test_refilled_tail_does_not_block_resume_and_rollback_says_how(pg, tmp_path):
@@ -406,6 +423,7 @@ def test_float_text_form_does_not_cause_a_false_mismatch(pg, tmp_path):
     root = payload(tmp_path, months)
     manifest = json.loads((root / "manifest.json").read_text())
     (root / "manifest.json").write_text(json.dumps(manifest))
+    insert(pg, stored(MARCH))
     manifest, sha, windows = rebuild.load_payload(root)
     report = rebuild.plan(pg, manifest, sha, windows, "local")
     applied = rebuild.apply(pg, manifest, sha, windows, report)
@@ -425,5 +443,64 @@ def test_views_state_returns_to_pending_after_changes(pg, tmp_path):
     assert views_state() == "pending"
     with pg, pg.cursor() as cur:
         cur.execute("UPDATE ingestion.entsoe_coal_rebuilds SET views_state='refreshed'")
-    rebuild.apply(pg, manifest, sha, windows, report, only={"2024-04"})
+    rebuild.apply(pg, manifest, sha, windows, report, only={"2024-04"}, defer_tail=True)
     assert views_state() == "pending"
+
+
+def entsoe_views(conn):
+    """Create only the three ENTSO-E views (and their unique indexes) from the
+    repo's schema files."""
+    statements = []
+    pattern = re.compile(r"CREATE (MATERIALIZED VIEW|UNIQUE INDEX)\b.*", re.S | re.I)
+    for name in (
+        "materialized_views.sql",
+        "row_count_views.sql",
+        "entsoe_unit_monthly.sql",
+    ):
+        for statement in (ROOT / "schema" / name).read_text().split(";"):
+            body = "\n".join(
+                line
+                for line in statement.splitlines()
+                if not line.strip().startswith("--")
+            )
+            match = pattern.search(body)
+            if match and any(view in match.group(0) for view in rebuild.VIEWS):
+                statements.append(match.group(0))
+    with conn, conn.cursor() as cur:
+        cur.execute("SET search_path=public,ingestion")
+        for statement in statements:
+            cur.execute(statement)
+    return len(statements)
+
+
+def test_views_refresh_concurrently_and_mark_refreshed(pg, tmp_path):
+    assert entsoe_views(pg) == 6
+    insert(pg, stored(MARCH))
+    manifest, sha, windows, report = prepared(tmp_path, pg, MONTHS)
+    rebuild.apply(pg, manifest, sha, windows, report)
+    rebuild.refresh_views(pg, manifest["repair_id"])
+    with pg, pg.cursor() as cur:
+        cur.execute("SELECT views_state FROM ingestion.entsoe_coal_rebuilds")
+        assert cur.fetchone()[0] == "refreshed"
+        cur.execute("SELECT count(*) FROM public.mv_entsoe_unit_monthly")
+        assert cur.fetchone()[0] > 0
+
+
+def test_cli_refusal_writes_a_partial_report(tmp_path):
+    root = payload(tmp_path, MONTHS)
+    report = tmp_path / "report.json"
+    code = rebuild.main(
+        [
+            "--environment",
+            "staging",
+            "--payload",
+            str(root),
+            "--months",
+            "2030-01",
+            "--report",
+            str(report),
+        ]
+    )
+    written = json.loads(report.read_text())
+    assert code == 1 and written["completed"] == []
+    assert "matches no window" in written["error"]
