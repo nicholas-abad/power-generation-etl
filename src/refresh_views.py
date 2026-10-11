@@ -43,6 +43,7 @@ ALL_VIEWS = [v for views in SOURCE_VIEWS.values() for v in views]
 # migration still refreshes cleanly.
 STAGING_VIEWS = {
     "chile_all_fuels": ["mv_chile_all_fuels_plant_monthly"],  # migration 019
+    "oe_all_fuels": ["mv_oe_all_fuels_unit_monthly"],  # migration 022
 }
 
 

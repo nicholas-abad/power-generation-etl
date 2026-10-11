@@ -129,6 +129,7 @@ _KNOWN_TABLES = frozenset(
         "occto_generation_data",
         "chile_generation_data",
         "chile_generation_all_fuels",
+        "oe_unit_generation_all_fuels",
         "climatetrace_generation_data",
         "extraction_metadata",
         "plant_crosswalk",
@@ -2061,6 +2062,96 @@ class PowerGenerationDatabase:
             return True, report
         except Exception as e:
             logger.error(f"Failed to insert Chile all-fuel data: {e}")
+            return False, None
+
+    def insert_oe_all_fuels_jsonl_data(
+        self,
+        jsonl_file_path: str,
+        validation_report_path: str = None,
+    ) -> Tuple[bool, Optional[ValidationReport]]:
+        """Load one OpenElectricity all-fuel part file (one network-month) atomically.
+
+        Staging pilot (migration 022). Nothing is written unless every record
+        validates (whole file first, duplicates on the natural key across the
+        file), then one upsert transaction. A part is one network-month
+        (~15-20k rows), so a failed load leaves nothing partial and a replay of
+        the same file is idempotent.
+        """
+        try:
+            keep_cols = [
+                "extraction_run_id",
+                "created_at_ms",
+                "network_code",
+                "network_region",
+                "facility_code",
+                "facility_name",
+                "unit_code",
+                "fueltech",
+                "fueltech_group",
+                "unit_status",
+                "direction",
+                "basis",
+                "timestamp_ms",
+                "energy_mwh",
+                "capacity_registered_mw",
+                "latitude",
+                "longitude",
+                "resolution_minutes",
+            ]
+            with open(jsonl_file_path, "r") as f:
+                records = [json.loads(line) for line in f if line.strip()]
+
+            valid_records, report = DataValidator().validate_file(
+                records, "oe_all_fuels", jsonl_file_path
+            )
+            if validation_report_path:
+                save_report(report, validation_report_path)
+            if report.invalid_count or report.duplicate_count:
+                logger.error(
+                    f"{jsonl_file_path}: {report.invalid_count} invalid, "
+                    f"{report.duplicate_count} duplicate records — nothing written"
+                )
+                return False, report
+            if not valid_records:
+                logger.warning(f"{jsonl_file_path}: no records")
+                return True, report
+
+            df = pd.DataFrame(valid_records)
+            df = df[[c for c in keep_cols if c in df.columns]]
+            written = self._execute_with_retry(
+                lambda: self._upsert_via_staging(
+                    df,
+                    "oe_unit_generation_all_fuels",
+                    conflict_columns=[
+                        "timestamp_ms",
+                        "network_code",
+                        "unit_code",
+                        "direction",
+                    ],
+                    # Labels and metadata are revisable; the key is source values only.
+                    update_columns=[
+                        "energy_mwh",
+                        "basis",
+                        "fueltech",
+                        "fueltech_group",
+                        "unit_status",
+                        "facility_code",
+                        "facility_name",
+                        "network_region",
+                        "capacity_registered_mw",
+                        "latitude",
+                        "longitude",
+                        "extraction_run_id",
+                        "created_at_ms",
+                    ],
+                )
+            )
+            logger.success(
+                f"{jsonl_file_path}: {report.valid_count} valid, {written} inserted or updated"
+            )
+            return True, report
+        except Exception as e:
+            logger.error(f"Failed to insert OpenElectricity all-fuel data: {e}")
             return False, None
 
     def insert_climatetrace_jsonl_data(

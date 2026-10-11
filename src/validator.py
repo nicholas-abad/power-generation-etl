@@ -310,6 +310,36 @@ CHILE_ALL_FUELS_SCHEMA = {
     ),
 }
 
+# OpenElectricity all-fuel pilot (migration 022): unit × day × direction. The
+# duplicate key is the table's natural key. energy_mwh may be negative only for
+# the signed directions (net, anomaly): checked in validate_oe_all_fuels_record.
+OE_ALL_FUELS_DIRECTIONS = {"injection", "withdrawal", "auxiliary", "net", "anomaly"}
+OE_ALL_FUELS_SCHEMA = {
+    "required_fields": {
+        "extraction_run_id": {"type": "str", "validation": "uuid"},
+        "created_at_ms": {"type": "int", "validation": "positive_timestamp"},
+        "timestamp_ms": {"type": "int", "validation": "positive_timestamp"},
+        "network_code": {"type": "str", "validation": "non_empty"},
+        "unit_code": {"type": "str", "validation": "non_empty"},
+        "fueltech": {"type": "str", "validation": "non_empty"},
+        "direction": {"type": "str", "validation": "non_empty"},
+        "basis": {"type": "str", "validation": "non_empty"},
+        "energy_mwh": {"type": "float", "validation": None},
+    },
+    "optional_fields": {
+        "network_region": {"type": "str_or_null", "validation": None},
+        "facility_code": {"type": "str_or_null", "validation": None},
+        "facility_name": {"type": "str_or_null", "validation": None},
+        "fueltech_group": {"type": "str_or_null", "validation": None},
+        "unit_status": {"type": "str_or_null", "validation": None},
+        "capacity_registered_mw": {"type": "float_or_null", "validation": None},
+        "latitude": {"type": "float_or_null", "validation": None},
+        "longitude": {"type": "float_or_null", "validation": None},
+        "resolution_minutes": {"type": "int_or_null", "validation": None},
+    },
+    "duplicate_key": ("timestamp_ms", "network_code", "unit_code", "direction"),
+}
+
 CLIMATETRACE_SCHEMA = {
     "required_fields": {
         "extraction_run_id": {"type": "str", "validation": "uuid"},
@@ -351,6 +381,7 @@ class DataValidator:
             "occto": OCCTO_SCHEMA,
             "chile": CHILE_SCHEMA,
             "chile_all_fuels": CHILE_ALL_FUELS_SCHEMA,
+            "oe_all_fuels": OE_ALL_FUELS_SCHEMA,
             "climatetrace": CLIMATETRACE_SCHEMA,
         }
 
@@ -519,6 +550,27 @@ class DataValidator:
     def validate_chile_record(self, record: Dict[str, Any]) -> ValidationResult:
         """Validate a single Chile (Coordinador) record."""
         return self._validate_record(record, CHILE_SCHEMA)
+
+    def validate_oe_all_fuels_record(self, record: Dict[str, Any]) -> ValidationResult:
+        """Validate one OpenElectricity all-fuel (unit × day × direction) record."""
+        result = self._validate_record(record, OE_ALL_FUELS_SCHEMA)
+        direction, energy = record.get("direction"), record.get("energy_mwh")
+        if direction not in OE_ALL_FUELS_DIRECTIONS:
+            result.errors.append(
+                f"direction: {direction!r} not one of {sorted(OE_ALL_FUELS_DIRECTIONS)}"
+            )
+        elif (
+            isinstance(energy, (int, float))
+            and energy < 0
+            and direction not in ("net", "anomaly")
+        ):
+            result.errors.append(
+                f"energy_mwh: negative ({energy}) for direction {direction!r}"
+            )
+        if record.get("basis") not in ("reported", "derived"):
+            result.errors.append(f"basis: {record.get('basis')!r} not reported/derived")
+        result.valid = not result.errors
+        return result
 
     def validate_chile_all_fuels_record(
         self, record: Dict[str, Any]
