@@ -74,7 +74,7 @@ jobs:
           POSTGRES_DB: power_generation_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          ONS_TEST_PG_DSN: postgresql://postgres:postgres@localhost:5432/power_generation_test
+          ONS_TEST_PG_DSN: host=/tmp/coal-hotfix-ci port=5432 dbname=power_generation_test user=postgres password=postgres
         run: uv run pytest tests/ -v --tb=short
 
   type-check:
