@@ -30,6 +30,9 @@ from tenacity import (
 from validator import DataValidator, ValidationReport, save_report
 from entsoe_coal import check_coal_records, prepare_coal_upsert, source_coal
 
+# ONS natural key since migration 020 (uq_ons_plant_hour).
+ONS_PLANT_HOUR = "timestamp_ms, COALESCE(NULLIF(ons_plant_id, ''), 'name:' || plant)"
+
 # ENTSO-E PSR type codes to human-readable fuel type names.
 # Used to fix fuel_type during JSONL ingestion (records extracted before the
 # extractor fix may have fuel_type="Unknown" due to column-name parsing bugs).
@@ -1298,13 +1301,18 @@ class PowerGenerationDatabase:
                             return self._upsert_via_staging(
                                 df,
                                 "ons_generation_data",
-                                conflict_expr="timestamp_ms, plant, COALESCE(ons_plant_id, '')",
+                                # One row per plant-hour: keyed on the ONS ID so a
+                                # renamed plant updates in place (migration 020);
+                                # rows without an ID fall back to their name.
+                                conflict_expr=ONS_PLANT_HOUR,
                                 # ONS re-publishes current-year files under a
                                 # documented "recurring consistency process";
                                 # the weekly run re-downloads the whole year,
                                 # so DO NOTHING discarded restatements weekly
                                 # (2026-09 audit: 21/205 plants restated).
                                 update_columns=[
+                                    "plant",
+                                    "ceg",
                                     "generation_mwh",
                                     "fuel_type",
                                     "plant_type",

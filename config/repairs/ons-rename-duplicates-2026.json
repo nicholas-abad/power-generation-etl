@@ -1,0 +1,10 @@
+{
+  "repair": "ons-rename-duplicates-2026",
+  "audited_on": "2026-10-11",
+  "note": "Audited ONS source files used to decide which copy of a duplicated (hour, ONS ID) to keep: the row whose plant name matches the source. Files last modified 2026-02-28 (January), 2026-06-30 (May) and 2026-07-31 (June).",
+  "source_files": [
+    {"label": "2026-01", "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_01.parquet", "sha256": "57db2a68425f74fd51f13dc5bacb8271f53618d86f94461ffd0e2223915a282b"},
+    {"label": "2026-05", "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_05.parquet", "sha256": "c90f2bed4471381a23a971e61ce3e93046555adabe1dfa5cafa5db87b074ddf5"},
+    {"label": "2026-06", "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_06.parquet", "sha256": "0787fe30e3c9ade5c8914ce846a41b23748866c6378fefae010205e39caea205"}
+  ]
+}
