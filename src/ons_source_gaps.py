@@ -20,7 +20,12 @@ from pathlib import Path
 import psycopg2
 from psycopg2.extras import execute_values
 
-from check_ons_staging import benchmark, check_extraction, check_source_gaps, year_bounds
+from check_ons_staging import (
+    benchmark,
+    check_extraction,
+    check_source_gaps,
+    year_bounds,
+)
 
 COLUMNS = (
     "ons_plant_id",
@@ -73,8 +78,12 @@ def record(cursor, year, rows):
     )
     if cursor.fetchall() != sorted((r[0], r[1], r[2], r[5]) for r in rows):
         raise ValueError("Recorded gaps differ from the approved extraction")
-    return {"year": year, "replaced": deleted, "recorded": len(rows),
-            "gap_hours": sum(r[5] for r in rows)}
+    return {
+        "year": year,
+        "replaced": deleted,
+        "recorded": len(rows),
+        "gap_hours": sum(r[5] for r in rows),
+    }
 
 
 def main():

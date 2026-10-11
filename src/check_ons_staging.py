@@ -104,15 +104,23 @@ def check_fuel_accounting(year):
             raise ValueError(f"{fuel} has no accepted rows in {year} and no approval")
         rejected = dict(entry["rejected_eligible"])
         if rejected.pop("missing_generation", 0) != gap_hours.get(fuel, 0):
-            raise ValueError(f"{fuel} missing generation in {year} differs from its source gaps")
+            raise ValueError(
+                f"{fuel} missing generation in {year} differs from its source gaps"
+            )
         if rejected and rejected != approved.get(fuel, {}).get("counts"):
             raise ValueError(
                 f"{fuel} loses eligible rows in {year} ({rejected}) without approval"
             )
-    if sum(entry["accepted_rows"] for entry in fuels.values()) != audited["expected_observations"]:
+    if (
+        sum(entry["accepted_rows"] for entry in fuels.values())
+        != audited["expected_observations"]
+    ):
         raise ValueError("Per-fuel audit does not add up to the audited observations")
     return {
-        fuel: {"accepted_rows": entry["accepted_rows"], "accepted_mwh": entry["accepted_mwh"]}
+        fuel: {
+            "accepted_rows": entry["accepted_rows"],
+            "accepted_mwh": entry["accepted_mwh"],
+        }
         for fuel, entry in fuels.items()
     }
 
@@ -122,7 +130,13 @@ def hour_ms(text):
 
 
 def gap_key(gap):
-    return (gap["ons_plant_id"], gap["start_ms"], gap["end_ms"], gap["hours"], gap["fuel_type"].strip())
+    return (
+        gap["ons_plant_id"],
+        gap["start_ms"],
+        gap["end_ms"],
+        gap["hours"],
+        gap["fuel_type"].strip(),
+    )
 
 
 def check_source_gaps(year, gaps):
@@ -150,7 +164,12 @@ def check_source_gaps(year, gaps):
                 f"{gap['hours']} h from {gap['start_ms']}"
             )
         approved.append(
-            {**gap, "fuel_type": gap["fuel_type"].strip(), "kind": match["kind"], "note": match["note"]}
+            {
+                **gap,
+                "fuel_type": gap["fuel_type"].strip(),
+                "kind": match["kind"],
+                "note": match["note"],
+            }
         )
     return approved
 
@@ -209,7 +228,11 @@ def check_extraction(metadata, year, audited):
     accepted = normalized_counts(
         metadata.get("coverage_counts", {}).get("accepted", {}).get("fuel_type", {})
     )
-    expected = {fuel: item["accepted_rows"] for fuel, item in fuels.items() if item["accepted_rows"]}
+    expected = {
+        fuel: item["accepted_rows"]
+        for fuel, item in fuels.items()
+        if item["accepted_rows"]
+    }
     if accepted != expected:
         raise ValueError("Accepted rows per fuel differ from the independent audit")
     if sorted(map(gap_key, metadata.get("source_gaps", []))) != sorted(
