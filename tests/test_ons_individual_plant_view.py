@@ -14,16 +14,19 @@ import subprocess
 import sys
 import uuid
 
+from unittest.mock import patch
+
 import psycopg2
 from psycopg2 import sql
 from psycopg2.extras import execute_values
-from psycopg2.extensions import parse_dsn, make_dsn
+from psycopg2.extensions import make_dsn
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from database import PowerGenerationDatabase  # noqa: E402
 from check_ons_staging import reconcile  # noqa: E402
+from local_postgres import local_settings, verify_local_connection  # noqa: E402
 
 
 @pytest.fixture
@@ -31,54 +34,53 @@ def database(monkeypatch):
     dsn = os.getenv("ONS_TEST_PG_DSN")
     if not dsn:
         pytest.skip("ONS_TEST_PG_DSN is required for local PostgreSQL integration")
-    params = parse_dsn(dsn)
-    host = params.get("host", "")
-    assert host in {"localhost", "127.0.0.1", "::1"} or host.startswith("/"), (
-        "The migration test requires a local disposable PostgreSQL server"
-    )
     assert shutil.which("psql"), "psql is required to test the actual migration"
-    name = f"ons_test_{uuid.uuid4().hex}"
-    admin = psycopg2.connect(dsn)
-    admin.autocommit = True
-    with admin.cursor() as cur:
-        for role in ["etl_writer", "dashboard_ro"]:
-            cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,))
-            if not cur.fetchone():
-                cur.execute(sql.SQL("CREATE ROLE {}").format(sql.Identifier(role)))
-        cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
-        cur.execute(
-            sql.SQL("ALTER DATABASE {} SET search_path TO public, ingestion").format(
-                sql.Identifier(name)
-            )
-        )
-    params["dbname"] = name
-    test_dsn = make_dsn(**params)
-    conn = psycopg2.connect(test_dsn)
-    conn.autocommit = True
-    with conn.cursor() as cur:
-        cur.execute((ROOT / "schema/ons_generation.sql").read_text())
-        cur.execute((ROOT / "schema/extraction_metadata.sql").read_text())
-        cur.execute(
-            "CREATE TABLE ingestion.schema_migrations (version text PRIMARY KEY, notes text)"
-        )
-        cur.execute("GRANT USAGE ON SCHEMA public, ingestion TO etl_writer")
-        cur.execute("GRANT SELECT ON ingestion.ons_generation_data TO etl_writer")
-    monkeypatch.setenv("POSTGRES_SSLMODE", "disable")
-    db = PowerGenerationDatabase(
-        host=host,
-        port=int(params.get("port", 5432)),
-        database=name,
-        username=params.get("user", "postgres"),
-        password=params.get("password", "unused"),
-    )
-    try:
-        yield conn, db, test_dsn
-    finally:
-        db.engine.dispose()
-        conn.close()
+    with patch.dict(os.environ):
+        # Refuses remote hosts, routing overrides and inherited PG settings.
+        parts = local_settings(dsn, r"power_generation_test")
+        name = f"ons_test_{uuid.uuid4().hex}"
+        admin = psycopg2.connect(**parts, connect_timeout=5)
+        admin.autocommit = True
+        verify_local_connection(admin, parts["dbname"])
         with admin.cursor() as cur:
-            cur.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(name)))
-        admin.close()
+            for role in ["etl_writer", "dashboard_ro"]:
+                cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,))
+                if not cur.fetchone():
+                    cur.execute(sql.SQL("CREATE ROLE {}").format(sql.Identifier(role)))
+            cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+            cur.execute(
+                sql.SQL(
+                    "ALTER DATABASE {} SET search_path TO public, ingestion"
+                ).format(sql.Identifier(name))
+            )
+        test_parts = {**parts, "dbname": name}
+        conn = psycopg2.connect(**test_parts, connect_timeout=5)
+        conn.autocommit = True
+        verify_local_connection(conn, name)
+        with conn.cursor() as cur:
+            cur.execute((ROOT / "schema/ons_generation.sql").read_text())
+            cur.execute((ROOT / "schema/extraction_metadata.sql").read_text())
+            cur.execute(
+                "CREATE TABLE ingestion.schema_migrations (version text PRIMARY KEY, notes text)"
+            )
+            cur.execute("GRANT USAGE ON SCHEMA public, ingestion TO etl_writer")
+            cur.execute("GRANT SELECT ON ingestion.ons_generation_data TO etl_writer")
+        monkeypatch.setenv("POSTGRES_SSLMODE", "disable")
+        db = PowerGenerationDatabase(
+            host=parts["host"],
+            port=int(parts.get("port", 5432)),
+            database=name,
+            username=parts["user"],
+            password=parts.get("password", "unused"),
+        )
+        try:
+            yield conn, db, make_dsn(**test_parts)
+        finally:
+            db.engine.dispose()
+            conn.close()
+            with admin.cursor() as cur:
+                cur.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(name)))
+            admin.close()
 
 
 def record(plant_id, **overrides):
@@ -271,7 +273,9 @@ def test_year_to_date_reconciliation_respects_audited_cutoff(
     def at(month, day=1, hour=0):
         return record(
             "PLANT",
-            timestamp_ms=int(datetime(2026, month, day, hour, tzinfo=UTC).timestamp() * 1000),
+            timestamp_ms=int(
+                datetime(2026, month, day, hour, tzinfo=UTC).timestamp() * 1000
+            ),
         )
 
     rows = [at(month) for month in range(1, 9)] + [at(8, 31, 23)]
@@ -294,8 +298,14 @@ def test_year_to_date_reconciliation_respects_audited_cutoff(
         assert result["qualified_monthly_rows"] == 8
         cur.execute("DROP TABLE ons_expected")
         for changed, message in [
-            ({"Carvão": {"accepted_rows": len(rows), "accepted_mwh": 1.0}}, "Loaded Carvão differs"),
-            ({**audit, "Gás": {"accepted_rows": 1, "accepted_mwh": 1.0}}, "Loaded fuels differ"),
+            (
+                {"Carvão": {"accepted_rows": len(rows), "accepted_mwh": 1.0}},
+                "Loaded Carvão differs",
+            ),
+            (
+                {**audit, "Gás": {"accepted_rows": 1, "accepted_mwh": 1.0}},
+                "Loaded fuels differ",
+            ),
         ]:
             with pytest.raises(ValueError, match=message):
                 reconcile(cur, source, 2026, len(rows), fuels=changed)
@@ -313,9 +323,7 @@ def test_year_to_date_reconciliation_respects_audited_cutoff(
             "DELETE FROM ingestion.ons_generation_data WHERE timestamp_ms=%s",
             (rows[6]["timestamp_ms"],),
         )
-        cur.execute(
-            "REFRESH MATERIALIZED VIEW public.mv_ons_individual_plant_monthly"
-        )
+        cur.execute("REFRESH MATERIALIZED VIEW public.mv_ons_individual_plant_monthly")
         with pytest.raises(ValueError, match="every audited month"):
             reconcile(cur, missing_july, 2026, len(rows) - 1)
 
@@ -334,12 +342,29 @@ def test_source_gaps_migration_loader_and_monthly_view(database):
         gap["plant"] = f"Plant {gap['ons_plant_id']}"
     rows = approved_rows(metadata, 2026)
     with conn.cursor() as cur:
-        for relation in ("ingestion.ons_source_gaps", "public.ons_individual_plant_gap_monthly"):
-            cur.execute("SELECT has_table_privilege('dashboard_ro', %s, 'SELECT')", (relation,))
+        for relation in (
+            "ingestion.ons_source_gaps",
+            "public.ons_individual_plant_gap_monthly",
+        ):
+            cur.execute(
+                "SELECT has_table_privilege('dashboard_ro', %s, 'SELECT')", (relation,)
+            )
             assert cur.fetchone() == (False,)
-            cur.execute("SELECT has_table_privilege('etl_writer', %s, 'SELECT')", (relation,))
+            cur.execute(
+                "SELECT has_table_privilege('etl_writer', %s, 'SELECT')", (relation,)
+            )
             assert cur.fetchone() == (True,)
-        outside = ("OLD", 1_735_689_600_000, 1_735_693_200_000, "Old", "Gás", 1, "source_gap", "2025", "run")
+        outside = (
+            "OLD",
+            1_735_689_600_000,
+            1_735_693_200_000,
+            "Old",
+            "Gás",
+            1,
+            "source_gap",
+            "2025",
+            "run",
+        )
         cur.execute(
             "INSERT INTO ingestion.ons_source_gaps (ons_plant_id, start_ms, end_ms, plant, fuel_type, "
             "hours, kind, note, extraction_run_id) VALUES %s",
@@ -361,14 +386,20 @@ def test_source_gaps_migration_loader_and_monthly_view(database):
             ("2026-07-01", "SPUTQT", "publication_change", 744),
             ("2026-08-01", "SPUTQT", "publication_change", 744),
         ]
-        cur.execute("SELECT sum(gap_hours) FROM public.ons_individual_plant_gap_monthly WHERE ons_plant_id <> 'OLD'")
+        cur.execute(
+            "SELECT sum(gap_hours) FROM public.ons_individual_plant_gap_monthly WHERE ons_plant_id <> 'OLD'"
+        )
         assert cur.fetchone() == (50352,)
         # ONS later fills 22 July: the next audited load removes those gaps only.
         filled = [row for row in rows if row[5] != 24]
         assert record(cur, 2026, filled)["replaced"] == 24
-        cur.execute("SELECT count(*), sum(hours) FROM ingestion.ons_source_gaps WHERE ons_plant_id <> 'OLD'")
+        cur.execute(
+            "SELECT count(*), sum(hours) FROM ingestion.ons_source_gaps WHERE ons_plant_id <> 'OLD'"
+        )
         assert cur.fetchone() == (17, 17 * 2952)
-        cur.execute("SELECT count(*) FROM ingestion.ons_source_gaps WHERE ons_plant_id = 'OLD'")
+        cur.execute(
+            "SELECT count(*) FROM ingestion.ons_source_gaps WHERE ons_plant_id = 'OLD'"
+        )
         assert cur.fetchone() == (1,)
         with pytest.raises(ValueError, match="differ from the approved audit"):
             check_recorded_gaps(cur, 2026)
