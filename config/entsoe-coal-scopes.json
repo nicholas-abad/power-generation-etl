@@ -1,0 +1,5 @@
+{
+  "scope": "Countries whose ENTSO-E coal (B02, B03, B05) arrives as per-Period source records (resolution_source=xml_period). Within these, legacy files cannot change a stored interval duration, reviewed aliases are normalized, and source names are kept literally. Add a country only together with the extractor's matching allow-list, after its strict-parser survey passes.",
+  "psr_types": ["B02", "B03", "B05"],
+  "countries": ["CZ"]
+}

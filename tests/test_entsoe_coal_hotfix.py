@@ -17,6 +17,7 @@ from sqlalchemy.engine import URL
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from database import PowerGenerationDatabase
+import entsoe_coal
 from entsoe_coal import check_coal_records
 import repair_entsoe_coal as repair
 from local_postgres import local_settings, verify_local_connection
@@ -418,3 +419,75 @@ def test_repair_rejects_extra_alias_copy(pg):
     with pytest.raises(ValueError, match="Unreviewed alias copy"):
         repair.run(conn, manifest, changes, "local")
     assert rows(conn) == before
+
+
+# --- configured scopes beyond Czechia ---------------------------------------
+
+
+@pytest.fixture
+def pl_scope(monkeypatch):
+    monkeypatch.setattr(entsoe_coal, "COUNTRIES", frozenset({"CZ", "PL"}))
+
+
+def pl(name="Belchatow 1", minutes=60, mw=100, **kw):
+    return record(name, minutes, mw, country_code="PL", **kw)
+
+
+def test_configured_scope_is_czech_only_until_surveyed():
+    assert entsoe_coal.COUNTRIES == {"CZ"}
+    assert {a["country_code"] for a in entsoe_coal.ALIASES} == {"CZ"}
+    assert entsoe_coal.aliases_for("PL") == []
+
+
+def test_source_period_coal_outside_scope_is_rejected():
+    with pytest.raises(ValueError, match="outside the configured scopes"):
+        check_coal_records(
+            [pl(resolution_source="xml_period", unit_eic="19W-PL-UNIT-0001")]
+        )
+    check_coal_records([pl()])  # legacy files outside scope stay loadable
+
+
+def test_scoped_country_source_fixes_duration_and_old_files_cannot_revert(pg, pl_scope):
+    conn, db = pg
+    insert(conn, pl(minutes=15))
+    assert upsert(db, pl(), verified=True) == 1
+    repaired = rows(conn)
+    assert repaired[0]["resolution_minutes"] == 60
+    with pytest.raises(ValueError, match="Legacy PL coal interval mismatch"):
+        upsert(db, pl(minutes=15))
+    assert rows(conn) == repaired
+
+
+def test_unscoped_country_keeps_legacy_upsert(pg):
+    conn, db = pg
+    insert(conn, pl(minutes=60))
+    assert upsert(db, pl(minutes=15)) == 1
+    assert rows(conn)[0]["resolution_minutes"] == 15
+
+
+def test_same_name_in_two_countries_stays_separate(pg, pl_scope):
+    # CZ has a reviewed alias for this name; PL must not be renamed onto it.
+    conn, db = pg
+    insert(conn, record("ECHV_G1___"))
+    assert upsert(db, pl("ECHV_G1____"), verified=True) == 1
+    stored = {(r["country_code"], r["plant_name"]) for r in rows(conn)}
+    assert stored == {("CZ", "ECHV_G1___"), ("PL", "ECHV_G1____")}
+    check_coal_records([record(), pl("ECHV_G1___", mw=999)])
+
+
+def test_real_loader_keeps_literal_names_for_scoped_country(
+    pg, pl_scope, tmp_path, monkeypatch
+):
+    conn, db = pg
+    monkeypatch.setattr(db, "_get_date_range_for_run", lambda *a: (None, None))
+    monkeypatch.setattr(db, "insert_extraction_metadata", lambda **k: True)
+    path = tmp_path / "input.jsonl"
+    source = pl(
+        "Opole_Fossil Hard coal",
+        psr_type="B05",
+        resolution_source="xml_period",
+        unit_eic="19W-PL-UNIT-0001",
+    )
+    path.write_text(json.dumps(source) + "\n")
+    assert db.insert_entsoe_jsonl_data(str(path))[0]
+    assert [r["plant_name"] for r in rows(conn)] == ["Opole_Fossil Hard coal"]

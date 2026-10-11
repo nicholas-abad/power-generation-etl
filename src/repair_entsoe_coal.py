@@ -18,7 +18,7 @@ import psycopg2
 from psycopg2.extensions import parse_dsn
 from psycopg2.extras import Json, execute_values
 
-from entsoe_coal import ALIASES
+from entsoe_coal import aliases_for
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "config/repairs/entsoe-cz-coal-2023-2024.json"
@@ -104,7 +104,7 @@ def build_plan(cursor, manifest, changes, target):
     ]
     allowed_keys = set(wanted)
     for row in changes:
-        for alias in ALIASES:
+        for alias in aliases_for("CZ"):
             if row["psr_type"] == alias["psr_type"] and row["plant_name"] in {
                 alias["source_name"],
                 alias["legacy_name"],

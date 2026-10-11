@@ -1,4 +1,8 @@
-"""Czech coal compatibility guards for the existing name-keyed schema."""
+"""ENTSO-E coal compatibility guards for the existing name-keyed schema.
+
+They apply to the countries in config/entsoe-coal-scopes.json, whose coal the
+extractor emits as per-Period source records.
+"""
 
 import json
 from pathlib import Path
@@ -6,20 +10,23 @@ import re
 
 from psycopg2.extras import execute_values
 
-COAL = frozenset({"B02", "B03", "B05"})
-ALIASES = json.loads(
-    (
-        Path(__file__).resolve().parents[1] / "config/entsoe-coal-aliases.json"
-    ).read_text()
-)["aliases"]
+CONFIG = Path(__file__).resolve().parents[1] / "config"
+_SCOPES = json.loads((CONFIG / "entsoe-coal-scopes.json").read_text())
+COAL = frozenset(_SCOPES["psr_types"])
+COUNTRIES = frozenset(_SCOPES["countries"])
+ALIASES = json.loads((CONFIG / "entsoe-coal-aliases.json").read_text())["aliases"]
+
+
+def aliases_for(country):
+    return [a for a in ALIASES if a["country_code"] == country]
+
+
+def in_scope(row):
+    return row.get("country_code") in COUNTRIES and row.get("psr_type") in COAL
 
 
 def source_coal(row):
-    return (
-        row.get("country_code") == "CZ"
-        and row.get("psr_type") in COAL
-        and row.get("resolution_source") == "xml_period"
-    )
+    return in_scope(row) and row.get("resolution_source") == "xml_period"
 
 
 def check_coal_records(records):
@@ -30,11 +37,19 @@ def check_coal_records(records):
     """
     seen = {}
     for row in records:
-        if row.get("country_code") != "CZ" or row.get("psr_type") not in COAL:
+        country = row.get("country_code")
+        if row.get("psr_type") not in COAL:
             continue
         marker = row.get("resolution_source")
+        if country not in COUNTRIES:
+            if marker is not None:
+                raise ValueError(
+                    f"Source-period coal for {country} is outside the configured "
+                    "scopes (config/entsoe-coal-scopes.json)"
+                )
+            continue
         if marker not in {None, "xml_period"}:
-            raise ValueError("Unknown Czech coal interval provenance")
+            raise ValueError(f"Unknown {country} coal interval provenance")
         if marker == "xml_period" and not row.get("unit_eic"):
             raise ValueError("Source-period coal records require their source unit EIC")
         if marker == "xml_period" and (
@@ -42,25 +57,32 @@ def check_coal_records(records):
             or row.get("data_type") != "Actual Aggregated"
         ):
             raise ValueError("Invalid source-period coal identity or metric")
-        for alias in ALIASES:
+        for alias in aliases_for(country):
             if row.get("unit_eic") == alias["unit_eic"] and (
                 row.get("psr_type") != alias["psr_type"]
                 or row.get("plant_name")
                 not in {alias["source_name"], alias["legacy_name"]}
             ):
                 raise ValueError(
-                    "Known Czech coal EIC changed name or fuel; review required"
+                    f"Known {country} coal EIC changed name or fuel; review required"
                 )
             if row.get("psr_type") == alias["psr_type"] and row.get("plant_name") in {
                 alias["source_name"],
                 alias["legacy_name"],
             }:
                 if row.get("unit_eic") and row["unit_eic"] != alias["unit_eic"]:
-                    raise ValueError("Czech coal name does not match its reviewed EIC")
-        key = (row.get("timestamp_ms"), row.get("psr_type"), row.get("plant_name"))
+                    raise ValueError(
+                        f"{country} coal name does not match its reviewed EIC"
+                    )
+        key = (
+            row.get("timestamp_ms"),
+            country,
+            row.get("psr_type"),
+            row.get("plant_name"),
+        )
         value = (row.get("generation_mw"), row.get("resolution_minutes"))
         if key in seen and seen[key] != value:
-            raise ValueError("Conflicting Czech coal measurements in input")
+            raise ValueError(f"Conflicting {country} coal measurements in input")
         seen[key] = value
 
 
@@ -71,67 +93,88 @@ def prepare_coal_upsert(cursor):
     that do not use an advisory lock. Both existing names is an error requiring
     an audited repair; this function never deletes historical observations.
     """
-    cursor.execute("""SELECT EXISTS (SELECT 1 FROM _staging_entsoe_generation_data
-        WHERE country_code='CZ' AND psr_type IN ('B02','B03','B05'))""")
+    scope = (sorted(COUNTRIES), sorted(COAL))
+    cursor.execute(
+        """SELECT EXISTS (SELECT 1 FROM _staging_entsoe_generation_data
+        WHERE country_code = ANY(%s) AND psr_type = ANY(%s))""",
+        scope,
+    )
     if not cursor.fetchone()[0]:
         return
     cursor.execute("SET LOCAL lock_timeout = '10s'")
     cursor.execute("LOCK TABLE entsoe_generation_data IN SHARE ROW EXCLUSIVE MODE")
     cursor.execute("""CREATE TEMP TABLE _coal_aliases (
-        psr text, legacy text, source text
+        country text, psr text, legacy text, source text
     ) ON COMMIT DROP""")
-    execute_values(
-        cursor,
-        "INSERT INTO _coal_aliases VALUES %s",
-        [(a["psr_type"], a["legacy_name"], a["source_name"]) for a in ALIASES],
-    )
+    rows = [
+        (a["country_code"], a["psr_type"], a["legacy_name"], a["source_name"])
+        for a in ALIASES
+        if a["country_code"] in COUNTRIES
+    ]
+    if rows:
+        execute_values(cursor, "INSERT INTO _coal_aliases VALUES %s", rows)
     cursor.execute("""CREATE TEMP TABLE _coal_names ON COMMIT DROP AS
-        SELECT DISTINCT s.timestamp_ms, s.psr_type, s.plant_name AS incoming,
-            aliases.legacy, a.plant_name AS existing
+        SELECT DISTINCT s.timestamp_ms, s.country_code, s.psr_type,
+            s.plant_name AS incoming, aliases.legacy, a.plant_name AS existing
         FROM _staging_entsoe_generation_data s
-        JOIN _coal_aliases aliases ON s.country_code='CZ' AND s.psr_type=aliases.psr
+        JOIN _coal_aliases aliases ON s.country_code=aliases.country
+            AND s.psr_type=aliases.psr
             AND s.plant_name IN (aliases.legacy, aliases.source)
-        LEFT JOIN entsoe_generation_data a ON a.country_code='CZ'
+        LEFT JOIN entsoe_generation_data a ON a.country_code=s.country_code
             AND a.timestamp_ms=s.timestamp_ms AND a.psr_type=s.psr_type
             AND a.plant_name IN (aliases.legacy, aliases.source)""")
-    cursor.execute("""SELECT 1 FROM _coal_names
-        GROUP BY timestamp_ms, psr_type, incoming HAVING count(*)>1 LIMIT 1""")
-    if cursor.fetchone():
+    cursor.execute("""SELECT country_code FROM _coal_names
+        GROUP BY timestamp_ms, country_code, psr_type, incoming
+        HAVING count(*)>1 LIMIT 1""")
+    found = cursor.fetchone()
+    if found:
         raise ValueError(
-            "Existing Czech coal aliases overlap; an audited repair is required"
+            f"Existing {found[0]} coal aliases overlap; an audited repair is required"
         )
     # An unverified row renamed onto the other alias's stored row must agree on
     # MW; otherwise a conflicting copy split across batches would silently
     # overwrite the stored value. Source-period rows may revise MW.
-    cursor.execute("""SELECT 1 FROM _staging_entsoe_generation_data s
-        JOIN _coal_names n ON s.country_code='CZ' AND s.timestamp_ms=n.timestamp_ms
+    cursor.execute("""SELECT s.country_code FROM _staging_entsoe_generation_data s
+        JOIN _coal_names n ON s.country_code=n.country_code
+          AND s.timestamp_ms=n.timestamp_ms
           AND s.psr_type=n.psr_type AND s.plant_name=n.incoming
-        JOIN entsoe_generation_data a ON a.country_code='CZ'
+        JOIN entsoe_generation_data a ON a.country_code=s.country_code
           AND a.timestamp_ms=s.timestamp_ms AND a.psr_type=s.psr_type
           AND a.plant_name=n.existing
         WHERE n.existing IS NOT NULL AND n.existing<>n.incoming
           AND NOT s._source_resolution_verified
           AND a.generation_mw IS DISTINCT FROM s.generation_mw LIMIT 1""")
-    if cursor.fetchone():
+    found = cursor.fetchone()
+    if found:
         raise ValueError(
-            "Conflicting Czech coal alias measurement; regenerate from source XML"
+            f"Conflicting {found[0]} coal alias measurement; regenerate from source XML"
         )
     cursor.execute("""UPDATE _staging_entsoe_generation_data s
         SET plant_name=COALESCE(n.existing,n.legacy)
-        FROM _coal_names n WHERE s.country_code='CZ' AND s.timestamp_ms=n.timestamp_ms
+        FROM _coal_names n WHERE s.country_code=n.country_code
+          AND s.timestamp_ms=n.timestamp_ms
           AND s.psr_type=n.psr_type AND s.plant_name=n.incoming""")
-    cursor.execute("""SELECT 1 FROM _staging_entsoe_generation_data
-        WHERE country_code='CZ' AND psr_type IN ('B02','B03','B05')
-        GROUP BY timestamp_ms, psr_type, plant_name
-        HAVING count(DISTINCT (generation_mw,resolution_minutes,fuel_type))>1 LIMIT 1""")
-    if cursor.fetchone():
-        raise ValueError("Conflicting Czech coal aliases in input")
-    cursor.execute("""SELECT 1 FROM _staging_entsoe_generation_data s
+    cursor.execute(
+        """SELECT country_code FROM _staging_entsoe_generation_data
+        WHERE country_code = ANY(%s) AND psr_type = ANY(%s)
+        GROUP BY timestamp_ms, country_code, psr_type, plant_name
+        HAVING count(DISTINCT (generation_mw,resolution_minutes,fuel_type))>1
+        LIMIT 1""",
+        scope,
+    )
+    found = cursor.fetchone()
+    if found:
+        raise ValueError(f"Conflicting {found[0]} coal aliases in input")
+    cursor.execute(
+        """SELECT s.country_code FROM _staging_entsoe_generation_data s
         JOIN entsoe_generation_data a USING (timestamp_ms,country_code,psr_type,plant_name)
-        WHERE s.country_code='CZ' AND s.psr_type IN ('B02','B03','B05')
+        WHERE s.country_code = ANY(%s) AND s.psr_type = ANY(%s)
           AND NOT s._source_resolution_verified
-          AND a.resolution_minutes IS DISTINCT FROM s.resolution_minutes LIMIT 1""")
-    if cursor.fetchone():
+          AND a.resolution_minutes IS DISTINCT FROM s.resolution_minutes LIMIT 1""",
+        scope,
+    )
+    found = cursor.fetchone()
+    if found:
         raise ValueError(
-            "Legacy Czech coal interval mismatch; regenerate from source XML"
+            f"Legacy {found[0]} coal interval mismatch; regenerate from source XML"
         )
