@@ -133,7 +133,11 @@ def account(df):
 
 
 def gaps(df, reason):
-    """Contiguous hourly runs of missing generation in eligible plants."""
+    """Contiguous hourly runs of null generation in eligible plants.
+
+    Each plant-hour counts once; an hour that also has an accepted value is
+    not a gap (same rule as the extractor's source_gaps).
+    """
     missing = df[reason == "missing_generation"]
     if missing.empty:
         return []
@@ -143,7 +147,25 @@ def gaps(df, reason):
             "fuel_type": missing["nom_tipocombustivel"].astype("string").str.strip(),
             "start": pd.to_datetime(missing["din_instante"]),
         }
-    ).sort_values(["ons_plant_id", "start"])
+    ).drop_duplicates(["ons_plant_id", "start"])
+    accepted = df[
+        reason.isna()
+        & df["cod_modalidadeoperacao"]
+        .astype("string")
+        .str.strip()
+        .str.upper()
+        .isin(INDIVIDUAL)
+    ]
+    valued = set(
+        zip(
+            accepted["id_ons"].astype("string").str.strip(),
+            pd.to_datetime(accepted["din_instante"]),
+        )
+    )
+    frame = frame[[k not in valued for k in zip(frame["ons_plant_id"], frame["start"])]]
+    if frame.empty:
+        return []
+    frame = frame.sort_values(["ons_plant_id", "start"])
     new_run = frame.groupby("ons_plant_id")["start"].diff() != pd.Timedelta(hours=1)
     runs = frame.groupby(new_run.cumsum()).agg(
         ons_plant_id=("ons_plant_id", "first"),

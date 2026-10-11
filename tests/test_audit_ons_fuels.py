@@ -122,3 +122,16 @@ def test_candidate_plant_hours_expose_repeats_across_files():
     _, _, other = account(pd.DataFrame([row(din_instante="2026-01-01 01:00:00")]))
     assert first & second  # same plant-hour in two files: the audit refuses
     assert not first & other
+
+
+def test_gap_hours_count_once_and_skip_hours_with_a_value():
+    df = pd.DataFrame(
+        [
+            row(id_ons="A", val_geracao=None),
+            row(id_ons="A", val_geracao=None),
+            row(id_ons="B", val_geracao=None),
+            row(id_ons="B", val_geracao=3.0),
+        ]
+    )
+    _, found, _ = account(df)
+    assert [(g["ons_plant_id"], g["hours"]) for g in found] == [("A", 1)]
