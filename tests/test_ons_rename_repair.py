@@ -326,6 +326,18 @@ def test_plan_apply_migrate_load_and_rollback(renamed, tmp_path):
         assert cur.fetchone() == (5, 5)  # the archive is kept
     with pytest.raises(ValueError, match="not an applied repair"):
         transaction(conn, lambda cur: repair.rollback(cur, planned["fingerprint"]))
+    # The same plan can be applied again after a rollback, but not twice.
+    again = transaction(
+        conn, lambda cur: repair.apply(cur, planned, planned["fingerprint"])
+    )
+    assert again["deleted"] == 5
+    with conn.cursor() as cur:
+        cur.execute("SELECT state FROM ingestion.ons_republication_repairs")
+        assert cur.fetchall() == [("applied",)]
+    with pytest.raises(ValueError):
+        transaction(
+            conn, lambda cur: repair.apply(cur, planned, planned["fingerprint"])
+        )
 
 
 def test_rollback_refuses_rows_that_would_collide(renamed):

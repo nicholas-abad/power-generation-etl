@@ -279,9 +279,13 @@ def apply(cursor, planned, fingerprint):
     create_archive(cursor)
     cursor.execute(
         f"INSERT INTO {LEDGER} (fingerprint, manifest_sha256, rows, state) "
-        "VALUES (%s, %s, %s, 'applied')",
+        "VALUES (%s, %s, %s, 'applied') ON CONFLICT (fingerprint) DO UPDATE "
+        "SET state = 'applied', applied_at = now(), rolled_back_at = NULL "
+        f"WHERE {LEDGER}.state = 'rolled_back'",
         (fingerprint, manifest_sha256, len(rows)),
     )
+    if cursor.rowcount != 1:
+        raise ValueError("This repair is already applied")
     reasons = planned["reasons"]
     execute_values(
         cursor,
