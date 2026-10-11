@@ -21,7 +21,8 @@ reviewed names come from `config/entsoe-unit-names.json`.
    listed.
 3. **Identity map** for the country: stored names to source EICs (exact,
    cleanup, whitespace, encoding, truncated). Reviewed renames go into
-   `config/entsoe-unit-names.json` (canonical name = longest stored history).
+   `config/entsoe-unit-names.json` (canonical name = latest correct source spelling;
+   broken encodings excluded; older spellings kept as source and legacy names).
 4. **Build the payload** (`scripts/build_entsoe_coal_payload.py`): one gzip TSV
    per month, byte-identical for the same inputs. Its observation digests must
    equal the certified ones; unnamed series without a reviewed or identity-map

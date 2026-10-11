@@ -437,7 +437,7 @@ def test_configured_scope_is_czech_only_until_surveyed():
     assert entsoe_coal.COUNTRIES == {"CZ"}
     # Reviewed identities may exist for countries not yet in scope (e.g. PL
     # renames); they take effect only once the country is scoped.
-    assert {a["country_code"] for a in entsoe_coal.ALIASES} == {"CZ", "PL"}
+    assert {"CZ", "PL"} <= {a["country_code"] for a in entsoe_coal.ALIASES}
 
 
 def test_source_period_coal_outside_scope_is_rejected():

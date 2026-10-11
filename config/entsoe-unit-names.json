@@ -1,5 +1,5 @@
 {
-  "scope": "The single reviewed ENTSO-E unit identity table. For each (country, unit EIC): plant_name is the canonical display/join name written to entsoe_generation_data; source_names are the reviewed spellings the source has used for this EIC (a source row with any other name fails until reviewed); legacy_names are stored names this EIC's rows replace in a rebuild (used by the repair and to carry crosswalk decisions over; a legacy name shared by several EICs is a collapsed unit). Units absent from this table keep their literal source name. Canonical name rule: the stored name with the longest history.",
+  "scope": "The single reviewed ENTSO-E unit identity table. For each (country, unit EIC): plant_name is the canonical display/join name written to entsoe_generation_data; source_names are the reviewed spellings the source has used for this EIC (a source row with any other name fails until reviewed); legacy_names are stored names this EIC's rows replace in a rebuild (used by the repair and to carry crosswalk decisions over; a legacy name shared by several EICs is a collapsed unit). Units absent from this table keep their literal source name. Canonical name rule: the latest correct source spelling (broken encodings excluded); renamed units' older spellings stay in source_names, and stored names they replace in legacy_names.",
   "evidence": {
     "country": "CZ",
     "period": "2019-03 UTC",
@@ -346,10 +346,169 @@
       "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
     },
     {
+      "country_code": "DE_TENNET",
+      "unit_eic": "11WD2HEY40000638",
+      "psr_type": "B05",
+      "plant_name": "Heyden 4",
+      "source_names": [
+        "Heyden",
+        "Heyden 4"
+      ],
+      "legacy_names": [
+        "Heyden",
+        "Heyden 4"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling"
+    },
+    {
+      "country_code": "ES",
+      "unit_eic": "18WABO1-12345-D7",
+      "psr_type": "B05",
+      "plant_name": "ABOÑO 1",
+      "source_names": [
+        "ABO¿O 1",
+        "ABOÑO 1"
+      ],
+      "legacy_names": [
+        "ABOÑO 1"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling; 'ABO¿O' is a broken encoding of the source"
+    },
+    {
+      "country_code": "ES",
+      "unit_eic": "18WABO2-12345-DY",
+      "psr_type": "B05",
+      "plant_name": "ABOÑO 2",
+      "source_names": [
+        "ABO¿O 2",
+        "ABOÑO 2"
+      ],
+      "legacy_names": [
+        "ABOÑO 2"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling; 'ABO¿O' is a broken encoding of the source"
+    },
+    {
+      "country_code": "FI",
+      "unit_eic": "44W-00000000009F",
+      "psr_type": "B05",
+      "plant_name": "Naantali B4",
+      "source_names": [],
+      "legacy_names": [
+        "Naantali B4"
+      ],
+      "basis": "Source sends this EIC unnamed; its 2019-2020 coal series equals stored Naantali B4 month for month (the source lists the unit under biomass afterwards)"
+    },
+    {
+      "country_code": "GR",
+      "unit_eic": "29WGU-AGDIMI-I-8",
+      "psr_type": "B02",
+      "plant_name": "AGIOS DIMITRIOS I",
+      "source_names": [
+        "AGIOS DIMITRIOS I",
+        "AG_DIMITRIOS1"
+      ],
+      "legacy_names": [
+        "AG",
+        "AGIOS DIMITRIOS I"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling; legacy 'AG' collapsed several units"
+    },
+    {
+      "country_code": "GR",
+      "unit_eic": "29WGU-AGDIMI-II7",
+      "psr_type": "B02",
+      "plant_name": "AGIOS DIMITRIOS II",
+      "source_names": [
+        "AGIOS DIMITRIOS II",
+        "AG_DIMITRIOS2"
+      ],
+      "legacy_names": [
+        "AG",
+        "AGIOS DIMITRIOS II"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling; legacy 'AG' collapsed several units"
+    },
+    {
+      "country_code": "GR",
+      "unit_eic": "29WGU-AGDIMI-IVI",
+      "psr_type": "B02",
+      "plant_name": "AGIOS DIMITRIOS IV",
+      "source_names": [
+        "AGIOS DIMITRIOS IV",
+        "AG_DIMITRIOS4"
+      ],
+      "legacy_names": [
+        "AG",
+        "AGIOS DIMITRIOS IV"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling; legacy 'AG' collapsed several units"
+    },
+    {
+      "country_code": "GR",
+      "unit_eic": "29WGU-AGDIMI-V-6",
+      "psr_type": "B02",
+      "plant_name": "AGIOS DIMITRIOS V",
+      "source_names": [
+        "AGIOS DIMITRIOS V",
+        "AG_DIMITRIOS5"
+      ],
+      "legacy_names": [
+        "AG",
+        "AGIOS DIMITRIOS V"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling; legacy 'AG' collapsed several units"
+    },
+    {
+      "country_code": "GR",
+      "unit_eic": "29WGU-AGDIMIIII5",
+      "psr_type": "B02",
+      "plant_name": "AGIOS DIMITRIOS III",
+      "source_names": [
+        "AGIOS DIMITRIOS III",
+        "AG_DIMITRIOS3"
+      ],
+      "legacy_names": [
+        "AG",
+        "AGIOS DIMITRIOS III"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling; legacy 'AG' collapsed several units"
+    },
+    {
+      "country_code": "GR",
+      "unit_eic": "29WGU-MEGAL-IV-Z",
+      "psr_type": "B02",
+      "plant_name": "MEGALOPOLI IV",
+      "source_names": [
+        "MEGALOPOLI IV",
+        "MEGALOPOLI4"
+      ],
+      "legacy_names": [
+        "MEGALOPOLI IV",
+        "MEGALOPOLI4"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling"
+    },
+    {
+      "country_code": "GR",
+      "unit_eic": "29WGU-MEGALIII-G",
+      "psr_type": "B02",
+      "plant_name": "MEGALOPOLI III",
+      "source_names": [
+        "MEGALOPOLI III",
+        "MEGALOPOLI3"
+      ],
+      "legacy_names": [
+        "MEGALOPOLI III",
+        "MEGALOPOLI3"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling"
+    },
+    {
       "country_code": "PL",
       "unit_eic": "19W0000000000709",
       "psr_type": "B05",
-      "plant_name": "Karolin B2",
+      "plant_name": "EC Karolin G2",
       "source_names": [
         "EC Karolin G2",
         "Karolin B2"
@@ -358,13 +517,13 @@
         "EC Karolin G2",
         "Karolin B2"
       ],
-      "basis": "PL source renamed this EIC over time (certified 2019-01..2026-09); longest-history name kept"
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling"
     },
     {
       "country_code": "PL",
       "unit_eic": "19W0000000000717",
       "psr_type": "B05",
-      "plant_name": "Karolin B3",
+      "plant_name": "EC Karolin G3",
       "source_names": [
         "EC Karolin G3",
         "Karolin B3"
@@ -373,13 +532,13 @@
         "EC Karolin G3",
         "Karolin B3"
       ],
-      "basis": "PL source renamed this EIC over time (certified 2019-01..2026-09); longest-history name kept"
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling"
     },
     {
       "country_code": "PL",
       "unit_eic": "19W000000000288J",
       "psr_type": "B05",
-      "plant_name": "Jaworzno 2 JWCD B7",
+      "plant_name": "Jaworzno 2 B7",
       "source_names": [
         "Jaworzno 2  B7",
         "Jaworzno 2 B7",
@@ -390,7 +549,7 @@
         "Jaworzno 2 B7",
         "Jaworzno 2 JWCD B7"
       ],
-      "basis": "PL source renamed this EIC over time (certified 2019-01..2026-09); longest-history name kept"
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling"
     }
   ]
 }

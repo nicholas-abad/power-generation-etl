@@ -42,9 +42,9 @@ def row(**changes):
 
 def test_renamed_unit_is_stored_under_its_canonical_name():
     prepared = prepare_record(row())
-    assert prepared["plant_name"] == "Karolin B2"
+    assert prepared["plant_name"] == "EC Karolin G2"
     assert prepared["source_unit_name"] == "EC Karolin G2"
-    assert prepare_record(row(plant_name="Karolin B2"))["plant_name"] == "Karolin B2"
+    assert prepare_record(row(plant_name="Karolin B2"))["plant_name"] == "EC Karolin G2"
 
 
 @pytest.mark.parametrize(
