@@ -181,11 +181,15 @@ def prepare_coal_upsert(cursor):
     found = cursor.fetchone()
     if found:
         raise ValueError(f"Conflicting {found[0]} coal aliases in input")
+    # Rows already carrying their unit EIC (migration 018) keep their stored
+    # duration on a legacy replay (the upsert's identified-metadata guard), so
+    # only rows without an EIC are checked; to_jsonb works with or without 018.
     cursor.execute(
         """SELECT s.country_code FROM _staging_entsoe_generation_data s
         JOIN entsoe_generation_data a USING (timestamp_ms,country_code,psr_type,plant_name)
         WHERE s.country_code = ANY(%s) AND s.psr_type = ANY(%s)
           AND NOT s._source_resolution_verified
+          AND to_jsonb(a)->>'unit_eic' IS NULL
           AND a.resolution_minutes IS DISTINCT FROM s.resolution_minutes LIMIT 1""",
         scope,
     )
