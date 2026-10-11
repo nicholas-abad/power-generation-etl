@@ -1,0 +1,40 @@
+{
+  "status": "passed",
+  "environment": "staging",
+  "branch_id": "br-sweet-voice-aglj4sd7",
+  "verified_on": "2026-10-11",
+  "purpose": "Fixed 2019 and 2024 regression benchmarks re-run on the feat/ons-all-fuels branch (rebased on main, with per-fuel audit, source gaps and partial-year support) after the 2026 Jan-Aug run.",
+  "github_run": "https://github.com/nicholas-abad/power-generation-etl/actions/runs/38146736662",
+  "years": {
+    "2019": {
+      "status": "passed",
+      "source_rows_reconciled": 2424001,
+      "qualified_monthly_rows": 3327,
+      "qualified_months": 12,
+      "coal_rows_preserved": 77544,
+      "coal_sha256": "cc12b6ec7c23c1dcbcb7843a22ff44b370a440d31469e60da84e5320fccf5194",
+      "source_gaps_recorded": 0,
+      "first_load_rows_written": 2424001,
+      "repeat_load_rows_written": 0,
+      "invalid_records": 0,
+      "duplicate_records": 0,
+      "extractors_commit": "ce8318724c899a0c552c8d157f52f8d598d7f918",
+      "etl_commit": "4eab04b1078b1480b3ddb76aa3a434d800d49383"
+    },
+    "2024": {
+      "status": "passed",
+      "source_rows_reconciled": 2842224,
+      "qualified_monthly_rows": 3887,
+      "qualified_months": 12,
+      "coal_rows_preserved": 79056,
+      "coal_sha256": "d5cb7741800b62a264510032a60087b5f80ac031476d3cc9c943ba16caa7bb76",
+      "source_gaps_recorded": 0,
+      "first_load_rows_written": 2842224,
+      "repeat_load_rows_written": 0,
+      "invalid_records": 0,
+      "duplicate_records": 0,
+      "extractors_commit": "ce8318724c899a0c552c8d157f52f8d598d7f918",
+      "etl_commit": "4eab04b1078b1480b3ddb76aa3a434d800d49383"
+    }
+  }
+}
