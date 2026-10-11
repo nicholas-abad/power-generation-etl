@@ -89,22 +89,30 @@ mismatched day, so a partial year cannot pass.
 - Do non-coal units inside coal plants keep counting as coal (current coal-mode behaviour)?
 - PetCoke: coal or other? How to categorise 'Cogeneración', 'Termosolar' and BESS injection/withdrawal?
 
-## Results
+## Results (staging, 2026-10-11)
 
-### Three-day live pilot, 2024-06-10..12 (2026-10-11)
+Migration 019 applied to staging; `dashboard_ro` surface unchanged (27 relations), no shadow tables.
+Extraction with `--all-fuels` (19 plants), final code replay-verified against the raw archive:
 
-- Migration 019 applied to staging; `dashboard_ro` surface unchanged (27 relations), no shadow tables.
-- Extraction: 15 min, 15 requests (3 pages + 2 straddled-hour repairs per day), peak RSS 270 MB,
-  exit 0. 90,936 raw unit-hours → 80,496 rows; 1,079 plant keys; 15 fuel labels; 0 repeated
-  unit-hours after repair; no API key in any output.
-- Load: 3 day files, all valid; replaying a day wrote 0 rows. Reconciliation: every day matched its
-  manifest, view matched table. Coal table fingerprint identical before and after
-  (755,878 rows, md5 `f49643a17fd9c72fe629ee51142a6c0f`).
-- Coal report: all 10 coal-table plants with data match unit-level 'Carbón' exactly; TER MEJILLONES
-  appears as a new coal plant (0 MWh on these days). Both tables show the same coal drop from
-  2024-06-08 (7 of 10 plants at 0), i.e. it is in the source.
-- Size: 235 bytes/row including indexes → ~2.3 GB per year at 2024 volume (~26.6k rows/day).
+| Year | Rows | Requests | Paging repairs | Identical source copies dropped | DST placeholders |
+|---|---|---|---|---|---|
+| 2019 | 155,207 | 29 | 1 | 920 (2019-12-31) | 26 |
+| 2024 | 148,905 | 39 | 0 | 0 | 38 |
 
-### Full-year benchmarks 2024 and 2019
+Every plant-year loaded with zero invalid or duplicate records; reconciliation matched every local day
+of both years to the extractor manifests and the view to the table. The coal table fingerprint was
+identical before and after (755,878 rows, md5 `f49643a17fd9c72fe629ee51142a6c0f`). Table size: 81 MB
+for the two years.
 
-(running)
+### Coal report (input for Christine)
+
+| | 2019 | 2024 |
+|---|---|---|
+| Coal table (`chile_generation_data`) | 26.342 TWh | 12.913 TWh |
+| Unit-level 'Carbón', coal-unit plants | 28.210 TWh (+7.1%) | 12.916 TWh (+0.02%) |
+| Coal units missed by the plant filter | Tarapacá 0.614, Bocamina I 0.600, Mejillones 0.488, Tocopilla 0.163 TWh | Mejillones listed, 0 output |
+| DST fall-back hour the coal extractor dropped | +2.8 GWh | +2.8 GWh |
+| Non-coal units inside the 14 coal-table plants | 0 | 0 |
+
+Every other plant-month matches the coal table exactly. PetCoke (Petropower) is stored as 'PetCoke'
+and excluded from the 'Carbón' totals above.
