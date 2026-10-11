@@ -30,6 +30,22 @@ Legacy files cannot change a stored Czech coal interval duration. Other
 countries and fuels retain their existing loading behavior. The generic loader
 still commits in batches; use the repair command for the atomic historical fix.
 
+### Country scopes
+
+`config/entsoe-coal-scopes.json` lists the countries whose coal arrives as
+source-period records; it is CZ only until each further country passes its
+strict-parser survey. Within those countries the guards above apply: legacy
+files cannot change a stored duration, reviewed aliases are normalized, and
+source names are kept literally. Source-period coal from any other country
+fails the load as soon as the record is read. Change this file together with
+the extractor's `SOURCE_PERIOD_COAL_COUNTRIES` and the pinned extractor commit.
+
+Add a country only with reviewed identities for its units: every source
+name/EIC must match its stored legacy name or have an entry in
+`config/entsoe-coal-aliases.json`. A literal source name that differs from the
+stored name, with no alias, inserts as a second row for the same unit, and no
+guard detects it.
+
 The weekly ENTSO-E job pins the matching extractor commit. Both hotfix branches
 are published for review in
 [extractor PR #17](https://github.com/nicholas-abad/energy-extractors/pull/17) and

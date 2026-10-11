@@ -28,7 +28,12 @@ from tenacity import (
 )
 
 from validator import DataValidator, ValidationReport, save_report
-from entsoe_coal import check_coal_records, prepare_coal_upsert, source_coal
+from entsoe_coal import (
+    check_coal_records,
+    check_source_scope,
+    prepare_coal_upsert,
+    source_coal,
+)
 
 # ENTSO-E PSR type codes to human-readable fuel type names.
 # Used to fix fuel_type during JSONL ingestion (records extracted before the
@@ -707,6 +712,8 @@ class PowerGenerationDatabase:
                         continue
 
                     record = json.loads(line)
+                    # Before any filter or name cleanup below can drop the row.
+                    check_source_scope(record)
 
                     # This is a GENERATION table. ENTSO-E per-plant responses
                     # also carry 'Actual Consumption' series (a plant's own

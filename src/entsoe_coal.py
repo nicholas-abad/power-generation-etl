@@ -15,10 +15,13 @@ _SCOPES = json.loads((CONFIG / "entsoe-coal-scopes.json").read_text())
 COAL = frozenset(_SCOPES["psr_types"])
 COUNTRIES = frozenset(_SCOPES["countries"])
 ALIASES = json.loads((CONFIG / "entsoe-coal-aliases.json").read_text())["aliases"]
+_ALIASES_BY_COUNTRY: dict = {}
+for _alias in ALIASES:
+    _ALIASES_BY_COUNTRY.setdefault(_alias["country_code"], []).append(_alias)
 
 
 def aliases_for(country):
-    return [a for a in ALIASES if a["country_code"] == country]
+    return _ALIASES_BY_COUNTRY.get(country, [])
 
 
 def in_scope(row):
@@ -29,25 +32,38 @@ def source_coal(row):
     return in_scope(row) and row.get("resolution_source") == "xml_period"
 
 
+def check_source_scope(row):
+    """Reject source-period coal from a country outside the configured scopes.
+
+    Called on each record as soon as it is read, before legacy name cleanup
+    can drop it, so an extractor/ETL scope mismatch fails the load instead of
+    losing rows.
+    """
+    if (
+        row.get("psr_type") in COAL
+        and row.get("country_code") not in COUNTRIES
+        and row.get("resolution_source") is not None
+    ):
+        raise ValueError(
+            f"Source-period coal for {row.get('country_code')} is outside the "
+            "configured scopes (config/entsoe-coal-scopes.json)"
+        )
+
+
 def check_coal_records(records):
     """Reject conflicting copies before the generic validator deduplicates them.
 
     The optional source marker is provenance, not an authentication mechanism.
     Old files remain loadable, but cannot change an existing interval duration.
+    Source-period coal outside the configured scopes is rejected.
     """
     seen = {}
     for row in records:
-        country = row.get("country_code")
-        if row.get("psr_type") not in COAL:
+        check_source_scope(row)
+        if not in_scope(row):
             continue
+        country = row["country_code"]
         marker = row.get("resolution_source")
-        if country not in COUNTRIES:
-            if marker is not None:
-                raise ValueError(
-                    f"Source-period coal for {country} is outside the configured "
-                    "scopes (config/entsoe-coal-scopes.json)"
-                )
-            continue
         if marker not in {None, "xml_period"}:
             raise ValueError(f"Unknown {country} coal interval provenance")
         if marker == "xml_period" and not row.get("unit_eic"):

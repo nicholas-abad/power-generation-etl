@@ -491,3 +491,24 @@ def test_real_loader_keeps_literal_names_for_scoped_country(
     path.write_text(json.dumps(source) + "\n")
     assert db.insert_entsoe_jsonl_data(str(path))[0]
     assert [r["plant_name"] for r in rows(conn)] == ["Opole_Fossil Hard coal"]
+
+
+def test_real_loader_rejects_out_of_scope_source_before_name_cleanup(
+    pg, tmp_path, monkeypatch
+):
+    # Legacy cleanup drops "_Actual Consumption" names; an out-of-scope source
+    # row must fail the load, not vanish with success metadata.
+    conn, db = pg
+    meta = []
+    monkeypatch.setattr(db, "_get_date_range_for_run", lambda *a: (None, None))
+    monkeypatch.setattr(db, "insert_extraction_metadata", lambda **k: meta.append(k))
+    path = tmp_path / "input.jsonl"
+    source = pl(
+        "Plant_Actual Consumption",
+        psr_type="B05",
+        resolution_source="xml_period",
+        unit_eic="19W-PL-UNIT-0001",
+    )
+    path.write_text(json.dumps(source) + "\n")
+    assert db.insert_entsoe_jsonl_data(str(path))[0] is False
+    assert rows(conn) == [] and not any(m.get("success") for m in meta)
