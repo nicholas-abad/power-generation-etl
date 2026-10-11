@@ -145,12 +145,17 @@ def renamed(database, tmp_path, monkeypatch):
         record("RSUTEC", "Candiota III", MAY_1 + HOUR, 201.0),
         record("BAUTCA", "Erb Candeias", JAN_1, 5.0),
         record(None, "PQU PA TERM", MAY_1, 1.0, operation_mode="Pequenas Usinas (Tipo III)"),
+        # The same aggregate under its withdrawn identity (ID and longer name).
+        record("PQU_PA_T", "PQU PA TERM - CARGA GLOBAL", MAY_1, 1.0,
+               operation_mode="Pequenas Usinas (Tipo III)"),
     ])
     load(db, tmp_path, [
         record("RSUTEC", "CANDIOTA III", MAY_1, 200.0),
         record("RSUTEC", "CANDIOTA III", MAY_1 + HOUR, 201.5),
         record("BAUTCA", "ERB Candeias", JAN_1, 5.1),
         record("SCUTLA", "U.JLACERDA A", MAY_1, 90.0),
+        # A zero from an earlier file version; ONS now publishes this hour as null.
+        record("GOUCDR", "Codora", MAY_1, 0.0, fuel_type="Biomassa"),
     ])
     monkeypatch.undo()
     monkeypatch.setenv("POSTGRES_SSLMODE", "disable")
@@ -160,30 +165,41 @@ def renamed(database, tmp_path, monkeypatch):
         (JAN_1, "BAUTCA"): "ERB Candeias",
         (MAY_1, "SCUTLA"): "U.JLACERDA A",
     }
+    keys = {repair.plant_hour(t, i, n) for (t, i), n in source.items()}
+    keys.add(repair.plant_hour(MAY_1, None, "PQU PA TERM"))
+    missing = {repair.plant_hour(MAY_1, "GOUCDR", "UTE CODORA")}
     monkeypatch.setattr(
-        repair, "source_names", lambda _: (source, {"2026-01", "2026-05", "2026-06"})
+        repair,
+        "source_names",
+        lambda _: (source, keys, missing, {"2026-01", "2026-05", "2026-06"}),
     )
-    return conn, db, dsn, source
+    return conn, db, dsn, source, keys, missing
 
 
 def test_plan_apply_migrate_load_and_rollback(renamed, tmp_path):
-    conn, db, dsn, _ = renamed
-    assert len(rows(conn)) == 8
+    conn, db, dsn, _, _, _ = renamed
+    assert len(rows(conn)) == 10
     assert "duplicate ONS plant-hours" in migrate(dsn).stderr  # refuses first
 
     with conn.cursor() as cur:
         planned = repair.plan(cur, None)
-    assert (planned["duplicate_plant_hours"], planned["rows_to_delete"]) == (3, 3)
-    assert {r["plant"] for r in planned["deletions"]} == {"Candiota III", "Erb Candeias"}
-    assert planned["summary"]["2026-05 Carvão"] == {"rows": 2, "mwh": 401.0}
+    assert (planned["duplicate_plant_hours"], planned["duplicate_rows"]) == (3, 3)
+    assert (planned["withdrawn_rows"], planned["now_missing_rows"]) == (1, 1)
+    assert planned["rows_to_delete"] == 5
+    assert {r["plant"] for r in planned["deletions"]} == {
+        "Candiota III", "Erb Candeias", "PQU PA TERM - CARGA GLOBAL", "Codora"
+    }
+    assert planned["summary"]["duplicate 2026-05 Carvão"] == {"rows": 2, "mwh": 401.0}
+    assert planned["summary"]["withdrawn 2026-05 Carvão"] == {"rows": 1, "mwh": 1.0}
+    assert planned["summary"]["now_missing 2026-05 Biomassa"] == {"rows": 1, "mwh": 0.0}
 
     with pytest.raises(ValueError, match="fingerprint"):
         transaction(conn, lambda cur: repair.apply(cur, planned, "0" * 64))
     applied = transaction(conn, lambda cur: repair.apply(cur, planned, planned["fingerprint"]))
-    assert applied["deleted"] == 3
+    assert applied["deleted"] == 5
     after = rows(conn)
     assert ("RSUTEC", "CANDIOTA III", MAY_1, 200.0) in after
-    assert not any(r[1] in {"Candiota III", "Erb Candeias"} for r in after)
+    assert not any(r[1] in {"Candiota III", "Erb Candeias", "PQU PA TERM - CARGA GLOBAL"} for r in after)
     assert (None, "PQU PA TERM", MAY_1, 1.0) in after  # ID-less rows untouched
 
     result = migrate(dsn)
@@ -203,17 +219,17 @@ def test_plan_apply_migrate_load_and_rollback(renamed, tmp_path):
     with conn.cursor() as cur:
         cur.execute("DROP INDEX ingestion.uq_ons_plant_hour")
     restored = transaction(conn, lambda cur: repair.rollback(cur, planned["fingerprint"]))
-    assert restored["restored"] == 3
+    assert restored["restored"] == 5
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM ingestion.ons_rename_duplicate_backup")
         assert cur.fetchone() == (0,)
     restored = rows(conn)
     assert ("RSUTEC", "Candiota III", MAY_1, 200.0) in restored
-    assert len(restored) == 8
+    assert len(restored) == 10
 
 
 def test_apply_refuses_rows_changed_after_the_plan(renamed):
-    conn, _, _, _ = renamed
+    conn, _, _, _, _, _ = renamed
     with conn.cursor() as cur:
         planned = repair.plan(cur, None)
         cur.execute(
@@ -221,7 +237,7 @@ def test_apply_refuses_rows_changed_after_the_plan(renamed):
         )
     with pytest.raises(ValueError, match="Rows changed since the plan"):
         transaction(conn, lambda cur: repair.apply(cur, planned, planned["fingerprint"]))
-    assert len(rows(conn)) == 8  # nothing deleted
+    assert len(rows(conn)) == 10  # nothing deleted
 
 
 @pytest.mark.parametrize(
@@ -232,14 +248,18 @@ def test_apply_refuses_rows_changed_after_the_plan(renamed):
     ],
 )
 def test_plan_refuses_ambiguous_or_unaudited_duplicates(renamed, monkeypatch, change, message):
-    conn, _, _, source = renamed
+    conn, _, _, source, keys, missing = renamed
     monkeypatch.setattr(
-        repair, "source_names", lambda _: ({**source, **change}, {"2026-01", "2026-05", "2026-06"})
+        repair,
+        "source_names",
+        lambda _: ({**source, **change}, keys, missing, {"2026-01", "2026-05", "2026-06"}),
     )
     with conn.cursor() as cur:
         with pytest.raises(ValueError, match=message):
             repair.plan(cur, None)
-    monkeypatch.setattr(repair, "source_names", lambda _: (source, {"2026-05"}))
+    monkeypatch.setattr(
+        repair, "source_names", lambda _: (source, keys, missing, {"2026-05"})
+    )
     with conn.cursor() as cur:
         with pytest.raises(ValueError, match="outside the audit"):
             repair.plan(cur, None)

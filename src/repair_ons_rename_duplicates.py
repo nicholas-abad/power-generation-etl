@@ -1,13 +1,22 @@
-"""Plan/apply/roll back removal of ONS rows left behind by plant renames.
+"""Plan/apply/roll back removal of ONS rows left behind by republished files.
 
-The ONS loader keyed rows on (hour, plant name, ONS ID). When ONS republished
-2026 files with changed names (capitalisation in January; a new upper-case
-format from May), the weekly load inserted the renamed rows beside the old
-ones, doubling those plant-hours (May 2026 coal stored twice).
+The ONS loader keyed rows on (hour, plant name, ONS ID) and never deletes. When
+ONS republished 2026 files with changed names (capitalisation in January; a
+new upper-case format from May), the weekly load inserted the renamed rows
+beside the old ones, doubling those plant-hours (May 2026 coal stored twice).
+Some aggregate rows were re-identified (e.g. 'PQU MGMG TERM - CARGA GLOBAL',
+ID PQU_MGMG_T, became 'PQU MGMG TERM' without an ID) and some zero-output
+plants were dropped; their earlier rows remain although the current files no
+longer contain them ("withdrawn"). And plants now published with null
+generation keep the zeros loaded from earlier file versions ("now_missing";
+the null hours are recorded as source gaps by the all-fuel work, not stored).
 
-plan    Read-only. Finds every (hour, ONS ID) stored more than once, and keeps
-        the row whose name matches the audited ONS source file for that hour;
-        every other copy is listed with its full before-image. Fails if a
+plan    Read-only. For every (hour, ONS ID) stored more than once, keeps the row
+        whose name matches the audited ONS source file for that hour and lists
+        every other copy. In the audited months it also lists every stored row
+        whose plant-hour (ONS ID, or name for rows without one) is absent from
+        the source, or present only with null generation. Rows are listed with
+        full before-images. Fails if a
         duplicate falls outside the audited files or no copy (or more than one)
         matches. Writes a plan file with a fingerprint.
 apply   Under a table lock, re-checks every listed row is unchanged, archives
@@ -74,26 +83,37 @@ def digest(value):
     ).hexdigest()
 
 
+def plant_hour(timestamp_ms, plant_id, plant):
+    """The key of migration 020: ONS ID, or the name for rows without one."""
+    return (timestamp_ms, plant_id if plant_id else f"name:{plant}")
+
+
 def source_names(source_dir):
-    """(timestamp_ms, ONS ID) -> plant name, from the audited source files."""
+    """Audited source files -> ((hour, ONS ID) -> name, plant-hours with a value,
+    plant-hours published as null, months)."""
     import pandas as pd
 
     manifest = json.loads(MANIFEST.read_text())
-    names, months = {}, set()
+    names, keys, missing, months = {}, set(), set(), set()
     for item in manifest["source_files"]:
         path = source_dir / item["url"].rsplit("/", 1)[1]
         if hashlib.sha256(path.read_bytes()).hexdigest() != item["sha256"]:
             raise ValueError(f"{path.name} differs from the audited source file")
-        df = pd.read_parquet(path, columns=["din_instante", "id_ons", "nom_usina"])
-        df = df[df["id_ons"].notna() & (df["id_ons"] != "")]
+        df = pd.read_parquet(
+            path, columns=["din_instante", "id_ons", "nom_usina", "val_geracao"]
+        )
         stamps = pd.to_datetime(df["din_instante"]).values.astype("datetime64[ms]")
-        for stamp, plant_id, name in zip(
-            stamps.astype("int64").tolist(), df["id_ons"], df["nom_usina"]
+        ids = df["id_ons"].fillna("")
+        value = df["val_geracao"].astype("string").str.strip()
+        null = (value.isna() | value.eq("")).tolist()
+        for stamp, plant_id, name, is_null in zip(
+            stamps.astype("int64").tolist(), ids, df["nom_usina"], null
         ):
-            if names.setdefault((stamp, plant_id), name) != name:
+            (missing if is_null else keys).add(plant_hour(stamp, plant_id, name))
+            if plant_id and names.setdefault((stamp, plant_id), name) != name:
                 raise ValueError(f"Source names {plant_id} twice at {stamp}")
         months.add(item["label"])
-    return names, months
+    return names, keys, missing, months
 
 
 def month_of(timestamp_ms):
@@ -102,8 +122,17 @@ def month_of(timestamp_ms):
     return datetime.fromtimestamp(timestamp_ms / 1000, UTC).strftime("%Y-%m")
 
 
+def month_bounds(label):
+    from datetime import UTC, datetime
+
+    year, month = map(int, label.split("-"))
+    start = datetime(year, month, 1, tzinfo=UTC)
+    end = datetime(year + month // 12, month % 12 + 1, 1, tzinfo=UTC)
+    return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
+
+
 def plan(cursor, source_dir):
-    names, months = source_names(source_dir)
+    names, keys, missing, months = source_names(source_dir)
     cursor.execute(DUPLICATES)
     groups = {}
     for row in cursor.fetchall():
@@ -122,16 +151,34 @@ def plan(cursor, source_dir):
                 f"{plant_id} at {stamp}: {len(kept)} copies match the source name"
             )
         deletions += [r for r in rows if r is not kept[0]]
+    duplicates = len(deletions)
+    reasons = {row["id"]: "duplicate" for row in deletions}
+    for label in sorted(months):
+        start, end = month_bounds(label)
+        cursor.execute(
+            f"SELECT {', '.join(COLUMNS)} FROM {TABLE} "
+            "WHERE timestamp_ms >= %s AND timestamp_ms < %s ORDER BY id",
+            (start, end),
+        )
+        for row in map(as_record, cursor.fetchall()):
+            key = plant_hour(row["timestamp_ms"], row["ons_plant_id"], row["plant"])
+            if key not in keys and row["id"] not in reasons:
+                deletions.append(row)
+                reasons[row["id"]] = "now_missing" if key in missing else "withdrawn"
     summary = {}
     for row in deletions:
         bucket = summary.setdefault(
-            f"{month_of(row['timestamp_ms'])} {row['fuel_type']}", [0, 0.0]
+            f"{reasons[row['id']]} {month_of(row['timestamp_ms'])} {row['fuel_type']}",
+            [0, 0.0],
         )
         bucket[0] += 1
         bucket[1] += row["generation_mwh"]
     return {
         "repair": "ons-rename-duplicates-2026",
         "duplicate_plant_hours": len(groups),
+        "duplicate_rows": duplicates,
+        "withdrawn_rows": sum(r == "withdrawn" for r in reasons.values()),
+        "now_missing_rows": sum(r == "now_missing" for r in reasons.values()),
         "rows_to_delete": len(deletions),
         "summary": {
             k: {"rows": v[0], "mwh": round(v[1], 3)} for k, v in sorted(summary.items())
