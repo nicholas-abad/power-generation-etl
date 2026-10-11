@@ -245,3 +245,30 @@ def test_alias_is_explicit_and_keeps_source_text():
 def test_invalid_identified_records_fail_validation(field, value):
     result = DataValidator().validate_entsoe_record(record(**{field: value}))
     assert not result.valid
+
+
+def test_one_file_with_identified_coal_and_legacy_gas_loads(entsoe_db, tmp_path):
+    # The weekly extractor emits allow-listed coal as source-period rows (with
+    # EICs) and every other fuel through the legacy path, in the same file.
+    connection, db, dsn = entsoe_db
+    migrate(dsn)
+    coal = record(resolution_source="xml_period")
+    gas = record(
+        plant_name="Gas plant_Fossil Gas", psr_type="B04", resolution_minutes=15
+    )
+    for key in ("unit_eic", "production_unit_eic"):
+        gas.pop(key)
+    ok, report = load(
+        db, tmp_path, [coal, gas, dict(coal, timestamp_ms=1551402000000)], batch_size=1
+    )
+    assert ok and report.valid_count == 3 and report.written_count == 3
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT psr_type, plant_name, unit_eic, source_unit_name, resolution_minutes "
+            "FROM ingestion.entsoe_generation_data ORDER BY psr_type, timestamp_ms"
+        )
+        assert cursor.fetchall() == [
+            ("B02", "ECHV_G1___", "27W-GU-ECHVG1--C", "ECHV_G1____", 60),
+            ("B02", "ECHV_G1___", "27W-GU-ECHVG1--C", "ECHV_G1____", 60),
+            ("B04", "Gas plant", None, None, 15),
+        ]

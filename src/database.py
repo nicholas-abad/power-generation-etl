@@ -741,13 +741,41 @@ class PowerGenerationDatabase:
             batch_num = 0
             first_run_id = None
 
-            identified_units = None
+            # Rows carrying their unit EIC (source-period records) and legacy
+            # rows have different columns, so each kind is batched separately;
+            # one file may hold both (e.g. allow-listed coal plus other fuels).
+            identity_columns = ["unit_eic", "production_unit_eic", "source_unit_name"]
+            columns_for = {
+                False: expected_columns,
+                True: expected_columns + identity_columns,
+            }
+            batches = {False: [], True: []}
 
             validator = DataValidator()
 
+            def flush(kind, line_num):
+                nonlocal batch_num, total_inserted, total_valid
+                nonlocal total_invalid, total_duplicate
+                if not batches[kind]:
+                    return
+                batch_num += 1
+                inserted, valid, invalid, dup = self._insert_entsoe_batch(
+                    batches[kind],
+                    columns_for[kind],
+                    validator,
+                    batch_num,
+                    line_num,
+                    total_lines,
+                )
+                total_inserted += inserted
+                total_valid += valid
+                total_invalid += invalid
+                total_duplicate += dup
+                batches[kind] = []
+
             # Process file in batches
             with open(jsonl_file_path, "r") as f:
-                batch = []
+                line_num = 0
                 consumption_skipped = 0
                 for line_num, line in enumerate(f, 1):
                     if not line.strip():
@@ -758,18 +786,6 @@ class PowerGenerationDatabase:
                     check_source_scope(record)
 
                     has_eic = "unit_eic" in record
-                    if identified_units is None:
-                        identified_units = has_eic
-                        if has_eic:
-                            expected_columns += [
-                                "unit_eic",
-                                "production_unit_eic",
-                                "source_unit_name",
-                            ]
-                    elif identified_units != has_eic:
-                        raise ValueError(
-                            "Cannot mix identified and legacy ENTSO-E rows"
-                        )
                     if has_eic:
                         record = prepare_entsoe_record(record)
 
@@ -840,22 +856,9 @@ class PowerGenerationDatabase:
 
                     # Identified XML names are exact source text, never flattened labels.
                     if has_eic:
-                        batch.append(record)
-                        if len(batch) >= batch_size:
-                            batch_num += 1
-                            inserted, valid, invalid, dup = self._insert_entsoe_batch(
-                                batch,
-                                expected_columns,
-                                validator,
-                                batch_num,
-                                line_num,
-                                total_lines,
-                            )
-                            total_inserted += inserted
-                            total_valid += valid
-                            total_invalid += invalid
-                            total_duplicate += dup
-                            batch = []
+                        batches[True].append(record)
+                        if len(batches[True]) >= batch_size:
+                            flush(True, line_num)
                         continue
 
                     # Clean plant_name: strip leaked fuel-type and data-type suffixes
@@ -884,40 +887,13 @@ class PowerGenerationDatabase:
                                 break
                     record["plant_name"] = plant_name
 
-                    batch.append(record)
-
-                    # Process batch when full
-                    if len(batch) >= batch_size:
-                        batch_num += 1
-                        inserted, valid, invalid, dup = self._insert_entsoe_batch(
-                            batch,
-                            expected_columns,
-                            validator,
-                            batch_num,
-                            line_num,
-                            total_lines,
-                        )
-                        total_inserted += inserted
-                        total_valid += valid
-                        total_invalid += invalid
-                        total_duplicate += dup
-                        batch = []
+                    batches[False].append(record)
+                    if len(batches[False]) >= batch_size:
+                        flush(False, line_num)
 
                 # Process remaining records
-                if batch:
-                    batch_num += 1
-                    inserted, valid, invalid, dup = self._insert_entsoe_batch(
-                        batch,
-                        expected_columns,
-                        validator,
-                        batch_num,
-                        line_num,
-                        total_lines,
-                    )
-                    total_inserted += inserted
-                    total_valid += valid
-                    total_invalid += invalid
-                    total_duplicate += dup
+                flush(False, line_num)
+                flush(True, line_num)
 
             if consumption_skipped:
                 logger.info(
