@@ -12,10 +12,12 @@ import subprocess
 import sys
 import uuid
 
+from unittest.mock import patch
+
 import pandas as pd
 import psycopg2
 from psycopg2 import sql
-from psycopg2.extensions import make_dsn, parse_dsn
+from psycopg2.extensions import make_dsn
 from psycopg2.extras import execute_values
 import pytest
 
@@ -23,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 import repair_ons_rename_duplicates as repair  # noqa: E402
 from database import PowerGenerationDatabase  # noqa: E402
+from local_postgres import local_settings, verify_local_connection  # noqa: E402
 
 HOUR = 3_600_000
 MAY_1 = 1777593600000  # 2026-05-01T00:00 in the loader's encoding
@@ -103,48 +106,50 @@ def database(monkeypatch):
     dsn = os.getenv("ONS_TEST_PG_DSN")
     if not dsn:
         pytest.skip("ONS_TEST_PG_DSN is required for local PostgreSQL integration")
-    params = parse_dsn(dsn)
-    host = params.get("host", "")
-    assert host in {"localhost", "127.0.0.1", "::1"} or host.startswith("/")
     assert shutil.which("psql"), "psql is required to test the actual migration"
-    name = f"ons_rename_{uuid.uuid4().hex}"
-    admin = psycopg2.connect(dsn)
-    admin.autocommit = True
-    with admin.cursor() as cur:
-        cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
-        cur.execute(
-            sql.SQL("ALTER DATABASE {} SET search_path TO public, ingestion").format(
-                sql.Identifier(name)
-            )
-        )
-    params["dbname"] = name
-    test_dsn = make_dsn(**params)
-    conn = psycopg2.connect(test_dsn)
-    conn.autocommit = True
-    with conn.cursor() as cur:
-        cur.execute((ROOT / "schema/ons_generation.sql").read_text())
-        cur.execute((ROOT / "schema/extraction_metadata.sql").read_text())
-        # The state before migration 020: only the name-based natural key.
-        cur.execute("DROP INDEX ingestion.uq_ons_plant_hour")
-        cur.execute(
-            "CREATE TABLE ingestion.schema_migrations (version text PRIMARY KEY, notes text)"
-        )
-    monkeypatch.setenv("POSTGRES_SSLMODE", "disable")
-    db = PowerGenerationDatabase(
-        host=host,
-        port=int(params.get("port", 5432)),
-        database=name,
-        username=params.get("user", "postgres"),
-        password=params.get("password", "unused"),
-    )
-    try:
-        yield conn, db, test_dsn
-    finally:
-        db.engine.dispose()
-        conn.close()
+    with patch.dict(os.environ):
+        # Refuses remote hosts, routing overrides and inherited PG settings.
+        parts = local_settings(dsn, r"power_generation_test")
+        name = f"ons_rename_{uuid.uuid4().hex}"
+        admin = psycopg2.connect(**parts, connect_timeout=5)
+        admin.autocommit = True
+        verify_local_connection(admin, parts["dbname"])
         with admin.cursor() as cur:
-            cur.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(name)))
-        admin.close()
+            cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+            cur.execute(
+                sql.SQL(
+                    "ALTER DATABASE {} SET search_path TO public, ingestion"
+                ).format(sql.Identifier(name))
+            )
+        test_parts = {**parts, "dbname": name}
+        conn = psycopg2.connect(**test_parts, connect_timeout=5)
+        conn.autocommit = True
+        verify_local_connection(conn, name)
+        with conn.cursor() as cur:
+            cur.execute((ROOT / "schema/ons_generation.sql").read_text())
+            cur.execute((ROOT / "schema/extraction_metadata.sql").read_text())
+            # The state before migration 020: only the name-based natural key.
+            cur.execute("DROP INDEX ingestion.uq_ons_plant_hour")
+            cur.execute(
+                "CREATE TABLE ingestion.schema_migrations "
+                "(version text PRIMARY KEY, notes text)"
+            )
+        monkeypatch.setenv("POSTGRES_SSLMODE", "disable")
+        db = PowerGenerationDatabase(
+            host=parts["host"],
+            port=int(parts.get("port", 5432)),
+            database=name,
+            username=parts["user"],
+            password=parts.get("password", "unused"),
+        )
+        try:
+            yield conn, db, make_dsn(**test_parts)
+        finally:
+            db.engine.dispose()
+            conn.close()
+            with admin.cursor() as cur:
+                cur.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(name)))
+            admin.close()
 
 
 def record(plant_id, plant, timestamp_ms, mwh=10.0, **overrides):
@@ -416,7 +421,10 @@ def test_apply_refuses_unsafe_plans(renamed, tamper, message):
             planned["deletions"].append(kept)
             planned["reasons"][str(kept["id"])] = "duplicate"
         planned["fingerprint"] = repair.fingerprint_of(
-            planned["manifest_sha256"], planned["deletions"]
+            planned["manifest_sha256"],
+            planned["deletions"],
+            planned["reasons"],
+            planned["survivors"],
         )
     with pytest.raises(ValueError, match=message):
         transaction(
@@ -442,3 +450,59 @@ def test_plan_refuses_ambiguous_unaudited_or_mass_stale(renamed, monkeypatch):
     # Source keys that do not line up with stored rows (e.g. a shifted timestamp).
     with pytest.raises(ValueError, match="do not line up"):
         plan_with(source, {(t + 1, k) for t, k in keys}, MONTHS)
+
+
+def test_relabelled_reasons_change_the_fingerprint(renamed):
+    conn, _, _, _, _, _ = renamed
+    with conn.cursor() as cur:
+        planned = repair.plan(cur, None)
+    first = next(k for k, v in planned["reasons"].items() if v == "duplicate")
+    planned["reasons"][first] = "withdrawn"  # would skip its survivor check
+    with pytest.raises(ValueError, match="fingerprint"):
+        transaction(
+            conn, lambda cur: repair.apply(cur, planned, planned["fingerprint"])
+        )
+
+
+def test_renamed_hour_now_published_as_null_removes_every_copy(renamed, monkeypatch):
+    conn, _, _, source, keys, missing = renamed
+    insert(conn, [record("GOUCDR", "UTE CODORA", MAY_1, 0.0, fuel_type="Biomassa")])
+    names = {**source, (MAY_1, "GOUCDR"): "UTE CODORA"}
+    monkeypatch.setattr(
+        repair, "source_names", lambda _: (names, keys, missing, MONTHS)
+    )
+    with conn.cursor() as cur:
+        planned = repair.plan(cur, None)
+    assert [MAY_1, "GOUCDR"] not in planned["survivors"]
+    applied = transaction(
+        conn, lambda cur: repair.apply(cur, planned, planned["fingerprint"])
+    )
+    assert applied["deleted"] == 6
+    assert not [r for r in rows(conn) if r[0] == "GOUCDR"]
+
+
+def test_loader_refuses_conflicts_across_chunks_and_accepts_missing_ids(
+    renamed, tmp_path
+):
+    conn, db, dsn, _, _, _ = renamed
+    with conn.cursor() as cur:
+        planned = repair.plan(cur, None)
+    transaction(conn, lambda cur: repair.apply(cur, planned, planned["fingerprint"]))
+    assert migrate(dsn).returncode == 0
+    before = rows(conn)
+    hour = MAY_1 + 5 * HOUR
+    path = tmp_path / "conflict_etl.jsonl"
+    path.write_text(
+        json.dumps(record("RSUTEC", "Candiota III", hour, 200.0))
+        + "\n"
+        + json.dumps(record("RSUTEC", "CANDIOTA III", hour, 201.0))
+        + "\n"
+    )
+    assert not db.insert_ons_jsonl_data(str(path), chunk_lines=1)[0]
+    assert rows(conn) == before  # nothing written, not even the first chunk
+    aggregate = record(
+        None, "PQU PA TERM", hour, 2.0, operation_mode="Pequenas Usinas (Tipo III)"
+    )
+    del aggregate["ons_plant_id"]
+    assert load(db, tmp_path, [aggregate])
+    assert (None, "PQU PA TERM", hour, 2.0) in rows(conn)

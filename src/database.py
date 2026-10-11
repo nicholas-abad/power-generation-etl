@@ -33,6 +33,34 @@ from entsoe_coal import check_coal_records, prepare_coal_upsert, source_coal
 # ONS natural key since migration 020 (uq_ons_plant_hour).
 ONS_PLANT_HOUR = "timestamp_ms, COALESCE(NULLIF(ons_plant_id, ''), 'name:' || plant)"
 
+
+def ons_plant_hour_conflict(jsonl_file_path: str) -> Optional[str]:
+    """Describe the first plant-hour the file gives two different rows, if any.
+
+    Scans the whole file before anything is written: an upsert on the
+    plant-hour key would otherwise keep whichever row came last (e.g. the old
+    and the new name of one ONS ID). Identical repeats are left to the
+    validator's duplicate count. Hashes keep memory small for yearly files.
+    """
+    seen: Dict[int, int] = {}
+    with open(jsonl_file_path) as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            key = (
+                record.get("timestamp_ms"),
+                record.get("ons_plant_id") or f"name:{record.get('plant')}",
+            )
+            content = hash(json.dumps(record, sort_keys=True, default=str))
+            if seen.setdefault(hash(key), content) != content:
+                return (
+                    f"ONS file has two different rows for {key[1]} at {key[0]}; "
+                    "refusing to choose one"
+                )
+    return None
+
+
 # ENTSO-E PSR type codes to human-readable fuel type names.
 # Used to fix fuel_type during JSONL ingestion (records extracted before the
 # extractor fix may have fuel_type="Unknown" due to column-name parsing bugs).
@@ -1239,6 +1267,9 @@ class PowerGenerationDatabase:
                 extraction_run_id = str(uuid.uuid4())
             created_at_ms = int(datetime.now().timestamp() * 1000)
 
+            conflict = ons_plant_hour_conflict(jsonl_file_path)
+            if conflict:
+                raise ValueError(conflict)
             validator = DataValidator()
             total_inserted = 0
             total_valid = 0
@@ -1296,22 +1327,9 @@ class PowerGenerationDatabase:
                     # Insert valid records via upsert (skips duplicates)
                     if valid_records:
                         df = pd.DataFrame(valid_records)
-                        # Two source rows for one plant-hour (e.g. old and new
-                        # name of one ONS ID) must not be collapsed silently.
-                        plant_hour = df["ons_plant_id"].where(
-                            df["ons_plant_id"].fillna("") != "",
-                            "name:" + df["plant"],
-                        )
-                        clash = df.assign(_key=plant_hour).duplicated(
-                            ["timestamp_ms", "_key"], keep=False
-                        )
-                        if clash.any():
-                            first = df[clash].iloc[0]
-                            raise ValueError(
-                                f"{int(clash.sum())} ONS rows share a plant-hour, e.g. "
-                                f"{first['ons_plant_id'] or first['plant']} at "
-                                f"{first['timestamp_ms']}; refusing to choose one"
-                            )
+                        # ONS ID is optional; the plant-hour key needs the column.
+                        if "ons_plant_id" not in df:
+                            df["ons_plant_id"] = None
 
                         def _upsert_chunk():
                             # The conflict target needs migration 020's key.

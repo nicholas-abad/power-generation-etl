@@ -53,8 +53,9 @@ CREATE INDEX IF NOT EXISTS idx_ons_gen_plant_id ON ingestion.ons_generation_data
 CREATE UNIQUE INDEX IF NOT EXISTS uq_ons_natural_key
 ON ingestion.ons_generation_data (timestamp_ms, plant, COALESCE(ons_plant_id, ''));
 
--- One row per plant-hour (migration 020): keyed on the ONS ID, so a plant that
--- ONS renames is updated in place instead of stored twice; rows without an ID
--- (aggregate small-plant rows) fall back to their name. Loader conflict target.
+-- One row per plant-hour (migration 020): keyed on the ONS ID, so a plant with
+-- an ID that ONS renames is updated in place instead of stored twice; rows
+-- without an ID (aggregate small-plant rows) fall back to their name, so a row
+-- that gains or loses its ID is not matched. Loader conflict target.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_ons_plant_hour
 ON ingestion.ons_generation_data (timestamp_ms, (COALESCE(NULLIF(ons_plant_id, ''), 'name:' || plant)));

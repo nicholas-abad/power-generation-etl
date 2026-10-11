@@ -4,8 +4,11 @@
 -- twice: ONS republished 2026 files with new names and the weekly load added
 -- them beside the old rows (May 2026 coal doubled). This adds a unique key on
 -- (timestamp_ms, ONS ID), falling back to the plant name for rows without an
--- ID, which the loader uses as its conflict target, so a rename updates the
--- row in place. The old index stays (it is implied by the new one).
+-- ID, which the loader uses as its conflict target, so renaming a plant that
+-- has an ONS ID updates the row in place. It does not cover a row that gains
+-- or loses its ID (e.g. aggregates re-identified in 2026), nor rows ONS later
+-- withdraws or publishes as null: the loader never deletes, so those still
+-- need the planned month-replace load. The old index stays (implied by the new).
 --
 -- Order: run src/repair_ons_rename_duplicates.py apply FIRST (this migration
 -- refuses while duplicates exist), then this file, then deploy the loader that

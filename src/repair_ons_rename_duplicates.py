@@ -99,8 +99,16 @@ def manifest():
     return json.loads(data), hashlib.sha256(data).hexdigest()
 
 
-def fingerprint_of(manifest_sha256, deletions):
-    return digest({"manifest_sha256": manifest_sha256, "deletions": deletions})
+def fingerprint_of(manifest_sha256, deletions, reasons, survivors):
+    """Binds the audited files, every deleted row, why, and what must remain."""
+    return digest(
+        {
+            "manifest_sha256": manifest_sha256,
+            "deletions": deletions,
+            "reasons": reasons,
+            "survivors": survivors,
+        }
+    )
 
 
 def plant_hour(timestamp_ms, plant_id, plant):
@@ -170,7 +178,7 @@ def plan(cursor, source_dir):
         groups.setdefault((record["timestamp_ms"], record["ons_plant_id"]), []).append(
             record
         )
-    deletions = []
+    deletions, reasons, survivors = [], {}, []
     for (stamp, plant_id), rows in groups.items():
         if month_of(stamp) not in months:
             raise ValueError(f"Duplicate {plant_id} at {stamp} is outside the audit")
@@ -180,9 +188,22 @@ def plan(cursor, source_dir):
             raise ValueError(
                 f"{plant_id} at {stamp}: {len(kept)} copies match the source name"
             )
-        deletions += [r for r in rows if r is not kept[0]]
-    duplicates = len(deletions)
-    reasons = {row["id"]: "duplicate" for row in deletions}
+        for row in rows:
+            if row is not kept[0]:
+                deletions.append(row)
+                reasons[row["id"]] = "duplicate"
+        if (stamp, plant_id) in keys:
+            survivors.append([stamp, plant_id])
+        elif (stamp, plant_id) in missing:
+            # The source now publishes this plant-hour as null: no copy stays.
+            deletions.append(kept[0])
+            reasons[kept[0]["id"]] = "now_missing"
+        else:
+            raise ValueError(
+                f"{plant_id} at {stamp} is named but absent from the source: "
+                "timestamps or IDs probably do not line up"
+            )
+    duplicates = sum(r == "duplicate" for r in reasons.values())
     for label in sorted(months):
         start, end = month_bounds(label)
         cursor.execute(
@@ -224,8 +245,14 @@ def plan(cursor, source_dir):
         "summary": {
             k: {"rows": v[0], "mwh": round(v[1], 3)} for k, v in sorted(summary.items())
         },
-        "fingerprint": fingerprint_of(manifest_sha256, deletions),
+        "fingerprint": fingerprint_of(
+            manifest_sha256,
+            deletions,
+            {str(k): v for k, v in reasons.items()},
+            sorted(survivors),
+        ),
         "reasons": {str(k): v for k, v in reasons.items()},
+        "survivors": sorted(survivors),
         "deletions": deletions,
     }
 
@@ -262,7 +289,10 @@ def apply(cursor, planned, fingerprint):
     if (
         planned["fingerprint"] != fingerprint
         or planned["manifest_sha256"] != manifest_sha256
-        or fingerprint_of(manifest_sha256, rows) != fingerprint
+        or fingerprint_of(
+            manifest_sha256, rows, planned["reasons"], planned["survivors"]
+        )
+        != fingerprint
     ):
         raise ValueError("Plan does not match the fingerprint and audited manifest")
     months = {item["label"] for item in manifest_data["source_files"]}
@@ -308,11 +338,7 @@ def apply(cursor, planned, fingerprint):
         )
         if cursor.fetchone():
             raise ValueError(f"Duplicate plant-hours remain in {label}")
-    survivors = {
-        (row["timestamp_ms"], row["ons_plant_id"])
-        for row in rows
-        if reasons[str(row["id"])] == "duplicate"
-    }
+    survivors = planned["survivors"]
     if survivors:
         cursor.execute(
             f"SELECT count(*) FROM {TABLE} t JOIN unnest(%s::bigint[], %s::text[]) "
