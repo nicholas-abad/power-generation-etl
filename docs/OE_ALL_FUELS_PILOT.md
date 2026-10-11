@@ -36,7 +36,8 @@ run_in_environment.py --environment staging --role writer -- \
 energy-extract openelectricity --all-fuels --network NEM --start-date 2024-01-01 --end-date 2024-12-31 --output ./out
 energy-extract openelectricity --all-fuels --network WEM --start-date 2024-01-01 --end-date 2024-12-31 --output ./out
 
-# 2. Load each network-month atomically (a part replaces its network and day range)
+# 2. Load each network-month atomically. A part replaces its network's rows for the days its file
+#    name declares, so keep the extractor's file names; a part with rows outside them is refused.
 for f in ./out/oe_all_fuels/*/parts/*.jsonl; do
   run_in_environment.py --environment staging --role writer -- \
     uv run python src/database_management.py load-data oe_all_fuels "$f" || echo "FAILED $f"
@@ -63,7 +64,8 @@ run_in_environment.py --environment staging --role writer -- \
 
 ## Results (staging, 2026-10-11)
 
-Migration 022 applied; `dashboard_ro` surface unchanged (27 relations), no shadow tables. 2019 and
+Migration 022 applied (its later finite-energy constraint was added to the existing staging table with
+`ALTER TABLE … ADD CONSTRAINT finite_energy_oe_all_fuels`; a fresh database gets it from 022); `dashboard_ro` surface unchanged (27 relations), no shadow tables. 2019 and
 2024, NEM and WEM: 48 network-months, 433 requests (~1 API credit), 320,408 rows, all loaded
 with zero invalid or duplicate records (parts rebuilt from the archived raw responses with the final
 extractor code and reloaded over the first load; no stale rows remained). Reconciliation matched every month, every local day and the

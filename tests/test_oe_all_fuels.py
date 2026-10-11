@@ -132,7 +132,7 @@ def pg():
             conn.close()
 
 
-def write(tmp_path, records, name="NEM_2025-10.jsonl"):
+def write(tmp_path, records, name="NEM_2025-10__2025-10-01_2025-10-31.jsonl"):
     p = tmp_path / name
     p.write_text("".join(json.dumps(r) + "\n" for r in records))
     return str(p)
@@ -171,10 +171,10 @@ def test_view_buckets_network_local_months(pg, tmp_path):
     # 1 October local midnight (30 September in UTC) for both networks
     assert db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [
         rec(), rec(timestamp_ms=OCT1_NEM - DAY, energy_mwh=7000.0),  # 30 September local
-    ], "nem.jsonl"))[0]
+    ], "NEM_2025-09__2025-09-30_2025-10-31.jsonl"))[0]
     assert db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [
         rec(network_code="WEM", unit_code="COLLIE_G1", timestamp_ms=OCT1_WEM, energy_mwh=5000.0),
-    ], "wem.jsonl"))[0]
+    ], "WEM_2025-10__2025-10-01_2025-10-31.jsonl"))[0]
     refresh(conn)
     with conn, conn.cursor() as cur:
         cur.execute("SELECT network_code, to_char(month,'YYYY-MM'), SUM(energy_mwh) FROM public.mv_oe_all_fuels_unit_monthly GROUP BY 1, 2 ORDER BY 1, 2")
@@ -234,10 +234,10 @@ def test_non_finite_energy_rejected(value):
 def test_reloading_a_month_replaces_rows_whose_direction_changed(pg, tmp_path):
     conn, db = pg
     # first extraction: the battery day only had its net aggregate
-    db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec(), rec(**{**NET, "unit_code": "BAT1"})], "v1.jsonl"))
+    db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec(), rec(**{**NET, "unit_code": "BAT1"})], "NEM_2025-10__2025-10-01_2025-10-31.jsonl"))
     # re-extraction: components now reported for the same unit-day
     v2 = [rec(), rec(**{**DIS, "unit_code": "BAT1G1"}), rec(**{**CHG, "unit_code": "BAT1L1"})]
-    ok, _ = db.insert_oe_all_fuels_jsonl_data(write(tmp_path, v2, "v2.jsonl"))
+    ok, _ = db.insert_oe_all_fuels_jsonl_data(write(tmp_path, v2))
     assert ok
     got = rows(conn)
     assert ("BAT1", "net", "reported", -12.5) not in got
@@ -246,9 +246,9 @@ def test_reloading_a_month_replaces_rows_whose_direction_changed(pg, tmp_path):
 
 def test_reload_never_touches_other_networks_or_days(pg, tmp_path):
     conn, db = pg
-    db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec(network_code="WEM", unit_code="W1", timestamp_ms=OCT1_WEM)], "w.jsonl"))
-    db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec(timestamp_ms=OCT1_NEM + DAY, unit_code="ER09")], "n2.jsonl"))
-    db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec()], "n1.jsonl"))  # NEM, 1 October only
+    db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec(network_code="WEM", unit_code="W1", timestamp_ms=OCT1_WEM)], "WEM_2025-10__2025-10-01_2025-10-31.jsonl"))
+    db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec(timestamp_ms=OCT1_NEM + DAY, unit_code="ER09")], "NEM_2025-10__2025-10-02_2025-10-02.jsonl"))
+    db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec()], "NEM_2025-10__2025-10-01_2025-10-01.jsonl"))  # NEM, 1 October only
     assert {u for u, *_ in rows(conn)} == {"W1", "ER09", "ER01"}
 
 
@@ -287,3 +287,24 @@ def test_a_file_mixing_networks_is_refused(pg, tmp_path):
     conn, db = pg
     ok, _ = db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec(), rec(network_code="WEM", unit_code="W1")]))
     assert not ok and rows(conn) == []
+
+
+def test_a_reload_replaces_the_declared_days_even_when_one_is_gone(pg, tmp_path):
+    conn, db = pg
+    db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec(), rec(timestamp_ms=OCT1_NEM + 30 * DAY, unit_code="ER31")]))
+    # re-extraction of October no longer has the 31st
+    assert db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec()]))[0]
+    assert {u for u, *_ in rows(conn)} == {"ER01"}
+
+
+@pytest.mark.parametrize("name, records", [
+    ("NEM_2025-10.jsonl", [rec()]),  # no declared range
+    ("NEM_2025-10__2025-10-02_2025-10-31.jsonl", [rec()]),  # a record before the range
+    ("WEM_2025-10__2025-10-01_2025-10-31.jsonl", [rec()]),  # a NEM record in a WEM part
+    ("NEM_2025-10__2025-10-01_2025-10-31.jsonl", []),  # empty: would replace nothing
+])
+def test_a_part_that_does_not_match_its_name_is_refused(pg, tmp_path, name, records):
+    conn, db = pg
+    db.insert_oe_all_fuels_jsonl_data(write(tmp_path, [rec(unit_code="KEEP")], "NEM_2025-10__2025-10-01_2025-10-01.jsonl"))
+    ok, _ = db.insert_oe_all_fuels_jsonl_data(write(tmp_path, records, name))
+    assert not ok and {u for u, *_ in rows(conn)} == {"KEEP"}
