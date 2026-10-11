@@ -181,14 +181,17 @@ def main():
                         fuels_per_unit_month[(month_of(ms), plant, unit)].add(ftype)
                         fuel_kwh[ftype] += value
                     day_total = str(it.get("dayElr") or "").replace(",", "").strip()
-                    if day_total:
+                    if day_total and not (day_total.isascii() and day_total.isdigit()):
+                        rejected.append({"reason": "unreadable day total", "date": it["tgtDate"],
+                                         "plant": plant, "unit": unit, "raw_value": day_total})
+                    elif day_total:
                         try:
                             if Decimal(day_total) != total:
                                 mismatches.append({"date": it["tgtDate"], "plant": plant, "unit": unit,
                                                    "day_total": day_total, "slot_sum": str(total)})
                         except InvalidOperation:
-                            mismatches.append({"date": it["tgtDate"], "plant": plant, "unit": unit,
-                                               "day_total": day_total, "slot_sum": "unreadable dayElr"})
+                            rejected.append({"reason": "unreadable day total", "date": it["tgtDate"],
+                                             "plant": plant, "unit": unit, "raw_value": day_total})
             obs.sort(key=lambda r: (r[0], r[1], r[2]))
             for prev, cur in zip(obs, obs[1:]):
                 if prev[:3] == cur[:3]:
