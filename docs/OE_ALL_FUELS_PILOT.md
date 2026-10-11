@@ -64,8 +64,9 @@ run_in_environment.py --environment staging --role writer -- \
 ## Results (staging, 2026-10-11)
 
 Migration 022 applied; `dashboard_ro` surface unchanged (27 relations), no shadow tables. 2019 and
-2024, NEM and WEM: 48 network-months, 433 requests (~1 API credit), 319,647 rows (87 MB), all loaded
-with zero invalid or duplicate records. Reconciliation matched every month, every local day and the
+2024, NEM and WEM: 48 network-months, 433 requests (~1 API credit), 320,408 rows, all loaded
+with zero invalid or duplicate records (parts rebuilt from the archived raw responses with the final
+extractor code and reloaded over the first load; no stale rows remained). Reconciliation matched every month, every local day and the
 view at its full key. The OE facility table fingerprint was identical before and after (232,206 rows,
 md5 `255e7e6cadaf5eeb0e2fa196e15ec037`).
 
@@ -86,10 +87,15 @@ md5 `255e7e6cadaf5eeb0e2fa196e15ec037`).
 - OE network-total check: every main fuel within 1% except NEM OCGT gas in Aug and Sep 2019
   (+1.2%, +1.3%).
 - Rooftop solar is network-level only in OE and is not in this table.
-- Batteries (aggregate battery series exist only from 2024-08 NEM / 2025-09 WEM, so this is from the
-  2025-10 qualification sample): most unit-days have both components and the aggregate is a cross-check
-  (9 NEM unit-days differ by more than 1 MWh, max 10.6, kept as derived net residuals); 273 have a
-  component derived from the aggregate under its own unit code; 4 have only the net aggregate.
+- Batteries: OE's aggregate battery series exists only from 2024-08 (NEM) / 2025-09 (WEM). Where a
+  unit-day has both components the aggregate is a cross-check; a gap above max(1 MWh, 1%) is kept as a
+  derived net residual. In the 2025-10 qualification sample that is 9 NEM unit-days (max 10.6 MWh);
+  273 have a component derived from the aggregate under its own unit code; 4 have only the aggregate.
+- In NEM Aug–Nov 2024 OE's aggregate does not equal discharging − charging, also at network level
+  (Aug: aggregate −4.7 GWh, discharging − charging −21.5 GWh). Residuals there are frequent and large
+  (Oct: 468 unit-days, up to 612 MWh), and 36.0 GWh of derived net rows result for 2024; by Dec 2024
+  only 2 remain. Injection and withdrawal totals are unaffected; the residual rows are
+  `direction='net', basis='derived'` and can be excluded.
 
 ## Known issue in the existing coal view (not changed here)
 
@@ -102,4 +108,6 @@ months. Fixing the existing view changes tracker numbers and needs a separate de
 
 - Rooftop solar (network-level estimate only): in or out?
 - Batteries and pumped hydro: discharge only, net, or both charge and discharge?
+- Battery residuals where OE's aggregate disagrees with its components (mostly Aug–Nov 2024): keep
+  them as net, or trust the components and drop them?
 - Mapping of OE fueltechs to reporting categories (e.g. pumped-hydro generation is reported as hydro).
