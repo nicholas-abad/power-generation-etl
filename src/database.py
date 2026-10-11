@@ -967,46 +967,78 @@ class PowerGenerationDatabase:
 
         The extractor emits them with plant_name None (the reviewed identity
         table has already named its units). Others take the name the same unit
-        (country, EIC) has in the database, latest first; a unit never stored
-        under a name cannot be named and is left out with a warning, so a
-        weekly load never fails on it.
+        (country, EIC) already has at that timestamp, else its latest stored
+        name; a unit never stored under a name cannot be named and is left out
+        with a warning, so a weekly load never fails on it. Distinct EICs that
+        end up sharing a name at one timestamp fail the batch: deduplication by
+        name would otherwise silently drop one unit's generation.
         """
-        unnamed = {
-            (r["country_code"], r["unit_eic"])
-            for r in batch
-            if r.get("plant_name") is None and r.get("unit_eic")
-        }
-        if not unnamed:
-            return batch
-        with self.engine.connect() as conn:
-            found = conn.execute(
-                text(
-                    "SELECT DISTINCT ON (country_code, unit_eic) country_code,"
-                    " unit_eic, plant_name FROM entsoe_generation_data"
-                    " WHERE country_code = ANY(:countries) AND unit_eic = ANY(:eics)"
-                    " ORDER BY country_code, unit_eic, timestamp_ms DESC"
-                ),
-                {
-                    "countries": sorted({c for c, _ in unnamed}),
-                    "eics": sorted({e for _, e in unnamed}),
-                },
-            ).fetchall()
-        names = {(c, e): n for c, e, n in found if (c, e) in unnamed}
-        named, dropped = [], {}
+        unnamed = [
+            r for r in batch if r.get("plant_name") is None and r.get("unit_eic")
+        ]
+        if unnamed:
+            units = sorted({(r["country_code"], r["unit_eic"]) for r in unnamed})
+            with self.engine.connect() as conn:
+                params = {
+                    "countries": [c for c, _ in units],
+                    "eics": [e for _, e in units],
+                    "times": sorted({r["timestamp_ms"] for r in unnamed}),
+                }
+                exact = conn.execute(
+                    text(
+                        "SELECT t.country_code, t.unit_eic, t.timestamp_ms, t.plant_name"
+                        " FROM entsoe_generation_data t"
+                        " JOIN unnest(CAST(:countries AS text[]), CAST(:eics AS text[]))"
+                        " AS u(country_code, unit_eic) USING (country_code, unit_eic)"
+                        " WHERE t.timestamp_ms = ANY(:times)"
+                    ),
+                    params,
+                ).fetchall()
+                latest = conn.execute(
+                    text(
+                        "SELECT DISTINCT ON (t.country_code, t.unit_eic) t.country_code,"
+                        " t.unit_eic, t.plant_name FROM entsoe_generation_data t"
+                        " JOIN unnest(CAST(:countries AS text[]), CAST(:eics AS text[]))"
+                        " AS u(country_code, unit_eic) USING (country_code, unit_eic)"
+                        " ORDER BY t.country_code, t.unit_eic, t.timestamp_ms DESC"
+                    ),
+                    params,
+                ).fetchall()
+            at_time = {(c, e, t): n for c, e, t, n in exact}
+            names = {(c, e): n for c, e, n in latest}
+            named, dropped = [], {}
+            for row in batch:
+                if row.get("plant_name") is None and row.get("unit_eic"):
+                    unit = (row["country_code"], row["unit_eic"])
+                    name = at_time.get(unit + (row["timestamp_ms"],), names.get(unit))
+                    if name is None:
+                        dropped[unit] = dropped.get(unit, 0) + 1
+                        continue
+                    row = dict(row, plant_name=name)
+                named.append(row)
+            if dropped:
+                logger.warning(
+                    f"Left out {sum(dropped.values())} observations of units that"
+                    f" ENTSO-E sends without a name and that have no stored name:"
+                    f" {dropped}"
+                )
+            batch = named
+        owners = {}
         for row in batch:
-            if row.get("plant_name") is None and row.get("unit_eic"):
-                key = (row["country_code"], row["unit_eic"])
-                if key not in names:
-                    dropped[key] = dropped.get(key, 0) + 1
-                    continue
-                row = dict(row, plant_name=names[key])
-            named.append(row)
-        if dropped:
-            logger.warning(
-                f"Left out {sum(dropped.values())} observations of units that ENTSO-E"
-                f" sends without a name and that have no stored name: {dropped}"
-            )
-        return named
+            if row.get("unit_eic"):
+                key = (
+                    row["timestamp_ms"],
+                    row["country_code"],
+                    row["psr_type"],
+                    row["plant_name"],
+                )
+                if owners.setdefault(key, row["unit_eic"]) != row["unit_eic"]:
+                    raise ValueError(
+                        f"Units {owners[key]} and {row['unit_eic']} would share the"
+                        f" name {row['plant_name']!r} at {row['timestamp_ms']};"
+                        " review their identities in config/entsoe-unit-names.json"
+                    )
+        return batch
 
     def _insert_entsoe_batch(
         self,

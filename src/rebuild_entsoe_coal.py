@@ -14,8 +14,12 @@ docs/ENTSOE_COAL_REBUILD.md.
   write; per window, under the table lock, move the stored rows to the backup,
   insert the payload, and prove before commit that the window equals the
   payload row for row. The tail window (certified end onwards) is applied
-  only in the certified end's own UTC month, so the resumed weekly job is
-  guaranteed to refill it. Resumable; one manifest and plan per repair id.
+  only if the weekly job's resume month (newest stored day in the table plus
+  one day, UTC) is not after the certified end's month, checked before the
+  run and again under the lock after the tail is deleted. --defer-tail
+  completes the certified months without the tail and records
+  tail_state='deferred'. Resumable; one manifest and plan per repair id; the
+  scope config must be the one the plan was made with.
 - rollback: bound to the same approved plan; per window, under the same lock,
   only while nothing has written to the window since apply; restores the
   original rows and ids.
@@ -274,14 +278,22 @@ def collisions(cursor, psrs):
 
 
 def etl_commit():
+    """The ETL checkout's commit, or None if unknown or it has local changes."""
+    here = str(Path(__file__).resolve().parent)
     try:
-        return subprocess.check_output(
-            ["git", "-C", str(Path(__file__).resolve().parent), "rev-parse", "HEAD"],
+        commit = subprocess.check_output(
+            ["git", "-C", here, "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        dirty = subprocess.check_output(
+            ["git", "-C", here, "status", "--porcelain", "--", "src", "config"],
             text=True,
             stderr=subprocess.DEVNULL,
         ).strip()
     except (OSError, subprocess.CalledProcessError):
         return None
+    return None if dirty else commit
 
 
 def plan(connection, manifest, manifest_sha, windows, target):
@@ -318,6 +330,7 @@ def plan(connection, manifest, manifest_sha, windows, target):
                 )
             connection.rollback()
     not_rebuilt = country not in entsoe_coal.REBUILT
+    commit = etl_commit()
     report = {
         "repair_id": manifest["repair_id"],
         "target": target,
@@ -326,9 +339,9 @@ def plan(connection, manifest, manifest_sha, windows, target):
         "manifest_sha256": manifest_sha,
         "inputs": manifest["inputs"],
         # The scope config this plan was checked against; it must equal the one
-        # released with the weekly workflow's pinned commits (runbook step 6).
+        # released with the weekly workflow's pinned commits (runbook step 5).
         "etl": {
-            "commit": etl_commit(),
+            "commit": commit,
             "scope_config_sha256": hashlib.sha256(
                 (entsoe_coal.CONFIG / "entsoe-coal-scopes.json").read_bytes()
             ).hexdigest(),
@@ -339,6 +352,8 @@ def plan(connection, manifest, manifest_sha, windows, target):
             # The weekly path must already write source-period rows with
             # canonical names and reject legacy rows for this country.
             "country_not_configured_as_rebuilt": [country] if not_rebuilt else [],
+            # The plan must name the exact released code it was made with.
+            "etl_checkout_unknown_or_modified": [] if commit else ["src/ or config/"],
         },
         "windows": report_windows,
     }
@@ -352,6 +367,15 @@ def create_ledger(cursor):
         plan_sha256 text NOT NULL, views_state text NOT NULL DEFAULT 'pending',
         tail_state text NOT NULL DEFAULT 'pending',
         created_at timestamptz NOT NULL DEFAULT now())""")
+    # Ledgers created by earlier versions of this tool gain the newer columns.
+    cursor.execute(
+        f"ALTER TABLE {HEADER} ADD COLUMN IF NOT EXISTS views_state text NOT NULL"
+        " DEFAULT 'pending'"
+    )
+    cursor.execute(
+        f"ALTER TABLE {HEADER} ADD COLUMN IF NOT EXISTS tail_state text NOT NULL"
+        " DEFAULT 'pending'"
+    )
     cursor.execute(f"""CREATE TABLE IF NOT EXISTS {MONTHS} (
         repair_id text NOT NULL REFERENCES {HEADER}(repair_id),
         window_start bigint NOT NULL, window_end bigint, month text NOT NULL,
@@ -448,17 +472,32 @@ def apply(
     planned = check_approval(manifest, manifest_sha, windows, approved)
     blocking = {k: v for k, v in approved["blocking"].items() if v}
     require(not blocking, f"The approved plan has blocking findings: {blocking}")
-    bind(connection, manifest, manifest_sha, approved, create=True)
+    require_same_scope_config(approved)
     end_month = manifest["end"][:7]
     tail_window = windows[-1]
+    chosen = selected(windows, only)
+    if defer_tail:
+        require(
+            only is None or tail_window["month"] not in only,
+            "--defer-tail cannot be combined with a selection that includes the tail",
+        )
+        chosen = [w for w in chosen if w is not tail_window]
+    bind(connection, manifest, manifest_sha, approved, create=True)
     with connection:
         with connection.cursor() as cursor:
             cursor.execute(
-                f"SELECT window_start FROM {MONTHS} WHERE repair_id=%s",
+                f"SELECT window_start, state FROM {MONTHS} WHERE repair_id=%s",
                 (manifest["repair_id"],),
             )
-            done = {row[0] for row in cursor.fetchall()}
-            pending = [w for w in selected(windows, only) if w["start"] not in done]
+            ledger_states = dict(cursor.fetchall())
+            require(
+                "rolled_back" not in ledger_states.values(),
+                "This repair has rolled-back windows; use a new repair id",
+            )
+            done = {
+                start for start, state in ledger_states.items() if state == "applied"
+            }
+            pending = [w for w in chosen if w["start"] not in done]
             after = done | {w["start"] for w in pending}
             # Finishing the certified months without the tail would leave legacy
             # rows from the certified end on beside the new weekly rows.
@@ -489,15 +528,7 @@ def apply(
                 != planned[w["month"]]["stored_sha256"]
             ]
     require(not drifted, f"Stored rows changed since the plan in {drifted}; re-plan")
-    if defer_tail and tail_window not in pending:
-        with connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    f"UPDATE {HEADER} SET tail_state='deferred' WHERE repair_id=%s"
-                    " AND tail_state<>'applied'",
-                    (manifest["repair_id"],),
-                )
-    for window in selected(windows, only):
+    for window in chosen:
         expected = planned[window["month"]]
         with connection:
             with connection.cursor() as cursor:
@@ -531,7 +562,37 @@ def apply(
                     outcome = apply_window(cursor, manifest, window, expected)
         # Recorded only once the month's transaction has committed.
         results.append(outcome)
+    with connection:
+        with connection.cursor() as cursor:
+            if defer_tail and tail_window["start"] not in done:
+                # Recorded once every selected month has committed.
+                cursor.execute(
+                    f"UPDATE {HEADER} SET tail_state='deferred' WHERE repair_id=%s"
+                    " AND tail_state<>'applied'",
+                    (manifest["repair_id"],),
+                )
     return results
+
+
+def tail_state(connection, repair_id):
+    with connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT tail_state FROM {HEADER} WHERE repair_id=%s", (repair_id,)
+            )
+            found = cursor.fetchone()
+    return found[0] if found else None
+
+
+def require_same_scope_config(approved):
+    """Apply and rollback run with the scope config the plan was made with."""
+    current = hashlib.sha256(
+        (entsoe_coal.CONFIG / "entsoe-coal-scopes.json").read_bytes()
+    ).hexdigest()
+    require(
+        approved["etl"]["scope_config_sha256"] == current,
+        "config/entsoe-coal-scopes.json differs from the one the plan was made with",
+    )
 
 
 def apply_window(cursor, manifest, window, expected):
@@ -634,6 +695,7 @@ def rollback(
 ):
     results = [] if results is None else results
     check_approval(manifest, manifest_sha, windows, approved)
+    require_same_scope_config(approved)
     bind(connection, manifest, manifest_sha, approved, create=False)
     for window in reversed(selected(windows, only)):
         with connection:
@@ -682,7 +744,9 @@ def rollback_window(cursor, manifest, window, ledger):
         (manifest["repair_id"], window["start"]),
     )
     cursor.execute(
-        f"UPDATE {HEADER} SET views_state='pending' WHERE repair_id=%s",
+        f"UPDATE {HEADER} SET views_state='pending'"
+        + (", tail_state='rolled_back'" if window["end"] is None else "")
+        + " WHERE repair_id=%s",
         (manifest["repair_id"],),
     )
     return {"month": window["month"], "action": "rolled back"}
@@ -788,7 +852,11 @@ def main(argv=None):
                     results,
                     args.defer_tail,
                 )
-                report = {"applied": results}
+                report = {
+                    "applied": results,
+                    # Must be 'applied' before the weekly job resumes (runbook).
+                    "tail_state": tail_state(connection, manifest["repair_id"]),
+                }
                 refresh_views(connection, manifest["repair_id"])
             elif args.rollback:
                 rollback(
@@ -802,7 +870,10 @@ def main(argv=None):
                     args.statement_timeout,
                     results,
                 )
-                report = {"rolled_back": results}
+                report = {
+                    "rolled_back": results,
+                    "tail_state": tail_state(connection, manifest["repair_id"]),
+                }
                 refresh_views(connection, manifest["repair_id"])
             elif args.refresh_views:
                 refresh_views(connection, manifest["repair_id"])

@@ -29,7 +29,9 @@ reviewed names come from `config/entsoe-unit-names.json`.
 5. **Release, then pause.** Release the extractor allow-list and the ETL scope
    config with the country in `countries` and `rebuilt_countries` (legacy coal
    rows are then rejected for it), with the weekly workflow pinned to those
-   commits; then pause the weekly ENTSO-E job.
+   commits. The extractor pin must be at or after `6d9f512` (energy-extractors),
+   which emits unnamed series for the ETL to name by EIC; older pins drop them.
+   Then pause the weekly ENTSO-E job.
 6. **Plan** (`src/rebuild_entsoe_coal.py`, read-only) from that released
    checkout and review the report: stored rows, exact MWh and hash per month;
    the ETL commit and scope-config hash it was checked against (they must equal
@@ -43,7 +45,10 @@ reviewed names come from `config/entsoe-unit-names.json`.
    later month, checked under the lock after the tail is deleted, and the
    resume month is recorded. Completing the certified months without the tail
    needs `--defer-tail` (recorded in the ledger); then re-certify through the
-   current month before resuming. Finally resume the weekly job, which refills
+   current month before resuming. Before resuming the weekly job, the report's
+   `tail_state` (also `ingestion.entsoe_coal_rebuilds.tail_state`) must be
+   `applied`; with `deferred` or `rolled_back`, the weekly job would write new
+   rows beside the legacy tail rows. Then resume the weekly job, which refills
    the tail.
 7. **Verify**: view refresh (UTC, `CONCURRENTLY`; `--refresh-views` retries a
    failure), totals per month equal the certified payload, other countries and
@@ -64,8 +69,11 @@ period ends.
 For allow-listed countries the extractor keeps series that carry a unit EIC
 but no name (plant_name null). The loader names them from the reviewed
 identity table, else from the name the same unit (country, EIC) has in the
-database; a unit never stored under a name is left out with a warning. After a
-rebuild every unit's rows carry their EIC, so known units are named.
+database at that timestamp, else its latest stored name; a unit never stored
+under a name is left out with a warning. Distinct EICs that would share a name
+at one timestamp fail the batch for identity review. After a rebuild every
+unit's rows carry their EIC, so known units are named. This needs the
+extractor pin at or after `6d9f512`.
 
 ## Not yet covered
 

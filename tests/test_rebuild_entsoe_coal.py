@@ -27,6 +27,8 @@ HOUR = 3600000
 @pytest.fixture(autouse=True)
 def pl_rebuilt(monkeypatch):
     monkeypatch.setattr(entsoe_coal, "REBUILT", frozenset({"PL"}))
+    # Tests run from a working tree with local changes; pin a commit.
+    monkeypatch.setattr(rebuild, "etl_commit", lambda: "test-commit")
 
 
 @pytest.fixture
@@ -246,7 +248,7 @@ def test_rollback_restores_original_rows_and_ids(pg, tmp_path):
     results = rebuild.rollback(pg, manifest, sha, windows, report)
     assert [r["action"] for r in results] == ["rolled back"] * 3
     assert table(pg) == original
-    with pytest.raises(ValueError, match="rolled back; use a new repair id"):
+    with pytest.raises(ValueError, match="rolled-back windows; use a new repair id"):
         rebuild.apply(pg, manifest, sha, windows, report)
 
 
@@ -504,3 +506,65 @@ def test_cli_refusal_writes_a_partial_report(tmp_path):
     written = json.loads(report.read_text())
     assert code == 1 and written["completed"] == []
     assert "matches no window" in written["error"]
+
+
+def header(pg, column):
+    with pg, pg.cursor() as cur:
+        cur.execute(f"SELECT {column} FROM ingestion.entsoe_coal_rebuilds")
+        return cur.fetchone()[0]
+
+
+def test_defer_tail_alone_leaves_the_tail_untouched(pg, tmp_path):
+    insert(pg, stored(MARCH), stored(MAY + HOUR, name="Tail row"))
+    manifest, sha, windows, report = prepared(tmp_path, pg, MONTHS)
+    results = rebuild.apply(pg, manifest, sha, windows, report, defer_tail=True)
+    assert [r["month"] for r in results] == ["2024-03", "2024-04"]
+    assert header(pg, "tail_state") == "deferred"
+    assert any(r["plant_name"] == "Tail row" for _, r in table(pg))
+    with pytest.raises(ValueError, match="cannot be combined"):
+        rebuild.apply(
+            pg, manifest, sha, windows, report, only={"2024-05-tail"}, defer_tail=True
+        )
+
+
+def test_rolled_back_tail_is_recorded(pg, tmp_path):
+    insert(pg, stored(MARCH))
+    manifest, sha, windows, report = prepared(tmp_path, pg, MONTHS)
+    rebuild.apply(pg, manifest, sha, windows, report)
+    assert header(pg, "tail_state") == "applied"
+    rebuild.rollback(pg, manifest, sha, windows, report, only={"2024-05-tail"})
+    assert header(pg, "tail_state") == "rolled_back"
+
+
+def test_an_older_ledger_is_upgraded(pg, tmp_path):
+    with pg, pg.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE ingestion.entsoe_coal_rebuilds (repair_id text PRIMARY KEY,"
+            " manifest_sha256 text NOT NULL, plan_sha256 text NOT NULL,"
+            " created_at timestamptz NOT NULL DEFAULT now())"
+        )
+    insert(pg, stored(MARCH))
+    manifest, sha, windows, report = prepared(tmp_path, pg, MONTHS)
+    rebuild.apply(pg, manifest, sha, windows, report)
+    assert (header(pg, "tail_state"), header(pg, "views_state")) == (
+        "applied",
+        "pending",
+    )
+
+
+def test_a_different_scope_config_is_refused(pg, tmp_path):
+    insert(pg, stored(MARCH))
+    manifest, sha, windows, report = prepared(tmp_path, pg, MONTHS)
+    report = dict(report, etl=dict(report["etl"], scope_config_sha256="0" * 64))
+    report["plan_sha256"] = rebuild.digest(
+        {k: v for k, v in report.items() if k != "plan_sha256"}
+    )
+    with pytest.raises(ValueError, match="differs from the one the plan was made with"):
+        rebuild.apply(pg, manifest, sha, windows, report)
+
+
+def test_unknown_or_modified_checkout_blocks_the_plan(pg, tmp_path, monkeypatch):
+    monkeypatch.setattr(rebuild, "etl_commit", lambda: None)
+    insert(pg, stored(MARCH))
+    _, _, _, report = prepared(tmp_path, pg, MONTHS)
+    assert report["blocking"]["etl_checkout_unknown_or_modified"]

@@ -354,3 +354,75 @@ def test_unnamed_series_are_named_by_eic_or_left_out(entsoe_db, tmp_path):
             ("27W-GU-ECHVG1--C", "ECHV_G1___", None),
             ("27W-GU-ELE4----5", "Ledvice 4", None),
         ]
+
+
+def test_unnamed_units_never_merge_and_replays_keep_their_time_name(
+    entsoe_db, tmp_path
+):
+    connection, db, dsn = entsoe_db
+    migrate(dsn)
+    earlier, later = 1551394800000, 1551398400000
+    # Two units that once shared a label, at different times, plus a unit
+    # renamed over time (old name at `earlier`, new name at `later`).
+    history = [
+        record(
+            plant_name="Shared",
+            unit_eic="27W-GU-SHAREA--1",
+            source_unit_name="Shared",
+            timestamp_ms=earlier - 3600000,
+        ),
+        record(
+            plant_name="Shared",
+            unit_eic="27W-GU-SHAREB--2",
+            source_unit_name="Shared",
+            timestamp_ms=earlier,
+        ),
+        record(
+            plant_name="Old name",
+            unit_eic="27W-GU-RENAME--3",
+            source_unit_name="Old name",
+            timestamp_ms=earlier,
+        ),
+        record(
+            plant_name="New name",
+            unit_eic="27W-GU-RENAME--3",
+            source_unit_name="New name",
+            timestamp_ms=later,
+        ),
+    ]
+    assert load(db, tmp_path, history)[0]
+    # An unnamed replay at `earlier` keeps the name the unit had then: it
+    # updates that row (no second row, no unit/time key violation).
+    ok, _ = load(
+        db,
+        tmp_path,
+        [record(plant_name=None, unit_eic="27W-GU-RENAME--3", timestamp_ms=earlier)],
+    )
+    assert ok
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT plant_name FROM ingestion.entsoe_generation_data"
+            " WHERE unit_eic='27W-GU-RENAME--3' ORDER BY timestamp_ms"
+        )
+        assert [r[0] for r in cursor.fetchall()] == ["Old name", "New name"]
+    # Both "Shared" units arriving unnamed at one new time would merge: refused.
+    ok, _ = load(
+        db,
+        tmp_path,
+        [
+            record(
+                plant_name=None,
+                unit_eic="27W-GU-SHAREA--1",
+                timestamp_ms=later + 3600000,
+            ),
+            record(
+                plant_name=None,
+                unit_eic="27W-GU-SHAREB--2",
+                timestamp_ms=later + 3600000,
+            ),
+        ],
+    )
+    assert not ok
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT count(*) FROM ingestion.entsoe_generation_data")
+        assert cursor.fetchone()[0] == 4
