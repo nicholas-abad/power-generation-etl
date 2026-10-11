@@ -215,7 +215,12 @@ actual local server. CI uses the PostgreSQL service's Unix socket. Repair
 evidence checks remain active under optimized Python.
 
 The reviewed extractor is pinned at
-`58b1c3ddfe156d8fce7058631bc9fef965de0a7b`. The full 2019/2024 benchmark and
+`09429001916488afd8522fd15af894e665db2fcd` (2026-10-11). It differs from the
+previously rehearsed `58b1c3ddfe156d8fce7058631bc9fef965de0a7b` only in
+documentation and the `missing_intervals` statistic; the offline replay of the
+2019 and 2024 archives at the new commit reproduced every observation exactly
+(224,876 / 22,827,602.150 MWh and 530,160 / 18,782,731.275 MWh). The rehearsal
+below was recorded at `58b1c3dd`. The full 2019/2024 benchmark and
 repair/rollback/loader rehearsal passed again against runtime ETL revision
 `95d3b084a304269ad9d382d94aed081e726bccef`; see
 [the reviewed rehearsal](validation/entsoe-coal-reviewed-rehearsal-2026-10-05.json).

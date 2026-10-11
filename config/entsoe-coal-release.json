@@ -1,7 +1,7 @@
 {
   "scope": "CZ coal hotfix; prepared and locally rehearsed; production access and execution not authorized",
   "extractor_repository": "nicholas-abad/energy-extractors",
-  "extractor_commit": "58b1c3ddfe156d8fce7058631bc9fef965de0a7b",
+  "extractor_commit": "09429001916488afd8522fd15af894e665db2fcd",
   "etl_repository": "nicholas-abad/power-generation-etl",
   "etl_base_commit": "d8c6d781a34726e87001e2c43ec09b66aa9e0595",
   "etl_commit_binding": "The immutable Git commit containing this file; record its full SHA at rehearsal/deployment.",
