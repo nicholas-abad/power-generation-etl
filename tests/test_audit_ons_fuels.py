@@ -6,7 +6,7 @@ import sys
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from audit_ons_fuels import account, gaps, join_gaps, merge  # noqa: E402
+from audit_ons_fuels import account, join_gaps, merge  # noqa: E402
 
 
 def row(**changes):
@@ -42,7 +42,7 @@ def test_policy_counts_each_row_once_per_fuel():
             row(id_ons="Z", cod_modalidadeoperacao="Nova modalidade"),
         ]
     )
-    table = account(df)
+    table, _ = account(df)
     coal = table["Carvão"]
     assert coal["raw_rows"] == 11
     assert coal["accepted_rows"] == 3  # PLANT, E, G
@@ -61,8 +61,8 @@ def test_policy_counts_each_row_once_per_fuel():
 
 
 def test_merge_adds_files():
-    one = account(pd.DataFrame([row()]))
-    two = account(pd.DataFrame([row(din_instante="2026-02-01 00:00:00"), row(id_ons="N", val_geracao=None)]))
+    one, _ = account(pd.DataFrame([row()]))
+    two, _ = account(pd.DataFrame([row(din_instante="2026-02-01 00:00:00"), row(id_ons="N", val_geracao=None)]))
     total = merge([one, two])["Carvão"]
     assert (total["raw_rows"], total["accepted_rows"], total["accepted_mwh"]) == (3, 2, 20.0)
     assert total["rejected_eligible"] == {"missing_generation": 1}
@@ -75,7 +75,7 @@ def test_gaps_join_across_monthly_files_and_skip_groups():
 
     july = pd.concat([hourly("2026-07-31 22:00", 2), hourly("2026-07-31 22:00", 2, id_ons="GRP", cod_modalidadeoperacao="TIPO II-C")])
     august = pd.concat([hourly("2026-08-01 00:00", 3), pd.DataFrame([row(din_instante="2026-08-01 05:00:00", val_geracao=None)])])
-    joined = join_gaps([gaps(july), gaps(august)])
+    joined = join_gaps([account(july)[1], account(august)[1]])
     hour = 3_600_000
     start = int(pd.Timestamp("2026-07-31 22:00").value // 1_000_000)
     assert [(g["ons_plant_id"], g["start_ms"], g["end_ms"], g["hours"]) for g in joined] == [

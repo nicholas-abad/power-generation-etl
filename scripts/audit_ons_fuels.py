@@ -81,7 +81,7 @@ def classify(df):
 
 
 def account(df):
-    """Per-fuel table for one or more source files."""
+    """Per-fuel table and source gaps for one source file."""
     df = df.reset_index(drop=True)
     category, reason = classify(df)
     fuel = df["nom_tipocombustivel"].astype("string").str.strip().fillna(MISSING)
@@ -108,13 +108,11 @@ def account(df):
             },
         }
         table[label] = entry
-    return table
+    return table, gaps(df, reason)
 
 
-def gaps(df):
+def gaps(df, reason):
     """Contiguous hourly runs of missing generation in eligible plants."""
-    df = df.reset_index(drop=True)
-    category, reason = classify(df)
     missing = df[reason == "missing_generation"]
     if missing.empty:
         return []
@@ -201,8 +199,9 @@ def main():
         df = pd.read_parquet(path)
         if len(df) != item["raw_records"]:
             raise SystemExit(f"{path.name}: row count differs from the audited file")
-        tables.append(account(df))
-        gap_parts.append(gaps(df))
+        table, file_gaps = account(df)
+        tables.append(table)
+        gap_parts.append(file_gaps)
         print(f"{item['label']}: {len(df):,} rows", flush=True)
     fuels = merge(tables)
     accepted = sum(f["accepted_rows"] for f in fuels.values())

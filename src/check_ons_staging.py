@@ -89,14 +89,15 @@ def check_fuel_accounting(year):
     eligible individual-plant rows rejected for identity/value/duplicate
     reasons, fails unless config/ons-benchmarks.json records an approval.
     """
-    fuels = benchmark(year).get("fuels")
+    audited = benchmark(year)
+    fuels = audited.get("fuels")
     if not fuels:
         raise ValueError(f"No independent per-fuel audit recorded for {year}")
     policy = fuel_policy()
     without = policy.get("without_individual_plants", {})
     approved = policy.get("eligible_rejections", {}).get(str(year), {})
     gap_hours = {}
-    for gap in check_source_gaps(year, benchmark(year).get("source_gaps", [])):
+    for gap in check_source_gaps(year, audited.get("source_gaps", [])):
         gap_hours[gap["fuel_type"]] = gap_hours.get(gap["fuel_type"], 0) + gap["hours"]
     for fuel, entry in fuels.items():
         if entry["raw_rows"] and not entry["accepted_rows"] and fuel not in without:
@@ -108,9 +109,7 @@ def check_fuel_accounting(year):
             raise ValueError(
                 f"{fuel} loses eligible rows in {year} ({rejected}) without approval"
             )
-    if sum(entry["accepted_rows"] for entry in fuels.values()) != benchmark(year)[
-        "expected_observations"
-    ]:
+    if sum(entry["accepted_rows"] for entry in fuels.values()) != audited["expected_observations"]:
         raise ValueError("Per-fuel audit does not add up to the audited observations")
     return {
         fuel: {"accepted_rows": entry["accepted_rows"], "accepted_mwh": entry["accepted_mwh"]}

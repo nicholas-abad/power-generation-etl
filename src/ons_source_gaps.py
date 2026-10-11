@@ -37,13 +37,12 @@ COLUMNS = (
 
 def approved_rows(metadata, year):
     check_extraction(metadata, year, benchmark(year))
-    plants = {gap["ons_plant_id"]: gap["plant"] for gap in metadata["source_gaps"]}
     return [
         (
             gap["ons_plant_id"],
             gap["start_ms"],
             gap["end_ms"],
-            plants[gap["ons_plant_id"]],
+            gap["plant"],
             gap["fuel_type"],
             gap["hours"],
             gap["kind"],
