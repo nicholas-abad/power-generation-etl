@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       year:
-        description: 'One audited year, or the fixed 2019/2024 regression benchmarks'
+        description: 'One audited year (or year-to-date snapshot), or the fixed 2019/2024 regression benchmarks'
         required: true
         default: benchmarks
         type: choice
@@ -79,10 +79,14 @@ jobs:
             uv run python src/check_ons_staging.py --year "$BENCHMARK_YEAR" \
               --report output/coal-before.json
       - name: Extract the audited year
-        working-directory: extractors
         run: |
-          uv run energy-extract ons --start-year "$BENCHMARK_YEAR" --end-year "$BENCHMARK_YEAR" \
-            --all-types --individual-plants-only --output ../extracted_data --log-level INFO
+          # Year, audited cutoff month and selection come from config/ons-benchmarks.json.
+          # Command substitution in an assignment stops the step if the year isn't audited.
+          printed=$(uv run python src/check_ons_staging.py --year "$BENCHMARK_YEAR" --print-extract-args)
+          read -ra extract_args <<< "$printed"
+          cd extractors
+          uv run energy-extract ons "${extract_args[@]}" \
+            --output ../extracted_data --log-level INFO
       - name: Require complete downloads and audited source hashes before loading
         run: |
           shopt -s nullglob

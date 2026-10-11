@@ -1,6 +1,7 @@
 """Benchmark gates reject changed sources and partial historical years."""
 
 from copy import deepcopy
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 import sys
@@ -9,7 +10,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import check_ons_staging  # noqa: E402
-from check_ons_staging import benchmark, check_extraction, year_bounds  # noqa: E402
+from check_ons_staging import (  # noqa: E402
+    benchmark,
+    capture,
+    check_extraction,
+    extract_arguments,
+    year_bounds,
+)
 
 
 def metadata_for(year):
@@ -21,6 +28,8 @@ def metadata_for(year):
         "thermal_only": False,
         "individual_plants_only": True,
         "failed_downloads_count": 0,
+        "end_month": audited.get("last_month", 12),
+        "end_month_requested": audited.get("last_month"),
         "extraction_run_id": "benchmark-test",
         "raw_records": raw_count,
         "selected_records": raw_count,
@@ -112,3 +121,92 @@ def test_monthly_download_manifest_must_match_exactly(mutation):
         attempts[0]["success"] = False
     with pytest.raises(ValueError):
         check_extraction(metadata, 2024, benchmark(2024))
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"end_month": 11}, {"end_month": None}, {"end_month_requested": 12}],
+)
+def test_complete_year_requires_full_cutoff(change):
+    metadata = metadata_for(2024)
+    metadata.update(change)
+    with pytest.raises(ValueError, match="audited month"):
+        check_extraction(metadata, 2024, benchmark(2024))
+
+
+def test_extract_arguments_reproduce_complete_benchmarks():
+    selection = ["--all-types", "--individual-plants-only"]
+    assert extract_arguments(2019) == ["--start-year", "2019", "--end-year", "2019", *selection]
+    assert extract_arguments(2024) == ["--start-year", "2024", "--end-year", "2024", *selection]
+
+
+@pytest.fixture
+def year_to_date(monkeypatch, tmp_path):
+    """A 2026 Jan-Aug entry shaped like the committed monthly audits."""
+    files = [
+        {
+            "label": f"2026-{m:02d}",
+            "url": f"https://example.invalid/GERACAO_USINA-2_2026_{m:02d}.parquet",
+            "sha256": f"{m:064x}",
+            "raw_records": 10,
+        }
+        for m in range(1, 9)
+    ]
+    manifest = tmp_path / "benchmarks.json"
+    manifest.write_text(
+        json.dumps(
+            {"years": {"2026": {"last_month": 8, "expected_observations": 40, "source_files": files}}}
+        )
+    )
+    monkeypatch.setattr(check_ons_staging, "BENCHMARKS", manifest)
+    return 2026
+
+
+def test_year_to_date_bounds_stop_at_the_audited_month(year_to_date):
+    start, end = year_bounds(year_to_date)
+    assert start == int(datetime(2026, 1, 1, tzinfo=UTC).timestamp() * 1000)
+    assert end == int(datetime(2026, 9, 1, tzinfo=UTC).timestamp() * 1000)
+    assert "month < '2026-09-01'" in check_ons_staging.month_predicate(year_to_date)
+    assert extract_arguments(year_to_date)[4:6] == ["--end-month", "8"]
+
+
+def test_year_to_date_preflight(year_to_date):
+    metadata = metadata_for(year_to_date)
+    assert check_extraction(metadata, year_to_date, benchmark(year_to_date))["status"] == "source_verified"
+    for change in ({"end_month": 9}, {"end_month_requested": None}):
+        bad = {**metadata, **change}
+        with pytest.raises(ValueError, match="audited month 8"):
+            check_extraction(bad, year_to_date, benchmark(year_to_date))
+    extra = deepcopy(metadata)
+    extra["url_attempts"].append({**extra["url_attempts"][-1], "label": "2026-09"})
+    with pytest.raises(ValueError, match="missing or repeats"):
+        check_extraction(extra, year_to_date, benchmark(year_to_date))
+
+
+class FakeCursor:
+    def __init__(self, months):
+        self.months = months
+        self.queries = []
+
+    def copy_expert(self, query, digest):
+        self.queries.append(query)
+
+    def execute(self, query):
+        self.queries.append(query)
+
+    def fetchall(self):
+        return self.months
+
+    def fetchone(self):
+        return (0,)
+
+
+@pytest.mark.parametrize("count, ok", [(8, True), (7, False), (12, False)])
+def test_year_to_date_coal_baseline_month_count(year_to_date, count, ok):
+    cursor = FakeCursor([(f"2026-{m:02d}-01", 1.0) for m in range(1, count + 1)])
+    if ok:
+        assert len(capture(cursor, year_to_date)["coal_monthly"]) == 8
+        assert all("1788220800000" in q for q in cursor.queries if "timestamp_ms <" in q)
+    else:
+        with pytest.raises(ValueError, match="Expected 8 coal baseline months"):
+            capture(cursor, year_to_date)

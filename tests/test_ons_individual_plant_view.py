@@ -253,3 +253,54 @@ def test_full_year_reconciliation_and_corruption_detection(database, tmp_path, y
         )
         with pytest.raises(ValueError, match="Stored observations differ"):
             reconcile(cur, source, year, len(rows))
+
+
+def test_year_to_date_reconciliation_respects_audited_cutoff(
+    database, tmp_path, monkeypatch
+):
+    import check_ons_staging
+
+    manifest = tmp_path / "benchmarks.json"
+    manifest.write_text(json.dumps({"years": {"2026": {"last_month": 8}}}))
+    monkeypatch.setattr(check_ons_staging, "BENCHMARKS", manifest)
+    conn, db, dsn = database
+
+    def at(month, day=1, hour=0):
+        return record(
+            "PLANT",
+            timestamp_ms=int(datetime(2026, month, day, hour, tzinfo=UTC).timestamp() * 1000),
+        )
+
+    rows = [at(month) for month in range(1, 9)] + [at(8, 31, 23)]
+    source = tmp_path / "source.jsonl"
+    source.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    # A later legacy load already holds September; it is outside the audited scope.
+    later = tmp_path / "later.jsonl"
+    later.write_text(json.dumps(at(9)) + "\n")
+    assert db.insert_ons_jsonl_data(str(source))[0]
+    assert db.insert_ons_jsonl_data(str(later))[0]
+    migrate(dsn)
+    with conn.cursor() as cur:
+        cur.execute("SET TIME ZONE 'UTC'")
+        result = reconcile(cur, source, 2026, len(rows))
+        assert result["qualified_months"] == 8
+        assert result["qualified_monthly_rows"] == 8
+        cur.execute("DROP TABLE ons_expected")
+
+        with pytest.raises(ValueError, match="outside 2026"):
+            reconcile(cur, later, 2026, 1)
+        cur.execute("DROP TABLE ons_expected")
+
+        missing_july = tmp_path / "missing.jsonl"
+        missing_july.write_text(
+            "".join(json.dumps(r) + "\n" for r in rows if r is not rows[6])
+        )
+        cur.execute(
+            "DELETE FROM ingestion.ons_generation_data WHERE timestamp_ms=%s",
+            (rows[6]["timestamp_ms"],),
+        )
+        cur.execute(
+            "REFRESH MATERIALIZED VIEW public.mv_ons_individual_plant_monthly"
+        )
+        with pytest.raises(ValueError, match="every audited month"):
+            reconcile(cur, missing_july, 2026, len(rows) - 1)

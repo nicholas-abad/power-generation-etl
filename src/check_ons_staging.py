@@ -1,4 +1,4 @@
-"""Verify an audited complete ONS year on staging.
+"""Verify an audited ONS year (or audited year-to-date snapshot) on staging.
 
 Use through run_in_environment.py. This check requires staging and only
 writes a temporary comparison table plus the requested local JSON report.
@@ -41,13 +41,30 @@ def audited_years():
     )
 
 
-def year_bounds(year):
+def benchmark(year):
     allowed = audited_years()
     if year not in allowed:
         raise ValueError(f"Only the audited benchmark years {allowed} are allowed")
+    return json.loads(BENCHMARKS.read_text())["years"][str(year)]
+
+
+def last_month(year):
+    """Audited cutoff: 12 unless the entry is a year-to-date snapshot."""
+    month = benchmark(year).get("last_month", 12)
+    if not 1 <= month <= 12:
+        raise ValueError(f"Invalid last_month for {year}")
+    return month
+
+
+def period_end(year):
+    month = last_month(year)
+    return datetime(year + month // 12, month % 12 + 1, 1, tzinfo=UTC)
+
+
+def year_bounds(year):
     return (
         int(datetime(year, 1, 1, tzinfo=UTC).timestamp() * 1000),
-        int(datetime(year + 1, 1, 1, tzinfo=UTC).timestamp() * 1000),
+        int(period_end(year).timestamp() * 1000),
     )
 
 
@@ -57,13 +74,15 @@ def year_predicate(year):
 
 
 def month_predicate(year):
-    year_bounds(year)
-    return f"month >= '{year}-01-01' AND month < '{year + 1}-01-01'"
+    return f"month >= '{year}-01-01' AND month < '{period_end(year).date()}'"
 
 
-def benchmark(year):
-    year_bounds(year)
-    return json.loads(BENCHMARKS.read_text())["years"][str(year)]
+def extract_arguments(year):
+    """energy-extract ons arguments that reproduce the audited source files."""
+    arguments = ["--start-year", str(year), "--end-year", str(year)]
+    if last_month(year) < 12:
+        arguments += ["--end-month", str(last_month(year))]
+    return arguments + ["--all-types", "--individual-plants-only"]
 
 
 def check_extraction(metadata, year, audited):
@@ -78,6 +97,11 @@ def check_extraction(metadata, year, audited):
         raise ValueError(
             "Extraction must be a complete, all-fuel individual-plant year"
         )
+    cutoff = last_month(year)
+    if metadata.get("end_month") != cutoff or metadata.get("end_month_requested") != (
+        cutoff if cutoff < 12 else None
+    ):
+        raise ValueError(f"Extraction must end at the audited month {cutoff}")
     attempts = metadata.get("url_attempts", [])
     expected_files = {item["label"]: item for item in audited["source_files"]}
     if len(attempts) != len(expected_files) or {
@@ -140,8 +164,8 @@ def capture(cursor, year):
         f"WHERE {month_predicate(year)} AND fuel_type='Carvão' GROUP BY month ORDER BY month"
     )
     months = cursor.fetchall()
-    if len(months) != 12:
-        raise ValueError(f"Expected twelve coal baseline months for {year}")
+    if len(months) != last_month(year):
+        raise ValueError(f"Expected {last_month(year)} coal baseline months for {year}")
     cursor.execute(
         f"SELECT count(*) FROM ingestion.ons_generation_data "
         f"WHERE {year_predicate(year)} AND fuel_type='Carvão'"
@@ -230,8 +254,8 @@ def reconcile(cursor, path, year, expected_count):
             mwh, actual_mwh, rel_tol=1e-12, abs_tol=1e-6
         ):
             raise ValueError("Qualified view does not reconcile with source aggregates")
-    if len({key[0].month for key in expected}) != 12:
-        raise ValueError("Qualified source does not cover all twelve months")
+    if {key[0].month for key in expected} != set(range(1, last_month(year) + 1)):
+        raise ValueError("Qualified source does not cover every audited month")
     cursor.execute(
         "SELECT fuel_type,count(DISTINCT ons_plant_id),count(*),sum(generation_mwh) "
         "FROM ons_expected GROUP BY fuel_type ORDER BY fuel_type"
@@ -243,7 +267,7 @@ def reconcile(cursor, path, year, expected_count):
     return {
         "source_rows_reconciled": count,
         "qualified_monthly_rows": len(actual),
-        "qualified_months": 12,
+        "qualified_months": last_month(year),
         "fuels": fuels,
     }
 
@@ -251,11 +275,21 @@ def reconcile(cursor, path, year, expected_count):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--year", type=int, choices=audited_years(), default=2019)
-    parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--report", type=Path)
+    parser.add_argument(
+        "--print-extract-args",
+        action="store_true",
+        help="Print the energy-extract ons arguments for the audited year and exit",
+    )
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--expected-jsonl", type=Path)
     parser.add_argument("--preflight-metadata", type=Path)
     args = parser.parse_args()
+    if args.print_extract_args:
+        print(" ".join(extract_arguments(args.year)))
+        return
+    if not args.report:
+        parser.error("--report is required")
     audited = benchmark(args.year)
     if args.preflight_metadata:
         if args.baseline or args.expected_jsonl:
