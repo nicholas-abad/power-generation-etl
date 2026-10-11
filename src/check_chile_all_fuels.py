@@ -50,7 +50,9 @@ def engine():
     )
     if os.environ.get("POSTGRES_SSLMODE"):
         url += f"?sslmode={os.environ['POSTGRES_SSLMODE']}"
-    return create_engine(url, connect_args={"options": "-c default_transaction_read_only=on"})
+    return create_engine(
+        url, connect_args={"options": "-c default_transaction_read_only=on"}
+    )
 
 
 def _utc(conn) -> None:
@@ -61,8 +63,9 @@ def _utc(conn) -> None:
 
 def fingerprint(conn) -> dict:
     _utc(conn)
-    row = conn.execute(text(
-        """
+    row = conn.execute(
+        text(
+            """
         SELECT COUNT(*), COALESCE(SUM(generation_mwh), 0),
                md5(COALESCE(string_agg(
                    concat_ws('|', timestamp_ms, plant, COALESCE(chile_plant_id, ''),
@@ -70,14 +73,17 @@ def fingerprint(conn) -> dict:
                    E'\\n' ORDER BY timestamp_ms, plant, COALESCE(chile_plant_id, '')), ''))
         FROM ingestion.chile_generation_data
         """
-    )).one()
-    months = conn.execute(text(
-        """
+        )
+    ).one()
+    months = conn.execute(
+        text(
+            """
         SELECT to_char(DATE_TRUNC('month', TO_TIMESTAMP(timestamp_ms / 1000)), 'YYYY-MM'),
                COUNT(*), SUM(generation_mwh)
         FROM ingestion.chile_generation_data GROUP BY 1 ORDER BY 1
         """
-    )).all()
+        )
+    ).all()
     return {
         "taken_at": datetime.now().isoformat(),
         "rows": row[0],
@@ -93,6 +99,7 @@ def day_bounds_ms(day: date) -> tuple[int, int]:
     A midnight that does not exist (spring-forward) resolves to the first
     instant after the gap, matching the extractor's `shift_forward`.
     """
+
     def local_midnight(d: date) -> int:
         naive = datetime(d.year, d.month, d.day)
         aware = naive.replace(tzinfo=SANTIAGO)
@@ -102,7 +109,9 @@ def day_bounds_ms(day: date) -> tuple[int, int]:
     return local_midnight(day), local_midnight(day + timedelta(days=1))
 
 
-def reconcile(conn, manifest_path: str, start: date, end: date, plant_ids: list[int]) -> list[str]:
+def reconcile(
+    conn, manifest_path: str, start: date, end: date, plant_ids: list[int]
+) -> list[str]:
     # The latest line per plant-year (`<id_central>_<year>`) wins: a resumed
     # run appends an ok line after a failed one.
     latest: dict[str, dict] = {}
@@ -124,9 +133,16 @@ def reconcile(conn, manifest_path: str, start: date, end: date, plant_ids: list[
             if rec is None:
                 problems.append(f"{key}: not in manifest (never extracted?)")
             elif rec.get("status") != "ok":
-                problems.append(f"{key}: manifest status {rec.get('status')}: {rec.get('error', '')[:200]}")
-            elif rec.get("start", f"{year}-01-01") > need_lo or rec.get("end", f"{year}-12-31") < need_hi:
-                problems.append(f"{key}: covers {rec.get('start')}..{rec.get('end')}, needed {need_lo}..{need_hi}")
+                problems.append(
+                    f"{key}: manifest status {rec.get('status')}: {rec.get('error', '')[:200]}"
+                )
+            elif (
+                rec.get("start", f"{year}-01-01") > need_lo
+                or rec.get("end", f"{year}-12-31") < need_hi
+            ):
+                problems.append(
+                    f"{key}: covers {rec.get('start')}..{rec.get('end')}, needed {need_lo}..{need_hi}"
+                )
 
     # Expected rows/MWh per LOCAL day of the stored instants, as the
     # extractor recorded them.
@@ -155,8 +171,12 @@ def reconcile(conn, manifest_path: str, start: date, end: date, plant_ids: list[
         total_rows += n
         total_mwh += float(s)
         want_n, want_m = expected.get(key, [0, 0.0])
-        if n != want_n or abs(float(s) - want_m) > TOLERANCE_MWH * max(1.0, abs(float(s))):
-            problems.append(f"{key}: stored {n} rows / {float(s):.3f} MWh, manifest {want_n} rows / {want_m:.3f} MWh")
+        if n != want_n or abs(float(s) - want_m) > TOLERANCE_MWH * max(
+            1.0, abs(float(s))
+        ):
+            problems.append(
+                f"{key}: stored {n} rows / {float(s):.3f} MWh, manifest {want_n} rows / {want_m:.3f} MWh"
+            )
         d += timedelta(days=1)
 
     # The view must match the table at its full key, labels and names
@@ -164,8 +184,10 @@ def reconcile(conn, manifest_path: str, start: date, end: date, plant_ids: list[
     # rename or a fuel relabel.
     stale = conn.execute(text(VIEW_VS_TABLE_SQL), {"tol": TOLERANCE_MWH}).all()
     for r in stale[:5]:
-        problems.append(f"view {r.month:%Y-%m} {r.plant_key} {r.tipo_tecnologia}/{r.subtipo_tecnologia}: "
-                        f"view and table differ (refresh the view?)")
+        problems.append(
+            f"view {r.month:%Y-%m} {r.plant_key} {r.tipo_tecnologia}/{r.subtipo_tecnologia}: "
+            f"view and table differ (refresh the view?)"
+        )
     if len(stale) > 5:
         problems.append(f"view: {len(stale) - 5} more groups differ from the table")
     logger.info(f"{start}..{end}: {total_rows:,} stored rows, {total_mwh:,.1f} MWh")
@@ -242,21 +264,47 @@ def coal_report(conn, start: date, end: date, out_path: str) -> dict:
     counts: dict[str, int] = {}
     with open(out_path, "w", newline="") as fh:
         w = csv.writer(fh)
-        w.writerow(["month", "plant_key", "plant", "coal_table_mwh", "unit_coal_mwh",
-                    "coal_plant_other_units_mwh", "coal_plant_other_fuels", "status"])
+        w.writerow(
+            [
+                "month",
+                "plant_key",
+                "plant",
+                "coal_table_mwh",
+                "unit_coal_mwh",
+                "coal_plant_other_units_mwh",
+                "coal_plant_other_fuels",
+                "status",
+            ]
+        )
         for r in rows:
             coal_t, unit_c = r["coal_table_mwh"], r["unit_coal_mwh"]
             if coal_t is None:
-                status = "missing_from_coal_table" if r["plant_key"] in coal_plants else "new_coal_plant"
+                status = (
+                    "missing_from_coal_table"
+                    if r["plant_key"] in coal_plants
+                    else "new_coal_plant"
+                )
             elif not r["in_all_fuels"]:
                 status = "absent_from_all_fuels"
-            elif abs(float(coal_t) - float(unit_c or 0)) <= 1e-6 * max(1.0, float(coal_t)):
+            elif abs(float(coal_t) - float(unit_c or 0)) <= 1e-6 * max(
+                1.0, float(coal_t)
+            ):
                 status = "unchanged"
             else:
                 status = "revised"
             counts[status] = counts.get(status, 0) + 1
-            w.writerow([r["month"], r["plant_key"], r["plant"], coal_t, unit_c,
-                        r["coal_plant_other_units_mwh"], r["coal_plant_other_fuels"], status])
+            w.writerow(
+                [
+                    r["month"],
+                    r["plant_key"],
+                    r["plant"],
+                    coal_t,
+                    unit_c,
+                    r["coal_plant_other_units_mwh"],
+                    r["coal_plant_other_fuels"],
+                    status,
+                ]
+            )
     return counts
 
 
@@ -277,7 +325,9 @@ def main(argv: list[str]) -> int:
             and a["months"].keys() == b["months"].keys()
             and all(
                 a["months"][m]["rows"] == b["months"][m]["rows"]
-                and close(a["months"][m]["generation_mwh"], b["months"][m]["generation_mwh"])
+                and close(
+                    a["months"][m]["generation_mwh"], b["months"][m]["generation_mwh"]
+                )
                 for m in a["months"]
             )
         )
@@ -292,18 +342,33 @@ def main(argv: list[str]) -> int:
                 fp = fingerprint(conn)
                 with open(args[0], "w") as fh:
                     json.dump(fp, fh, indent=2)
-                logger.info(f"coal fingerprint: {fp['rows']} rows, {fp['generation_mwh']:,.1f} MWh, md5 {fp['md5']}")
+                logger.info(
+                    f"coal fingerprint: {fp['rows']} rows, {fp['generation_mwh']:,.1f} MWh, md5 {fp['md5']}"
+                )
                 return 0
             if cmd == "reconcile":
                 plant_ids = [int(x) for x in args[3].split(",") if x.strip()]
-                problems = reconcile(conn, args[0], date.fromisoformat(args[1]), date.fromisoformat(args[2]), plant_ids)
+                problems = reconcile(
+                    conn,
+                    args[0],
+                    date.fromisoformat(args[1]),
+                    date.fromisoformat(args[2]),
+                    plant_ids,
+                )
                 for p in problems:
                     logger.error(p)
                 if not problems:
-                    logger.success("reconciled: every day matches its manifest and the view matches the table")
+                    logger.success(
+                        "reconciled: every day matches its manifest and the view matches the table"
+                    )
                 return 1 if problems else 0
             if cmd == "coal-report":
-                counts = coal_report(conn, date.fromisoformat(args[0]), date.fromisoformat(args[1]), args[2])
+                counts = coal_report(
+                    conn,
+                    date.fromisoformat(args[0]),
+                    date.fromisoformat(args[1]),
+                    args[2],
+                )
                 logger.info(f"coal report {args[0]}..{args[1]} → {args[2]}: {counts}")
                 return 0
     except KeyError as e:
@@ -314,7 +379,9 @@ def main(argv: list[str]) -> int:
         print(__doc__)
         return 2
     except SQLAlchemyError as e:
-        logger.error(f"database error: {type(e).__name__}")  # no URL or credentials echoed
+        logger.error(
+            f"database error: {type(e).__name__}"
+        )  # no URL or credentials echoed
         return 2
     print(__doc__)
     return 2

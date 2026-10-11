@@ -302,7 +302,12 @@ CHILE_ALL_FUELS_SCHEMA = {
         "resolution_minutes": {"type": "int_or_null", "validation": None},
         "unit_count": {"type": "int_or_null", "validation": None},
     },
-    "duplicate_key": ("timestamp_ms", "plant_key", "tipo_tecnologia", "subtipo_tecnologia"),
+    "duplicate_key": (
+        "timestamp_ms",
+        "plant_key",
+        "tipo_tecnologia",
+        "subtipo_tecnologia",
+    ),
 }
 
 CLIMATETRACE_SCHEMA = {
@@ -515,7 +520,9 @@ class DataValidator:
         """Validate a single Chile (Coordinador) record."""
         return self._validate_record(record, CHILE_SCHEMA)
 
-    def validate_chile_all_fuels_record(self, record: Dict[str, Any]) -> ValidationResult:
+    def validate_chile_all_fuels_record(
+        self, record: Dict[str, Any]
+    ) -> ValidationResult:
         """Validate a single Chile all-fuel (plant × technology × hour) record."""
         return self._validate_record(record, CHILE_ALL_FUELS_SCHEMA)
 
