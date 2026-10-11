@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from entsoe_identity import prepare_record  # noqa: E402
 from validator import DataValidator  # noqa: E402
 from check_entsoe_staging import load_expected, preflight  # noqa: E402
-from tests.test_ons_individual_plant_view import database  # noqa: F401,E402
+from tests.local_db import database  # noqa: F401,E402
 
 
 def record(**changes):
