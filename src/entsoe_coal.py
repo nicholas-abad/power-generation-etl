@@ -10,11 +10,15 @@ import re
 
 from psycopg2.extras import execute_values
 
+import entsoe_names
+
 CONFIG = Path(__file__).resolve().parents[1] / "config"
 _SCOPES = json.loads((CONFIG / "entsoe-coal-scopes.json").read_text())
 COAL = frozenset(_SCOPES["psr_types"])
 COUNTRIES = frozenset(_SCOPES["countries"])
-ALIASES = json.loads((CONFIG / "entsoe-coal-aliases.json").read_text())["aliases"]
+# Coal entries of the single reviewed identity table (config/entsoe-unit-names.json).
+# config/entsoe-coal-aliases.json stays frozen as the CZ 2023-2024 release record.
+ALIASES = [a for a in entsoe_names.aliases() if a["psr_type"] in COAL]
 _ALIASES_BY_COUNTRY: dict = {}
 for _alias in ALIASES:
     _ALIASES_BY_COUNTRY.setdefault(_alias["country_code"], []).append(_alias)

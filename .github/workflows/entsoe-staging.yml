@@ -138,5 +138,5 @@ jobs:
             extracted_data/entsoe_unit_manifest.json
             extracted_data/source_xml/
             config/entsoe-benchmarks.json
-            config/entsoe-unit-aliases.json
+            config/entsoe-unit-names.json
           retention-days: 30
