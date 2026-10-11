@@ -9,10 +9,10 @@ import os
 import re
 import sys
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 from loguru import logger
@@ -109,6 +109,13 @@ logger.add(
 )
 
 
+# OpenElectricity all-fuel parts: `<NET>_<YYYY-MM>__<start>_<end>.jsonl`, the
+# network-local days the extractor requested; NEM and WEM use fixed offsets.
+_OE_PART_NAME = re.compile(
+    r"^([A-Z]+)_(\d{4}-\d{2})__(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})\.jsonl$"
+)
+_OE_UTC_OFFSET_HOURS = {"NEM": 10, "WEM": 8}
+
 _VALID_SQL_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 # Database names may be mixed-case in practice (e.g. PowerGeneration), but we
@@ -129,6 +136,7 @@ _KNOWN_TABLES = frozenset(
         "occto_generation_data",
         "chile_generation_data",
         "chile_generation_all_fuels",
+        "oe_unit_generation_all_fuels",
         "climatetrace_generation_data",
         "extraction_metadata",
         "plant_crosswalk",
@@ -229,8 +237,13 @@ class PowerGenerationDatabase:
         conflict_columns: list = None,
         conflict_expr: str = None,
         update_columns: list = None,
+        replace_where: Optional[Tuple[str, Dict[str, Any]]] = None,
     ) -> int:
         """Insert rows via a staging table, skipping duplicates on conflict.
+
+        ``replace_where`` (SQL condition, parameters) first deletes the target
+        rows it matches, in the same transaction, so a reloaded slice replaces
+        the previous one instead of leaving rows whose key no longer occurs.
 
         Uses CREATE TEMP TABLE + COPY + INSERT ... ON CONFLICT DO NOTHING
         for efficient bulk upsert.
@@ -299,6 +312,10 @@ class PowerGenerationDatabase:
         conn = self.engine.raw_connection()
         try:
             cursor = conn.cursor()
+
+            if replace_where:
+                condition, params = replace_where
+                cursor.execute(f"DELETE FROM {target_table} WHERE {condition}", params)
 
             # 1. Create temp staging table (dropped at end of transaction)
             cursor.execute(
@@ -2061,6 +2078,145 @@ class PowerGenerationDatabase:
             return True, report
         except Exception as e:
             logger.error(f"Failed to insert Chile all-fuel data: {e}")
+            return False, None
+
+    def insert_oe_all_fuels_jsonl_data(
+        self,
+        jsonl_file_path: str,
+        validation_report_path: str = None,
+    ) -> Tuple[bool, Optional[ValidationReport]]:
+        """Load one OpenElectricity all-fuel part file (one network-month) atomically.
+
+        Staging pilot (migration 022). Nothing is written unless every record
+        validates (whole file first, duplicates on the natural key across the
+        file), then one upsert transaction. A part is one network-month
+        (~15-20k rows), so a failed load leaves nothing partial and a replay of
+        the same file is idempotent. The file replaces every stored row of the
+        network and days its name declares, so a re-extracted month leaves no
+        stale rows, even on a day that is no longer in it.
+        """
+        try:
+            m = _OE_PART_NAME.match(Path(jsonl_file_path).name)
+            if not m or m.group(1) not in _OE_UTC_OFFSET_HOURS:
+                logger.error(
+                    f"{jsonl_file_path}: not an all-fuel part name "
+                    "(<NEM|WEM>_<YYYY-MM>__<start>_<end>.jsonl) — nothing written"
+                )
+                return False, None
+            net, month, first, last = m.groups()
+            # The name decides what is deleted: keep it to days of its own month.
+            if not (
+                first.startswith(month) and last.startswith(month) and first <= last
+            ):
+                logger.error(
+                    f"{jsonl_file_path}: {first}..{last} is not within {month} — nothing written"
+                )
+                return False, None
+            tz = timezone(timedelta(hours=_OE_UTC_OFFSET_HOURS[net]))
+            lo = int(
+                datetime.fromisoformat(first).replace(tzinfo=tz).timestamp() * 1000
+            )
+            hi = int(
+                (
+                    datetime.fromisoformat(last).replace(tzinfo=tz) + timedelta(days=1)
+                ).timestamp()
+                * 1000
+            )
+            keep_cols = [
+                "extraction_run_id",
+                "created_at_ms",
+                "network_code",
+                "network_region",
+                "facility_code",
+                "facility_name",
+                "unit_code",
+                "fueltech",
+                "fueltech_group",
+                "unit_status",
+                "direction",
+                "basis",
+                "timestamp_ms",
+                "energy_mwh",
+                "capacity_registered_mw",
+                "latitude",
+                "longitude",
+                "resolution_minutes",
+            ]
+            with open(jsonl_file_path, "r") as f:
+                records = [json.loads(line) for line in f if line.strip()]
+
+            valid_records, report = DataValidator().validate_file(
+                records, "oe_all_fuels", jsonl_file_path
+            )
+            if validation_report_path:
+                save_report(report, validation_report_path)
+            if report.invalid_count or report.duplicate_count:
+                logger.error(
+                    f"{jsonl_file_path}: {report.invalid_count} invalid, "
+                    f"{report.duplicate_count} duplicate records — nothing written"
+                )
+                return False, report
+            if not valid_records:
+                # A whole network-month without data is not plausible; refuse
+                # rather than report a replacement that removed nothing.
+                logger.error(f"{jsonl_file_path}: no records — nothing replaced")
+                return False, report
+
+            df = pd.DataFrame(valid_records)
+            df = df[[c for c in keep_cols if c in df.columns]]
+            networks = df["network_code"].unique().tolist()
+            if networks != [net]:
+                logger.error(
+                    f"{jsonl_file_path}: network {net} expected from the name, got {networks}"
+                )
+                return False, report
+            outside = int(
+                ((df["timestamp_ms"] < lo) | (df["timestamp_ms"] >= hi)).sum()
+            )
+            if outside:
+                logger.error(
+                    f"{jsonl_file_path}: {outside} records outside {first}..{last} — nothing written"
+                )
+                return False, report
+            replace = (
+                "network_code = %(net)s AND timestamp_ms >= %(lo)s AND timestamp_ms < %(hi)s",
+                {"net": net, "lo": lo, "hi": hi},
+            )
+            written = self._execute_with_retry(
+                lambda: self._upsert_via_staging(
+                    df,
+                    "oe_unit_generation_all_fuels",
+                    replace_where=replace,
+                    conflict_columns=[
+                        "timestamp_ms",
+                        "network_code",
+                        "unit_code",
+                        "direction",
+                    ],
+                    # Labels and metadata are revisable; the key is source values only.
+                    update_columns=[
+                        "energy_mwh",
+                        "basis",
+                        "fueltech",
+                        "fueltech_group",
+                        "unit_status",
+                        "facility_code",
+                        "facility_name",
+                        "network_region",
+                        "capacity_registered_mw",
+                        "latitude",
+                        "longitude",
+                        "extraction_run_id",
+                        "created_at_ms",
+                    ],
+                )
+            )
+            logger.success(
+                f"{jsonl_file_path}: {report.valid_count} valid, {written} inserted or updated"
+            )
+            return True, report
+        except Exception as e:
+            logger.error(f"Failed to insert OpenElectricity all-fuel data: {e}")
             return False, None
 
     def insert_climatetrace_jsonl_data(
