@@ -72,7 +72,8 @@ done
 run_in_environment.py --environment staging --role writer -- \
   uv run python src/refresh_views.py --source chile_all_fuels
 run_in_environment.py --environment staging --role writer -- \
-  uv run python src/check_chile_all_fuels.py reconcile ./out/chile_all_fuels/manifest.jsonl 2024-01-01 2024-12-31
+  uv run python src/check_chile_all_fuels.py reconcile ./out/chile_all_fuels/manifest.jsonl 2024-01-01 2024-12-31 \
+  18,76,104,112,117,182,201,236,260,347,375,376,377,378,379,386,387,395,488   # COAL_UNIT_PLANT_IDS
 run_in_environment.py --environment staging --role writer -- \
   uv run python src/check_chile_all_fuels.py fingerprint after.json
 uv run python src/check_chile_all_fuels.py compare before.json after.json
@@ -80,8 +81,9 @@ run_in_environment.py --environment staging --role writer -- \
   uv run python src/check_chile_all_fuels.py coal-report 2024-01-01 2024-12-31 coal_2024.csv
 ```
 
-A failed plant-year is replayed by rerunning steps 1-2; reconciliation fails on any failed part or
-mismatched day, so a partial year cannot pass.
+A failed plant-year is replayed by rerunning steps 1-2. Reconciliation fails on any planned
+plant-year that is missing, failed or covers too few days, on any mismatched day, and on any view
+group that differs from the table, so a partial year cannot pass.
 
 ## Open methodology questions (Christine)
 
@@ -99,8 +101,9 @@ Extraction with `--all-fuels` (19 plants), final code replay-verified against th
 | 2019 | 155,207 | 29 | 1 | 920 (2019-12-31) | 26 |
 | 2024 | 148,905 | 39 | 0 | 0 | 38 |
 
-Every plant-year loaded with zero invalid or duplicate records; reconciliation matched every local day
-of both years to the extractor manifests and the view to the table. The coal table fingerprint was
+Every plant-year loaded with zero invalid or duplicate records; reconciliation found all 19 plant-years
+of each year complete, matched every local day to the extractor manifests and the view to the table at
+its full key. The coal table fingerprint was
 identical before and after (755,878 rows, md5 `f49643a17fd9c72fe629ee51142a6c0f`). Table size: 81 MB
 for the two years.
 

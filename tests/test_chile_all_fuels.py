@@ -254,9 +254,13 @@ def test_fingerprint_reconcile_and_coal_report(pg, tmp_path):
 
     with db._engine.connect() as c:
         assert checks.fingerprint(c)["md5"] == before["md5"], "all-fuel load must not touch the coal table"
-        assert checks.reconcile(c, str(manifest), date(2024, 6, 1), date(2024, 6, 3)) == []
-        problems = checks.reconcile(c, str(manifest), date(2023, 12, 31), date(2024, 6, 1))
-        assert problems == ["387_2023: manifest status failed: 502"]
+        assert checks.reconcile(c, str(manifest), date(2024, 6, 1), date(2024, 6, 3), [386]) == []
+        problems = checks.reconcile(c, str(manifest), date(2023, 12, 31), date(2024, 6, 1), [386, 387])
+        assert problems == [
+            "386_2023: not in manifest (never extracted?)",
+            "387_2023: manifest status failed: 502",
+            "387_2024: not in manifest (never extracted?)",
+        ]
         counts = checks.coal_report(c, date(2024, 6, 1), date(2024, 6, 1), str(tmp_path / "coal.csv"))
     assert counts == {"revised": 1, "new_coal_plant": 1, "unchanged": 1}
     with db._engine.connect() as c:  # a coal unit with zero output is still listed
@@ -292,7 +296,7 @@ def test_reconcile_uses_local_day_counts_for_dst_hour(pg, tmp_path):
         cur.execute("SET TIME ZONE 'UTC'")
         cur.execute("REFRESH MATERIALIZED VIEW public.mv_chile_all_fuels_plant_monthly")
     with db._engine.connect() as c:
-        assert checks.reconcile(c, str(manifest), date(2024, 4, 6), date(2024, 4, 7)) == []
+        assert checks.reconcile(c, str(manifest), date(2024, 4, 6), date(2024, 4, 7), [386]) == []
 
 
 def test_reconcile_plant_year_manifest(pg, tmp_path):
@@ -308,5 +312,52 @@ def test_reconcile_plant_year_manifest(pg, tmp_path):
         cur.execute("SET TIME ZONE 'UTC'")
         cur.execute("REFRESH MATERIALIZED VIEW public.mv_chile_all_fuels_plant_monthly")
     with db._engine.connect() as c:
-        problems = checks.reconcile(c, str(manifest), date(2024, 5, 31), date(2024, 6, 2))
+        problems = checks.reconcile(c, str(manifest), date(2024, 5, 31), date(2024, 6, 2), [386, 378])
     assert problems == ["378_2024: manifest status failed: 502"]
+
+
+def test_reconcile_flags_partial_coverage_and_stale_view(pg, tmp_path):
+    conn, db = pg
+    db.insert_chile_all_fuels_jsonl_data(write(tmp_path, [rec(), rec(**GAS)]))
+    manifest = tmp_path / "m.jsonl"
+    manifest.write_text(json.dumps({"part_key": "386_2024", "status": "ok", "start": "2024-01-01",
+                                    "end": "2024-06-01", "by_local_day": {"2024-06-01": [2, 150.0]}}) + "\n")
+    with conn, conn.cursor() as cur:
+        cur.execute("SET TIME ZONE 'UTC'")
+        cur.execute("REFRESH MATERIALIZED VIEW public.mv_chile_all_fuels_plant_monthly")
+        # a rename after the refresh: monthly totals unchanged, labels stale
+        cur.execute("UPDATE ingestion.chile_generation_all_fuels SET plant = 'TER MEJILLONES (CTM)'")
+    with db._engine.connect() as c:
+        assert checks.reconcile(c, str(manifest), date(2024, 6, 1), date(2024, 6, 1), [386]) == [
+            "view 2024-06 386 Térmica/Carbón: view and table differ (refresh the view?)",
+            "view 2024-06 386 Térmica/Gas Natural: view and table differ (refresh the view?)",
+        ]
+        problems = checks.reconcile(c, str(manifest), date(2024, 6, 1), date(2024, 6, 30), [386])
+    assert problems[0] == "386_2024: covers 2024-01-01..2024-06-01, needed 2024-06-01..2024-06-30"
+
+
+def test_coal_report_statuses_at_plant_level(pg, tmp_path):
+    conn, db = pg
+    may, june = TS - 31 * 24 * 3_600_000, TS
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO ingestion.chile_generation_data (extraction_run_id, created_at_ms, plant, chile_plant_id, "
+            "fuel_type, timestamp_ms, generation_mwh) VALUES (%s, 1, 'TER IEM', '488', 'Carbón', %s, 300), "
+            "(%s, 1, 'TER MEJILLONES', '386', 'Carbón', %s, 0)",
+            (RUN_ID, may, RUN_ID, june),
+        )
+    # IEM: coal in May in both tables, in June only in all-fuels -> missing_from_coal_table.
+    # Mejillones: June in the coal table at 0, all-fuels has only a zero-output gas row -> present, unchanged.
+    db.insert_chile_all_fuels_jsonl_data(write(tmp_path, [
+        rec(plant_key="488", chile_plant_id="488", plant="TER IEM", timestamp_ms=may, generation_mwh=300.0),
+        rec(plant_key="488", chile_plant_id="488", plant="TER IEM", generation_mwh=280.0),
+        rec(**{**GAS, "generation_mwh": 0.0}),
+    ]))
+    with db._engine.connect() as c:
+        counts = checks.coal_report(c, date(2024, 5, 1), date(2024, 6, 30), str(tmp_path / "r.csv"))
+    assert counts == {"unchanged": 2, "missing_from_coal_table": 1}
+
+
+def test_cli_argument_errors_exit_2(monkeypatch):
+    monkeypatch.setattr(checks, "engine", lambda: create_engine("sqlite://"))
+    assert checks.main(["reconcile", "m.jsonl", "2024-01-01"]) == 2
