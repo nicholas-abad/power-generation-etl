@@ -59,11 +59,16 @@ holds only rows the weekly job wrote. Backups live in
 `ingestion.entsoe_coal_rebuild_backup` (owner only) until an agreed acceptance
 period ends.
 
+## Unnamed series on the weekly path
+
+For allow-listed countries the extractor keeps series that carry a unit EIC
+but no name (plant_name null). The loader names them from the reviewed
+identity table, else from the name the same unit (country, EIC) has in the
+database; a unit never stored under a name is left out with a warning. After a
+rebuild every unit's rows carry their EIC, so known units are named.
+
 ## Not yet covered
 
-- The weekly path still skips unnamed series (`include_unnamed` is off in the
-  extractor), so after cutover their months would show gaps again; name them by
-  EIC in the loader before a country goes live.
 - Units the source now lists under another fuel leave coal history when the
   source is followed (pending a methodology decision).
 - Production apply needs explicit authorization per country.

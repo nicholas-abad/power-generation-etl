@@ -324,3 +324,33 @@ def test_identified_batches_lock_before_the_identity_check(monkeypatch):
         i for i, sql in enumerate(executed) if "IS DISTINCT FROM s.unit_eic" in sql
     )
     assert lock < check
+
+
+def test_unnamed_series_are_named_by_eic_or_left_out(entsoe_db, tmp_path):
+    connection, db, dsn = entsoe_db
+    migrate(dsn)
+    # A unit already stored under a name (not in the identity table).
+    stored = record(
+        plant_name="Ledvice 4",
+        unit_eic="27W-GU-ELE4----5",
+        source_unit_name="Ledvice 4",
+        timestamp_ms=1551394800000,
+    )
+    assert load(db, tmp_path, [stored])[0]
+    unnamed = [
+        record(plant_name=None, unit_eic="27W-GU-ELE4----5"),  # stored name
+        record(plant_name=None),  # reviewed identity table: ECHV_G1___
+        record(plant_name=None, unit_eic="27W-GU-NEVER---1"),  # never named
+    ]
+    ok, report = load(db, tmp_path, unnamed)
+    assert ok and report.written_count == 2
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT unit_eic, plant_name, source_unit_name FROM ingestion.entsoe_generation_data"
+            " WHERE timestamp_ms=%s ORDER BY unit_eic",
+            (1551398400000,),
+        )
+        assert cursor.fetchall() == [
+            ("27W-GU-ECHVG1--C", "ECHV_G1___", None),
+            ("27W-GU-ELE4----5", "Ledvice 4", None),
+        ]

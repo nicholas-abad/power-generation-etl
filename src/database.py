@@ -962,6 +962,52 @@ class PowerGenerationDatabase:
             )
             return False, None
 
+    def _name_unnamed_units(self, batch: list) -> list:
+        """Name source series that carry a unit EIC but no unit name.
+
+        The extractor emits them with plant_name None (the reviewed identity
+        table has already named its units). Others take the name the same unit
+        (country, EIC) has in the database, latest first; a unit never stored
+        under a name cannot be named and is left out with a warning, so a
+        weekly load never fails on it.
+        """
+        unnamed = {
+            (r["country_code"], r["unit_eic"])
+            for r in batch
+            if r.get("plant_name") is None and r.get("unit_eic")
+        }
+        if not unnamed:
+            return batch
+        with self.engine.connect() as conn:
+            found = conn.execute(
+                text(
+                    "SELECT DISTINCT ON (country_code, unit_eic) country_code,"
+                    " unit_eic, plant_name FROM entsoe_generation_data"
+                    " WHERE country_code = ANY(:countries) AND unit_eic = ANY(:eics)"
+                    " ORDER BY country_code, unit_eic, timestamp_ms DESC"
+                ),
+                {
+                    "countries": sorted({c for c, _ in unnamed}),
+                    "eics": sorted({e for _, e in unnamed}),
+                },
+            ).fetchall()
+        names = {(c, e): n for c, e, n in found if (c, e) in unnamed}
+        named, dropped = [], {}
+        for row in batch:
+            if row.get("plant_name") is None and row.get("unit_eic"):
+                key = (row["country_code"], row["unit_eic"])
+                if key not in names:
+                    dropped[key] = dropped.get(key, 0) + 1
+                    continue
+                row = dict(row, plant_name=names[key])
+            named.append(row)
+        if dropped:
+            logger.warning(
+                f"Left out {sum(dropped.values())} observations of units that ENTSO-E"
+                f" sends without a name and that have no stored name: {dropped}"
+            )
+        return named
+
     def _insert_entsoe_batch(
         self,
         batch: list,
@@ -976,6 +1022,7 @@ class PowerGenerationDatabase:
         Returns:
             Tuple of (inserted_count, valid_count, invalid_count, duplicate_count)
         """
+        batch = self._name_unnamed_units(batch)
         check_coal_records(batch)
 
         # Validate batch
