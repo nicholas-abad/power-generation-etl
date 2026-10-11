@@ -1465,8 +1465,8 @@ class PowerGenerationDatabase:
                         "occto_generation_data",
                         conflict_expr="timestamp_ms, plant, COALESCE(unit, '')",
                         # Backfills must be able to correct history in place
-                        # (2026-09 audit; weekly window never overlaps, so this
-                        # only fires on deliberate re-extractions).
+                        # (2026-09 audit). The weekly run refetches a 14-day
+                        # lookback, so this also applies OCCTO's revisions.
                         update_columns=[
                             "generation_mwh",
                             "fuel_type",

@@ -133,3 +133,52 @@ class TestEntsoeEmptyOutputGuard:
         n = self._run_entsoe(monkeypatch, tmp_path, first, first)
         assert n == 1
         assert any("publication lag" in m for m in loguru_messages)
+
+
+class TestOcctoWindow:
+    """OCCTO stores 24:00 as the next day's 00:00, so latest_date + 1 skipped a
+    day per run (every Sunday since 2026-06). Each run now refetches a lookback
+    and ends at the last fully published JST day."""
+
+    def test_sunday_run_refetches_the_skipped_sunday(self):
+        from incremental_extract import occto_window
+
+        # run on Sunday 2026-09-27; the stored max slot is Sat 24:00 =
+        # 2026-09-27 00:00, so resume_from says Monday 2026-09-28
+        start, end = occto_window(date(2026, 9, 28), date(2026, 9, 27), False, date(2026, 9, 27))
+        assert end == date(2026, 9, 25)
+        assert start == date(2026, 9, 12)  # 14 days ending at the published day
+        assert start <= date(2026, 9, 20) <= end  # the previously lost Sunday
+
+    def test_far_behind_resume_wins(self):
+        from incremental_extract import occto_window
+
+        start, _ = occto_window(date(2026, 1, 1), date(2026, 9, 27), False, date(2026, 9, 27))
+        assert start == date(2026, 1, 1)
+
+    def test_start_override_is_honoured_but_end_still_clamped(self):
+        from incremental_extract import occto_window
+
+        start, end = occto_window(date(2026, 9, 26), date(2026, 12, 31), True, date(2026, 9, 27))
+        assert (start, end) == (date(2026, 9, 26), date(2026, 9, 25))
+
+    def test_extractor_is_called_with_the_json_backend(self, monkeypatch, tmp_path):
+        import incremental_extract as ie
+
+        calls = []
+        monkeypatch.setenv("START_OVERRIDE", "2025-01-01")
+        monkeypatch.setenv("END_OVERRIDE", "2025-01-03")
+        monkeypatch.setattr(ie, "EXTRACTED_DATA", tmp_path)
+
+        def fake_extract(cmd, **kwargs):
+            calls.append(cmd)
+            (tmp_path / "occto_generation_x_etl.jsonl").write_text("")
+            return 0
+
+        monkeypatch.setattr(ie, "run_extract", fake_extract)
+        monkeypatch.setattr(ie, "load_and_remove", lambda source, f: f.unlink())
+        assert ie.extract_occto() == 1
+        cmd = calls[0]
+        assert cmd[cmd.index("--backend") + 1] == "json"
+        assert cmd[cmd.index("--start-date") + 1] == "2025-01-01"
+        assert cmd[cmd.index("--end-date") + 1] == "2025-01-03"

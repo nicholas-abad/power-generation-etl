@@ -17,7 +17,7 @@ import subprocess
 import sys
 from calendar import monthrange
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from loguru import logger
@@ -99,6 +99,27 @@ def warn_if_long_window(source: str, start: date, end: date) -> None:
             f"may exceed the 350-min job timeout — consider splitting into "
             f"smaller windows."
         )
+
+
+# OCCTO labels each half-hour by its END, so a day's last slot (24:00) is stored
+# as the next day's 00:00 and the latest stored "date" is a day nobody has
+# fetched yet. Resuming from latest + 1 therefore skipped one day per run
+# (every Sunday since 2026-06). Every run now refetches a lookback window and
+# stops at the last fully published day; the loader upserts (DO UPDATE), so
+# overlap is harmless and also picks up late revisions and failed days.
+OCCTO_LOOKBACK_DAYS = 14
+OCCTO_PUBLICATION_LAG_DAYS = 2  # TSOs publish ~15:00 JST the next day
+JST = timezone(timedelta(hours=9))
+
+
+def occto_window(resume: date, end: date, override: bool, now_jst: date) -> tuple[date, date]:
+    """(start, end) for OCCTO: end at the last fully published day; without a
+    START_OVERRIDE, start no later than OCCTO_LOOKBACK_DAYS before that."""
+    published = now_jst - timedelta(days=OCCTO_PUBLICATION_LAG_DAYS)
+    end = min(end, published)
+    if not override:
+        resume = min(resume, published - timedelta(days=OCCTO_LOOKBACK_DAYS - 1))
+    return resume, end
 
 
 def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -212,8 +233,12 @@ def extract_entsoe() -> int:
 
 def extract_occto() -> int:
     today = date.today()
-    resume = window_start("occto")
-    end_date = window_end(today)
+    resume, end_date = occto_window(
+        window_start("occto"),
+        window_end(today),
+        override=bool(os.environ.get("START_OVERRIDE")),
+        now_jst=datetime.now(JST).date(),
+    )
     if resume > end_date:
         logger.info("OCCTO up to date — 0 iterations")
         return 0
@@ -236,7 +261,8 @@ def extract_occto() -> int:
                 iter_start.isoformat(),
                 "--end-date",
                 iter_end.isoformat(),
-                "--headless",
+                "--backend",
+                "json",
                 "--output",
                 str(EXTRACTED_DATA),
             ],
