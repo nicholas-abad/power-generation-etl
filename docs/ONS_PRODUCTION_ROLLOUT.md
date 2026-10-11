@@ -19,20 +19,23 @@ writer role.
 
 ## Part A — remove republication leftovers (#117)
 
-Rehearsed on staging 2026-10-11, including rollback (identical fingerprint on
-re-plan). Staging counts: 111,720 duplicates, 24,792 withdrawn, 26,208
-now-missing rows.
+Rehearsed on staging 2026-10-11 with the final code, from production's state:
+plan, apply, migration, rollback (exact, identical fingerprint on re-plan),
+re-apply. One plan: 162,720 rows (111,720 duplicates, 24,792 withdrawn,
+26,208 now-missing). The repair runs as the owner role; every production
+command, including the read-only plan, needs `--allow-production`.
 
 1. ⚑ Disable the weekly workflow (`gh workflow disable weekly-extraction.yml`)
    and confirm no run is in progress. Needed because the repair takes a table
    lock and the plan's row ids change with every load.
-2. ⚑ **Plan** (read-only, writer role): `repair_ons_rename_duplicates.py plan
-   --source-dir <audited 2026 files> --plan-file prod-plan.json` (run with
-   `uv run --with pyarrow`). Review the summary: coal rows only under
+2. ⚑ **Plan** (read-only, owner role): `repair_ons_rename_duplicates.py plan
+   --source-dir <audited 2026 files> --plan-file prod-plan.json
+   --allow-production` (run with `uv run --with pyarrow`; about 3 minutes). Review the summary: coal rows only under
    `duplicate` for 2026-01/05/06, about 427,455 MWh (May) and 282,312 MWh
    (June); `withdrawn`/`now_missing` without coal.
-3. ⚑ **Apply** (writer role): `apply --plan-file prod-plan.json --fingerprint
-   <fp> --allow-production`. About 2 minutes under lock on staging.
+3. ⚑ **Apply** (owner role): `apply --plan-file prod-plan.json --fingerprint
+   <fp> --allow-production`. About 2 minutes under lock on staging; records the
+   repair in `ingestion.ons_republication_repairs`.
 4. ⚑ **Migration 020** (owner role): `schema/migrations/020_ons_plant_hour_key.sql`
    (refuses while duplicates remain; built concurrently).
 5. ⚑ Merge #117, then `refresh_views.py --source ons`.
@@ -44,8 +47,8 @@ now-missing rows.
 
 **Rollback:** revert the loader (#117), `DROP INDEX CONCURRENTLY
 ingestion.uq_ons_plant_hour`, delete ledger `020`, `rollback --fingerprint
-<fp> --allow-production`, refresh ONS views. The archive table keeps every
-removed row until rollback.
+<fp> --allow-production` (owner role), refresh ONS views. Rollback refuses rows
+that would collide with later loads; the archive is kept and marked.
 
 ## Part B — ONS all fuels (#19, #116)
 
