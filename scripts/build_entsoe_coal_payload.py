@@ -23,6 +23,7 @@ Run with the extractors venv:
 import argparse
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
+from datetime import date, timedelta
 from decimal import Decimal as D
 import gzip
 import hashlib
@@ -222,7 +223,15 @@ def build(
         and certified["start"] <= e["day"] < certified["end"]
         and e["psr"] in certified["psrs"]
     ]
-    by_month = defaultdict(list)
+    # Every month of the certified window gets a file, also one whose requests
+    # were all verified no_data (header only: its stored rows are replaced by
+    # nothing).
+    by_month = {}
+    last = (date.fromisoformat(certified["end"]) - timedelta(days=1)).isoformat()[:7]
+    year, number = map(int, certified["start"][:7].split("-"))
+    while f"{year:04d}-{number:02d}" <= last:
+        by_month[f"{year:04d}-{number:02d}"] = []
+        year, number = (year + 1, 1) if number == 12 else (year, number + 1)
     for entry in sorted(ok, key=lambda e: (e["day"], e["psr"])):
         by_month[entry["day"][:7]].append(entry)
     digests = defaultdict(dict)

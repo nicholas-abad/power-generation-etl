@@ -16,6 +16,11 @@ CONFIG = Path(__file__).resolve().parents[1] / "config"
 _SCOPES = json.loads((CONFIG / "entsoe-coal-scopes.json").read_text())
 COAL = frozenset(_SCOPES["psr_types"])
 COUNTRIES = frozenset(_SCOPES["countries"])
+# Countries whose coal history was rebuilt from source (src/rebuild_entsoe_coal.py):
+# legacy rows without source provenance would reinsert retired names.
+REBUILT = frozenset(_SCOPES.get("rebuilt_countries", []))
+if not REBUILT <= COUNTRIES:
+    raise ValueError("rebuilt_countries must also be configured countries")
 # Coal entries of the single reviewed identity table (config/entsoe-unit-names.json).
 # config/entsoe-coal-aliases.json stays frozen as the CZ 2023-2024 release record.
 ALIASES = [a for a in entsoe_names.aliases() if a["psr_type"] in COAL]
@@ -68,6 +73,11 @@ def check_coal_records(records):
             continue
         country = row["country_code"]
         marker = row.get("resolution_source")
+        if marker is None and country in REBUILT:
+            raise ValueError(
+                f"Legacy coal rows are rejected for {country}, whose history was"
+                " rebuilt from source; load source-period files"
+            )
         if marker not in {None, "xml_period"}:
             raise ValueError(f"Unknown {country} coal interval provenance")
         if marker == "xml_period" and not row.get("unit_eic"):

@@ -1,5 +1,6 @@
 """The certified coal rebuild on a disposable local PostgreSQL (never Neon)."""
 
+from decimal import Decimal
 import gzip
 import hashlib
 import json
@@ -13,12 +14,21 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+import entsoe_coal  # noqa: E402
 import rebuild_entsoe_coal as rebuild  # noqa: E402
 from local_postgres import local_settings, verify_local_connection  # noqa: E402
 
 RUN = "11111111-2222-3333-4444-555555555555"
 MARCH, APRIL, MAY = 1709251200000, 1711929600000, 1714521600000
 HOUR = 3600000
+
+
+@pytest.fixture(autouse=True)
+def pl_rebuilt(monkeypatch):
+    monkeypatch.setattr(entsoe_coal, "REBUILT", frozenset({"PL"}))
+    # The payloads end 2024-05-01: apply runs in that month, when the weekly
+    # job would refill the tail.
+    monkeypatch.setattr(rebuild, "utc_month", lambda now=None: "2024-05")
 
 
 @pytest.fixture
@@ -124,13 +134,13 @@ def payload(
         ).encode()
         path = root / f"{month}.tsv.gz"
         path.write_bytes(gzip.compress(data, mtime=0))
-        mwh = sum(int(x.split("\t")[6]) * 60 / 60 for x in lines)
+        mwh = sum((Decimal(x.split("\t")[6]) for x in lines), Decimal(0))
         entries.append(
             {
                 "month": month,
                 "file": path.name,
                 "rows": len(lines),
-                "mwh": str(int(mwh)),
+                "mwh": format(mwh.normalize(), "f"),
                 "excluded": [],
                 "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             }
@@ -173,10 +183,7 @@ def test_apply_replaces_window_exactly_and_repeats_as_a_noop(pg, tmp_path):
     )
     manifest, sha, windows, report = prepared(tmp_path, pg, MONTHS)
     assert [w["stored_rows"] for w in report["windows"]] == [2, 1, 1]
-    assert report["blocking"] == {
-        "stored_rows_in_other_coal_psrs": {},
-        "unit_time_collisions": [],
-    }
+    assert not any(report["blocking"].values())
     results = rebuild.apply(pg, manifest, sha, windows, report)
     assert [r["action"] for r in results] == ["applied"] * 3
     rows = [r for _, r in table(pg)]
@@ -238,7 +245,7 @@ def test_rollback_restores_original_rows_and_ids(pg, tmp_path):
     manifest, sha, windows, report = prepared(tmp_path, pg, MONTHS)
     rebuild.apply(pg, manifest, sha, windows, report)
     assert table(pg) != original
-    results = rebuild.rollback(pg, manifest, windows)
+    results = rebuild.rollback(pg, manifest, sha, windows, report)
     assert [r["action"] for r in results] == ["rolled back"] * 3
     assert table(pg) == original
     with pytest.raises(ValueError, match="rolled back; use a new repair id"):
@@ -257,7 +264,7 @@ def test_rollback_after_a_later_write_is_refused(pg, tmp_path):
         )
     before = table(pg)
     with pytest.raises(ValueError, match="later writes; rollback refused"):
-        rebuild.rollback(pg, manifest, windows)
+        rebuild.rollback(pg, manifest, sha, windows, report)
     assert table(pg) == before
 
 
@@ -307,3 +314,116 @@ def test_missing_migration_018_fails_preflight(pg, tmp_path):
 def test_production_is_refused_before_connecting():
     with pytest.raises(ValueError, match="--allow-production"):
         rebuild.checked_dsn("production", False)
+
+
+def test_tail_is_refused_outside_the_certified_end_month(pg, tmp_path, monkeypatch):
+    insert(pg, stored(MARCH), stored(MAY + HOUR))
+    manifest, sha, windows, report = prepared(tmp_path, pg, MONTHS)
+    monkeypatch.setattr(rebuild, "utc_month", lambda now=None: "2024-06")
+    before = table(pg)
+    with pytest.raises(ValueError, match="can only be applied in 2024-05"):
+        rebuild.apply(pg, manifest, sha, windows, report)
+    assert table(pg) == before
+    # The certified months alone may still be applied later.
+    rebuild.apply(pg, manifest, sha, windows, report, only={"2024-03", "2024-04"})
+
+
+def test_refilled_tail_does_not_block_resume_and_rollback_says_how(pg, tmp_path):
+    insert(pg, stored(MARCH))
+    manifest, sha, windows, report = prepared(tmp_path, pg, MONTHS)
+    rebuild.apply(pg, manifest, sha, windows, report)
+    insert(
+        pg, stored(MAY + HOUR, name="Belchatow 2", mw=9.0, minutes=60)
+    )  # weekly refill
+    again = rebuild.apply(pg, manifest, sha, windows, report)
+    assert again[-1]["action"] == "already applied; refilled by later loads"
+    with pytest.raises(
+        ValueError, match="roll back the certified months with --months"
+    ):
+        rebuild.rollback(pg, manifest, sha, windows, report)
+    done = rebuild.rollback(
+        pg, manifest, sha, windows, report, only={"2024-03", "2024-04"}
+    )
+    assert [r["action"] for r in done] == ["rolled back", "rolled back"]
+
+
+def test_rollback_needs_the_approved_plan_of_this_repair(pg, tmp_path):
+    insert(pg, stored(MARCH))
+    manifest, sha, windows, report = prepared(tmp_path, pg, MONTHS)
+    rebuild.apply(pg, manifest, sha, windows, report)
+    other = tmp_path / "other"
+    other.mkdir()
+    _, _, _, foreign = prepared(other, pg, MONTHS, repair_id="another-rebuild")
+    before = table(pg)
+    with pytest.raises(ValueError, match="another repair or manifest"):
+        rebuild.rollback(pg, manifest, sha, windows, foreign)
+    tampered = dict(report, windows=report["windows"][:-1])
+    with pytest.raises(ValueError, match="fingerprint does not match"):
+        rebuild.rollback(pg, manifest, sha, windows, tampered)
+    assert table(pg) == before
+
+
+def test_country_not_configured_as_rebuilt_blocks(pg, tmp_path, monkeypatch):
+    monkeypatch.setattr(entsoe_coal, "REBUILT", frozenset())
+    insert(pg, stored(MARCH))
+    manifest, sha, windows, report = prepared(tmp_path, pg, MONTHS)
+    assert report["blocking"]["country_not_configured_as_rebuilt"] == ["PL"]
+    with pytest.raises(ValueError, match="blocking findings"):
+        rebuild.apply(pg, manifest, sha, windows, report)
+
+
+@pytest.mark.parametrize("value", ["2024-13", "typo", "2024-04..2024-03"])
+def test_malformed_month_selection_is_rejected(value):
+    import argparse
+
+    with pytest.raises(argparse.ArgumentTypeError):
+        rebuild.months_arg(value)
+
+
+def test_month_selection_matching_nothing_is_an_error(tmp_path):
+    _, _, windows = rebuild.load_payload(payload(tmp_path, MONTHS))
+    with pytest.raises(ValueError, match="matches no window"):
+        rebuild.select(windows, ("2025-01", "2025-02"))
+    assert rebuild.select(windows, None) is None
+    assert rebuild.select(windows, ("2024-04", "2024-05")) == {
+        "2024-04",
+        "2024-05-tail",
+    }
+
+
+def test_certified_start_must_be_a_month_boundary(tmp_path):
+    root = payload(tmp_path, MONTHS)
+    manifest = json.loads((root / "manifest.json").read_text())
+    manifest["start"] = "2024-03-15"
+    (root / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="start must be the first day of a month"):
+        rebuild.load_payload(root)
+
+
+def test_float_text_form_does_not_cause_a_false_mismatch(pg, tmp_path):
+    # PostgreSQL prints 0.00001 as 1e-05; staging compares MW as a float.
+    months = {"2024-03": [line(MARCH, "0.00001")], "2024-04": [line(APRIL, "50")]}
+    root = payload(tmp_path, months)
+    manifest = json.loads((root / "manifest.json").read_text())
+    (root / "manifest.json").write_text(json.dumps(manifest))
+    manifest, sha, windows = rebuild.load_payload(root)
+    report = rebuild.plan(pg, manifest, sha, windows, "local")
+    applied = rebuild.apply(pg, manifest, sha, windows, report)
+    assert [r["action"] for r in applied] == ["applied"] * 3
+
+
+def test_views_state_returns_to_pending_after_changes(pg, tmp_path):
+    insert(pg, stored(MARCH))
+    manifest, sha, windows, report = prepared(tmp_path, pg, MONTHS)
+    rebuild.apply(pg, manifest, sha, windows, report, only={"2024-03"})
+
+    def views_state():
+        with pg, pg.cursor() as cur:
+            cur.execute("SELECT views_state FROM ingestion.entsoe_coal_rebuilds")
+            return cur.fetchone()[0]
+
+    assert views_state() == "pending"
+    with pg, pg.cursor() as cur:
+        cur.execute("UPDATE ingestion.entsoe_coal_rebuilds SET views_state='refreshed'")
+    rebuild.apply(pg, manifest, sha, windows, report, only={"2024-04"})
+    assert views_state() == "pending"

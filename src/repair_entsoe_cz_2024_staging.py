@@ -110,7 +110,8 @@ def prepare_repair(cursor, apply=False, expected_counts=(117216, 16)):
         raise ValueError(
             "A prior repair backup exists; review it before another repair"
         )
-    cursor.execute(f"REVOKE ALL ON {BACKUP} FROM PUBLIC, dashboard_ro")
+    # etl_writer inherits DML on owner-created ingestion tables (migration 009).
+    cursor.execute(f"REVOKE ALL ON {BACKUP} FROM PUBLIC, dashboard_ro, etl_writer")
     cursor.execute(f"GRANT SELECT ON {BACKUP} TO etl_writer")
     cursor.execute(f"""INSERT INTO {BACKUP}
         SELECT a.* FROM ingestion.entsoe_generation_data a JOIN entsoe_repairs r USING(id)""")

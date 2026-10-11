@@ -348,6 +348,11 @@ class PowerGenerationDatabase:
                     raise ValueError("Identity guards require plain conflict columns")
                 for column in identity_columns:
                     _validate_identifier(column)
+                # Serialize identified writers so this check and the upsert
+                # below cannot interleave with another load of the same keys
+                # (coal batches already hold this lock via prepare_coal_upsert).
+                cursor.execute("SET LOCAL lock_timeout = '10s'")
+                cursor.execute(f"LOCK TABLE {target_table} IN SHARE ROW EXCLUSIVE MODE")
                 join = " AND ".join(f"t.{c}=s.{c}" for c in conflict_columns)
                 conflicts = " OR ".join(
                     f"(t.{c} IS NOT NULL AND t.{c} IS DISTINCT FROM s.{c})"

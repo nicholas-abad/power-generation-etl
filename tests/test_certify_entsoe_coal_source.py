@@ -205,3 +205,20 @@ def test_unnamed_series_is_certified_and_listed(tmp_path, extractor):
     assert dict(unnamed) == {
         (UNIT, "B02", "2024-03-01"): {"observations": 2, "mwh": Decimal("300")}
     }
+
+
+@pytest.mark.parametrize(
+    "start, end",
+    [
+        ("2024-03-01T12:00:00+00:00", "2024-03-01T18:00:00+00:00"),
+        ("2024-03-01T01:00:00+00:00", "2024-03-02T01:00:00+00:00"),
+    ],
+    ids=["shortened", "shifted"],
+)
+def test_request_must_cover_exactly_its_labelled_day(tmp_path, start, end):
+    root = archive(tmp_path)
+    entry = entries(root)[0]
+    entry.update(start=start, end=end)
+    (root / "manifest.jsonl").write_text(json.dumps(entry) + "\n")
+    with pytest.raises(ValueError, match="does not cover exactly that UTC day"):
+        CERTIFY.load_inventory(root, ["B02"], date(2024, 3, 1), date(2024, 3, 2))

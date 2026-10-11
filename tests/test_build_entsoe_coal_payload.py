@@ -183,3 +183,12 @@ def test_output_is_byte_identical(tmp_path, extractor, names):
     first = build(tmp_path, root, identity(tmp_path), out="one")
     second = build(tmp_path, root, identity(tmp_path), out="two")
     assert first["months"][0]["sha256"] == second["months"][0]["sha256"]
+
+
+def test_month_with_only_no_data_gets_an_empty_file(tmp_path, extractor, names):
+    root = archive(tmp_path, (("2024-03-01", "no_data"),))
+    manifest = build(tmp_path, root, identity(tmp_path))
+    assert [(m["month"], m["rows"], m["mwh"]) for m in manifest["months"]] == [
+        ("2024-03", 0, "0")
+    ]
+    assert rows_of(tmp_path, manifest) == []

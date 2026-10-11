@@ -513,3 +513,13 @@ def test_real_loader_rejects_out_of_scope_source_before_name_cleanup(
     path.write_text(json.dumps(source) + "\n")
     assert db.insert_entsoe_jsonl_data(str(path))[0] is False
     assert rows(conn) == [] and not any(m.get("success") for m in meta)
+
+
+def test_rebuilt_country_rejects_legacy_coal_rows(monkeypatch, pl_scope):
+    monkeypatch.setattr(entsoe_coal, "REBUILT", frozenset({"PL"}))
+    with pytest.raises(ValueError, match="rebuilt from source"):
+        check_coal_records([pl()])
+    check_coal_records(
+        [pl(resolution_source="xml_period", unit_eic="19W-PL-UNIT-0001")]
+    )
+    check_coal_records([record()])  # CZ is scoped but not rebuilt

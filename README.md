@@ -4,7 +4,7 @@ Validates, loads, and schedules power generation data from eight upstream source
 
 **Where this sits:** [`energy-extractors`](https://github.com/nicholas-abad/energy-extractors) produces JSONL → **this repo validates and loads it into Neon** → the [dashboard](https://github.com/nicholas-abad/energy-generation-dashboard) reads Neon. See [`docs/INFRASTRUCTURE.md`](docs/INFRASTRUCTURE.md) for the full architecture and the reasoning behind each choice.
 
-The next expansion is the [ENTSO-E Czech unit pilot](docs/ENTSOE_STAGING_PILOT.md), with stable unit IDs, preserved source interval lengths, migration 018 and 2019/2024 staging benchmarks. **Production is out of scope, including read-only access.** Feature-branch CI uses disposable PostgreSQL; the separate manual data workflow targets staging only.
+The next expansion is the [ENTSO-E Czech unit pilot](docs/ENTSOE_STAGING_PILOT.md), with stable unit IDs, preserved source interval lengths, migration 018 and 2019/2024 staging benchmarks, followed by the [certified ENTSO-E coal rebuild](docs/ENTSOE_COAL_REBUILD.md). Production changes happen only through the reviewed repair/rebuild commands, with explicit `--allow-production` authorization for each apply. Feature-branch CI uses disposable PostgreSQL; the separate manual data workflow targets staging only.
 
 ---
 

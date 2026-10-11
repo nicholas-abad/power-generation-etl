@@ -80,6 +80,19 @@ def load_inventory(archive, psrs, start, end):
         if entries[k]["status"] not in {"ok", "no_data"}
     ]
     require(not bad, f"Archive has {len(bad)} failed requests, e.g. {bad[:3]}")
+    # The label is not trusted: each request must cover exactly its UTC day,
+    # for this archive's country and the labelled PSR.
+    country = archive.name
+    for day, psr in expected:
+        entry = entries[(day, psr)]
+        lower = ms(f"{day}T00:00:00+00:00")
+        require(
+            ms(entry["start"]) == lower
+            and ms(entry["end"]) == lower + 86400000
+            and entry["country"] == country
+            and entry["psr"] == psr,
+            f"Request {day} {psr} does not cover exactly that UTC day for {country}",
+        )
     domains = {entries[k]["domain"] for k in expected}
     require(len(domains) == 1, f"Archive mixes bidding domains {domains}")
     return [entries[k] for k in expected], domains.pop()
