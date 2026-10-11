@@ -9,7 +9,7 @@ import os
 import re
 import sys
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
 from typing import Dict, Optional, Tuple
@@ -2055,6 +2055,10 @@ class PowerGenerationDatabase:
             # See ONS: metadata must key to the run id the inserted rows carry
             # (from the *_etl.jsonl file), not the local uuid4.
             file_run_id = None
+            # Date span of the file's valid records, for the metadata row of a
+            # run that writes nothing (no inserted rows to derive it from).
+            file_min_ts = None
+            file_max_ts = None
 
             with open(jsonl_file_path, "r") as f:
                 while True:
@@ -2092,6 +2096,19 @@ class PowerGenerationDatabase:
                     total_valid += report.valid_count
                     total_invalid += report.invalid_count
                     total_duplicates += report.duplicate_count
+                    stamps = [
+                        r["timestamp_ms"]
+                        for r in valid_records
+                        if r.get("timestamp_ms") is not None
+                    ]
+                    if stamps:
+                        lo, hi = min(stamps), max(stamps)
+                        file_min_ts = (
+                            lo if file_min_ts is None else min(file_min_ts, lo)
+                        )
+                        file_max_ts = (
+                            hi if file_max_ts is None else max(file_max_ts, hi)
+                        )
 
                     # Upsert valid records (revisions update in place)
                     if valid_records:
@@ -2144,10 +2161,30 @@ class PowerGenerationDatabase:
                     f"Written Climate TRACE records (inserts + revisions): "
                     f"{total_inserted}"
                 )
-            else:
+            elif total_valid > 0:
                 # With the no-op guard, a re-load of an unchanged package
-                # legitimately writes 0 rows — that is success, not failure.
+                # legitimately writes 0 rows — that is success, not failure,
+                # so it is recorded: the source freshness check reads these rows,
+                # and Climate TRACE publishes monthly, so most weekly runs
+                # change nothing.
+                def _day(ms):
+                    return datetime.fromtimestamp(ms / 1000, tz=UTC).strftime(
+                        "%Y-%m-%d"
+                    )
+
+                self.insert_extraction_metadata(
+                    extraction_run_id=file_run_id or extraction_run_id,
+                    source="climatetrace",
+                    extraction_timestamp=datetime.now(),
+                    start_date=_day(file_min_ts) if file_min_ts is not None else None,
+                    end_date=_day(file_max_ts) if file_max_ts is not None else None,
+                    total_records=total_valid,
+                    failed_count=total_invalid,
+                    success=True,
+                )
                 logger.info("No new or revised records (data unchanged)")
+            else:
+                logger.info("No valid records to load")
 
             aggregate_report = ValidationReport(
                 source_file=jsonl_file_path,
