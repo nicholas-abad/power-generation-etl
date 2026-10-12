@@ -27,7 +27,9 @@ reviewed names come from `config/entsoe-unit-names.json`.
    per month, byte-identical for the same inputs. Its observation digests must
    equal the certified ones; unnamed series without a reviewed or identity-map
    name are excluded and listed in the manifest.
-5. **Release, then pause.** Release the extractor allow-list and the ETL scope
+5. **Release, then pause.** Apply migration 018 first (the rebuild tool's
+   preflight requires it; before it, the loader writes no identity columns).
+   Release the extractor allow-list and the ETL scope
    config with the country in `countries` and `rebuilt_countries` (legacy coal
    rows are then rejected for it), with the weekly workflow pinned to those
    commits. The extractor pin must be at or after `6d9f512` (energy-extractors),

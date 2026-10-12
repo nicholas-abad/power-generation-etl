@@ -40,6 +40,8 @@ SOURCE_VIEWS = {
 }
 
 ALL_VIEWS = [v for views in SOURCE_VIEWS.values() for v in views]
+# Created by a migration that may not be applied yet; skipped until it is.
+MIGRATION_VIEWS = {"mv_entsoe_unit_monthly": "018"}
 
 # Views that exist only where their migration has been applied (staging
 # pilots). Refreshed only on request (`--source <name>`), never by the
@@ -73,6 +75,14 @@ def refresh_views(views: list[str]) -> bool:
         logger.info(f"Refreshing {view}...")
         try:
             with engine.connect() as conn:
+                if view in MIGRATION_VIEWS and (
+                    conn.execute(text("SELECT to_regclass(:v)"), {"v": view}).scalar()
+                    is None
+                ):
+                    logger.warning(
+                        f"Skipping {view}: migration {MIGRATION_VIEWS[view]} not applied"
+                    )
+                    continue
                 # The view queries bucket by date_trunc('month',
                 # to_timestamp(...)), which follows the session TimeZone.
                 # Pin UTC so a refresh from any client bucket-matches the

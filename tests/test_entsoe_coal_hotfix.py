@@ -466,6 +466,20 @@ def test_unscoped_country_keeps_legacy_upsert(pg):
     assert rows(conn)[0]["resolution_minutes"] == 15
 
 
+def test_unit_with_several_spellings_keeps_its_one_stored_name(pg, pl_scope):
+    # Jaworzno 2 B7 has two older spellings; only one is stored.
+    conn, db = pg
+    jaworzno = dict(psr_type="B05", fuel_type="Fossil Hard coal")
+    insert(conn, pl("Jaworzno 2 JWCD B7", **jaworzno))
+    assert upsert(db, pl("Jaworzno 2 B7", mw=120, **jaworzno), verified=True) == 1
+    stored = rows(conn)
+    assert len(stored) == 1 and stored[0]["plant_name"] == "Jaworzno 2 JWCD B7"
+    assert stored[0]["generation_mw"] == 120
+    insert(conn, pl("Jaworzno 2  B7", **jaworzno))
+    with pytest.raises(ValueError, match="overlap"):
+        upsert(db, pl("Jaworzno 2 B7", **jaworzno), verified=True)
+
+
 def test_same_name_in_two_countries_stays_separate(pg, pl_scope):
     # CZ has a reviewed alias for this name; PL must not be renamed onto it.
     conn, db = pg

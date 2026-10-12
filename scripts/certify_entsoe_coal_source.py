@@ -5,6 +5,9 @@ plus `xml/<day>_<psr>.xml.gz`) and requires, for every (UTC day, PSR) in the
 window:
 - the inventory is complete: each request is `ok` or verified `no_data`, never
   `failed`/`parse_failed`, with no gaps or duplicates;
+- each `no_data` request keeps the source's own answer: ENTSO-E's reason-999
+  acknowledgement ("No matching data found") for this domain and exactly this
+  UTC day, with its recorded sha256;
 - each archived body matches its recorded sha256;
 - the independent stdlib/Decimal parser (`audit_entsoe_coal_history.independent_day`)
   and the extractor's per-Period parser yield identical observations;
@@ -36,6 +39,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from xml.etree import ElementTree
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from audit_entsoe_coal_history import FUEL, independent_day, iso, ms, require  # noqa: E402
@@ -95,7 +99,47 @@ def load_inventory(archive, psrs, start, end):
         )
     domains = {entries[k]["domain"] for k in expected}
     require(len(domains) == 1, f"Archive mixes bidding domains {domains}")
-    return [entries[k] for k in expected], domains.pop()
+    domain = domains.pop()
+    for key in expected:
+        if entries[key]["status"] == "no_data":
+            check_no_data(archive, entries[key], domain)
+    return [entries[k] for k in expected], domain
+
+
+def check_no_data(archive, entry, domain):
+    """No data is certified only from the source's archived acknowledgement."""
+    label = f"{entry['day']} {entry['psr']}"
+    path = archive / "xml" / f"{entry['day']}_{entry['psr']}.xml.gz"
+    require(
+        "sha256" in entry and path.exists(),
+        f"No-data request {label} has no archived source answer",
+    )
+    body = gzip.decompress(path.read_bytes())
+    require(
+        hashlib.sha256(body).hexdigest() == entry["sha256"],
+        f"Source hash mismatch {label}",
+    )
+    root = ElementTree.fromstring(body)
+    require(
+        root.tag.rsplit("}", 1)[-1] == "Acknowledgement_MarketDocument",
+        f"No-data request {label} is not an acknowledgement",
+    )
+    start = iso(ms(entry["start"])).replace("+00:00", "Z")
+    end = iso(ms(entry["end"])).replace("+00:00", "Z")
+    reasons = [
+        (r.findtext("{*}code", ""), r.findtext("{*}text", ""))
+        for r in root.findall(".//{*}Reason")
+    ]
+    require(
+        any(
+            code == "999"
+            and text.startswith("No matching data found")
+            and f"({domain})" in text
+            and f"interval {start}/{end}" in text
+            for code, text in reasons
+        ),
+        f"No-data request {label} lacks a reason-999 answer for {domain} and that day",
+    )
 
 
 def certify_request(args):

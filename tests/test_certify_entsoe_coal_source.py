@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import sys
 import types
+from xml.etree import ElementTree
 
 import pytest
 
@@ -44,6 +45,14 @@ def document(points=((1, "100"), (2, "200")), name="Belchatow 2"):
     <resolution>PT60M</resolution>{pts}</Period></TimeSeries></GL_MarketDocument>""".encode()
 
 
+def no_data_answer(day, domain=DOMAIN, code="999"):
+    end = date.fromisoformat(day) + timedelta(days=1)
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<Acknowledgement_MarketDocument xmlns="urn:iec62325.351:tc57wg16:451-1:acknowledgementdocument:7:0">
+<Reason><code>{code}</code><text>No matching data found for Data item ACTUAL_GENERATION_OUTPUT_PER_UNIT_R3 [16.1.A] ({domain}) and interval {day}T00:00:00Z/{end}T00:00:00Z.</text></Reason>
+</Acknowledgement_MarketDocument>""".encode()
+
+
 def archive(tmp_path, statuses=(("2024-03-01", "ok"),), body=None):
     root = tmp_path / "PL"
     (root / "xml").mkdir(parents=True)
@@ -58,8 +67,8 @@ def archive(tmp_path, statuses=(("2024-03-01", "ok"),), body=None):
             "end": f"{date.fromisoformat(day) + timedelta(days=1)}T00:00:00+00:00",
             "status": status,
         }
-        if status == "ok":
-            data = body or document()
+        data = (body or document()) if status == "ok" else no_data_answer(day)
+        if status in {"ok", "no_data"}:
             entry["sha256"] = hashlib.sha256(data).hexdigest()
             (root / "xml" / f"{day}_B02.xml.gz").write_bytes(gzip.compress(data))
         lines.append(json.dumps(entry))
@@ -166,6 +175,40 @@ def test_verified_no_data_is_complete(tmp_path):
         root, ["B02"], date(2024, 3, 1), date(2024, 3, 3)
     )
     assert domain == DOMAIN and [e["status"] for e in inventory] == ["ok", "no_data"]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        None,
+        b"",
+        no_data_answer("2024-03-03"),
+        no_data_answer("2024-03-02", domain="10YCZ-CEPS-----N"),
+        no_data_answer("2024-03-02", code="998"),
+        document(),
+    ],
+)
+def test_no_data_needs_the_sources_own_answer_for_that_day(tmp_path, answer):
+    root = archive(tmp_path, (("2024-03-01", "ok"), ("2024-03-02", "no_data")))
+    path = root / "xml" / "2024-03-02_B02.xml.gz"
+    if answer is None:
+        path.unlink()
+    else:
+        path.write_bytes(gzip.compress(answer))
+        lines = (root / "manifest.jsonl").read_text().splitlines()
+        entry = json.loads(lines[1])
+        entry["sha256"] = hashlib.sha256(answer).hexdigest()
+        (root / "manifest.jsonl").write_text(lines[0] + "\n" + json.dumps(entry) + "\n")
+    with pytest.raises((ValueError, ElementTree.ParseError)):
+        CERTIFY.load_inventory(root, ["B02"], date(2024, 3, 1), date(2024, 3, 3))
+
+
+def test_tampered_no_data_answer_fails(tmp_path):
+    root = archive(tmp_path, (("2024-03-02", "no_data"),))
+    path = root / "xml" / "2024-03-02_B02.xml.gz"
+    path.write_bytes(gzip.compress(no_data_answer("2024-03-02") + b" "))
+    with pytest.raises(ValueError, match="hash mismatch"):
+        CERTIFY.load_inventory(root, ["B02"], date(2024, 3, 2), date(2024, 3, 3))
 
 
 def certified(observations, day="2024-03-01"):

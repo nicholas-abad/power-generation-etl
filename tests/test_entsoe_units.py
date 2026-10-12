@@ -274,6 +274,52 @@ def test_one_file_with_identified_coal_and_legacy_gas_loads(entsoe_db, tmp_path)
         ]
 
 
+def test_before_migration_018_the_weekly_file_loads_as_on_main(entsoe_db, tmp_path):
+    # Production runs this code before 018 is applied, with the pinned extractor
+    # emitting EICs for allow-listed coal: everything loads by the name key.
+    connection, db, dsn = entsoe_db
+    coal = record(resolution_source="xml_period")
+    gas = record(
+        plant_name="Gas plant_Fossil Gas", psr_type="B04", resolution_minutes=15
+    )
+    for key in ("unit_eic", "production_unit_eic"):
+        gas.pop(key)
+    rows = [coal, gas]
+    ok, report = load(db, tmp_path, rows, batch_size=1)
+    assert ok and report.written_count == 2
+    ok, report = load(db, tmp_path, [dict(gas, generation_mw=90.0)], batch_size=1)
+    assert ok and report.written_count == 1
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT psr_type, plant_name, generation_mw, resolution_minutes "
+            "FROM ingestion.entsoe_generation_data ORDER BY psr_type"
+        )
+        assert cursor.fetchall() == [
+            ("B02", "ECHV_G1___", 100.0, 60),
+            ("B04", "Gas plant", 90.0, 15),
+        ]
+    unnamed = record(plant_name=None, unit_eic="27W-GU-UNNAMED-X", resolution_source="xml_period")
+    ok, _ = load(db, tmp_path, [unnamed], batch_size=1)
+    assert not ok
+
+
+def test_refresh_skips_the_unit_view_until_migration_018(entsoe_db, monkeypatch):
+    import refresh_views
+
+    connection, db, dsn = entsoe_db
+    monkeypatch.setattr(refresh_views, "create_engine", lambda url: db.engine)
+    monkeypatch.setattr(refresh_views, "get_connection_url", lambda: "")
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "CREATE UNIQUE INDEX ON public.mv_entsoe_plant_monthly "
+            "(month, plant_name, country_code, fuel_type)"
+        )
+    assert refresh_views.refresh_views(["mv_entsoe_unit_monthly"])
+    migrate(dsn)
+    assert refresh_views.refresh_views(["mv_entsoe_unit_monthly"])
+    assert not refresh_views.refresh_views(["mv_entsoe_missing_monthly"])
+
+
 def test_identified_batches_lock_before_the_identity_check(monkeypatch):
     # Two identified writers must not both pass the identity check before
     # either upserts: the table lock is taken first.

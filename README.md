@@ -246,7 +246,7 @@ psql "$DATABASE_URL" -f schema/migrations/002_npp_fuel_type.sql
 | `014_occto_unit_view.sql` | `mv_occto_unit_monthly` — Japan per-unit generation, granted to `dashboard_ro` |
 | `015_crosswalk_owner.sql` | `plant_crosswalk` + its review view owned by `etl_writer` again (the CI swap needs ownership) |
 | `016_ct_gem_crosswalk.sql` | Grants plant-data's `ct_gem_crosswalk` (Climate TRACE's own CT → GEM links) to `dashboard_ro`, owner `etl_writer`. **Apply after plant-data's `--ct-gem-only` load; merge and apply in the same sitting** |
-| `018_entsoe_unit_identifiers.sql` | Adds generation/production EICs, original source names, unit/time uniqueness and ETL-only `mv_entsoe_unit_monthly`. Apply before this branch's ENTSO-E loader/refresher. See [the staging pilot](docs/ENTSOE_STAGING_PILOT.md) |
+| `018_entsoe_unit_identifiers.sql` | Adds generation/production EICs, original source names, unit/time uniqueness and ETL-only `mv_entsoe_unit_monthly`. Until it is applied, the loader writes no identity columns (as before) and the refresher skips the unit view; apply it before bumping the ENTSO-E extractor pin. See [the staging pilot](docs/ENTSOE_STAGING_PILOT.md) |
 
 **Read the header comment before running one** — several state a required ordering with an extractor release (e.g. `002` must be applied *before* the fuel-emitting extractor ships, or the load fails).
 

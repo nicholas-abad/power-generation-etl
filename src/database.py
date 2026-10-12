@@ -768,9 +768,12 @@ class PowerGenerationDatabase:
             # rows have different columns, so each kind is batched separately;
             # one file may hold both (e.g. allow-listed coal plus other fuels).
             identity_columns = ["unit_eic", "production_unit_eic", "source_unit_name"]
+            # Before migration 018 the table has no identity columns: identified
+            # records then load by the name key alone, as before this change.
+            identity_ready = self._entsoe_identity_ready()
             columns_for = {
                 False: expected_columns,
-                True: expected_columns + identity_columns,
+                True: expected_columns + (identity_columns if identity_ready else []),
             }
             batches = {False: [], True: []}
 
@@ -789,6 +792,7 @@ class PowerGenerationDatabase:
                     batch_num,
                     line_num,
                     total_lines,
+                    identity_ready,
                 )
                 total_inserted += inserted
                 total_valid += valid
@@ -980,6 +984,19 @@ class PowerGenerationDatabase:
             )
             return False, None
 
+    def _entsoe_identity_ready(self) -> bool:
+        """Whether migration 018's unit-identity columns exist."""
+        with self.engine.connect() as conn:
+            return bool(
+                conn.execute(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid ="
+                        " to_regclass('entsoe_generation_data') AND attname = 'unit_eic'"
+                        " AND NOT attisdropped)"
+                    )
+                ).scalar()
+            )
+
     def _name_unnamed_units(self, batch: list) -> list:
         """Name source series that carry a unit EIC but no unit name.
 
@@ -1066,12 +1083,15 @@ class PowerGenerationDatabase:
         batch_num: int,
         current_line: int,
         total_lines: int,
+        identity_ready: bool = True,
     ) -> Tuple[int, int, int, int]:
         """Insert a batch of ENTSO-E records.
 
         Returns:
             Tuple of (inserted_count, valid_count, invalid_count, duplicate_count)
         """
+        if not identity_ready and any(r.get("plant_name") is None for r in batch):
+            raise ValueError("Unnamed ENTSO-E unit series need migration 018")
         batch = self._name_unnamed_units(batch)
         check_coal_records(batch)
 
@@ -1114,7 +1134,7 @@ class PowerGenerationDatabase:
                 + identity_columns
                 + (["source_unit_name"] if identity_columns else []),
                 identity_columns=identity_columns,
-                preserve_identified_metadata=not identity_columns,
+                preserve_identified_metadata=identity_ready and not identity_columns,
             )
 
         inserted = self._execute_with_retry(_upsert)

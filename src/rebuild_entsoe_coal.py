@@ -277,9 +277,9 @@ def collisions(cursor, psrs):
     return cursor.fetchone()[0]
 
 
-def etl_commit():
+def etl_commit(root=Path(__file__).resolve().parents[1]):
     """The ETL checkout's commit, or None if unknown or it has local changes."""
-    here = str(Path(__file__).resolve().parent)
+    here = str(root)
     try:
         commit = subprocess.check_output(
             ["git", "-C", here, "rev-parse", "HEAD"],

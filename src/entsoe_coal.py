@@ -143,19 +143,24 @@ def prepare_coal_upsert(cursor):
     ]
     if rows:
         execute_values(cursor, "INSERT INTO _coal_aliases VALUES %s", rows)
+    # One row per incoming name: a unit with several reviewed spellings joins
+    # one alias row per spelling, so the stored names are counted, not rows.
     cursor.execute("""CREATE TEMP TABLE _coal_names ON COMMIT DROP AS
-        SELECT DISTINCT s.timestamp_ms, s.country_code, s.psr_type,
-            s.plant_name AS incoming, aliases.legacy, a.plant_name AS existing
+        SELECT s.timestamp_ms, s.country_code, s.psr_type,
+            s.plant_name AS incoming, min(aliases.legacy) AS legacy,
+            min(a.plant_name) AS existing,
+            count(DISTINCT aliases.legacy) AS units,
+            count(DISTINCT a.plant_name) AS stored
         FROM _staging_entsoe_generation_data s
         JOIN _coal_aliases aliases ON s.country_code=aliases.country
             AND s.psr_type=aliases.psr
             AND s.plant_name IN (aliases.legacy, aliases.source)
         LEFT JOIN entsoe_generation_data a ON a.country_code=s.country_code
             AND a.timestamp_ms=s.timestamp_ms AND a.psr_type=s.psr_type
-            AND a.plant_name IN (aliases.legacy, aliases.source)""")
+            AND a.plant_name IN (aliases.legacy, aliases.source)
+        GROUP BY 1, 2, 3, 4""")
     cursor.execute("""SELECT country_code FROM _coal_names
-        GROUP BY timestamp_ms, country_code, psr_type, incoming
-        HAVING count(*)>1 LIMIT 1""")
+        WHERE units>1 OR stored>1 LIMIT 1""")
     found = cursor.fetchone()
     if found:
         raise ValueError(

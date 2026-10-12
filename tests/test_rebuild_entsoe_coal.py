@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 from unittest.mock import patch
 
@@ -17,6 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 import entsoe_coal  # noqa: E402
 import rebuild_entsoe_coal as rebuild  # noqa: E402
+
+REAL_ETL_COMMIT = rebuild.etl_commit  # the fixture below stubs it
 from local_postgres import local_settings, verify_local_connection  # noqa: E402
 
 RUN = "11111111-2222-3333-4444-555555555555"
@@ -568,3 +571,27 @@ def test_unknown_or_modified_checkout_blocks_the_plan(pg, tmp_path, monkeypatch)
     insert(pg, stored(MARCH))
     _, _, _, report = prepared(tmp_path, pg, MONTHS)
     assert report["blocking"]["etl_checkout_unknown_or_modified"]
+
+
+def test_etl_commit_sees_changes_in_src_and_config(tmp_path):
+    def git(*args):
+        subprocess.run(["git", "-C", str(tmp_path), *args], check=True, capture_output=True)
+
+    for name in ("src/tool.py", "config/scopes.json", "README.md"):
+        (tmp_path / name).parent.mkdir(exist_ok=True)
+        (tmp_path / name).write_text("x\n")
+    git("init", "-q")
+    git("add", ".")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init")
+    commit = REAL_ETL_COMMIT(tmp_path)
+    assert commit and len(commit) == 40
+    (tmp_path / "README.md").write_text("elsewhere\n")
+    assert REAL_ETL_COMMIT(tmp_path) == commit
+    (tmp_path / "src/tool.py").write_text("changed\n")
+    assert REAL_ETL_COMMIT(tmp_path) is None
+    git("checkout", "-q", "--", "src")
+    (tmp_path / "config/new.json").write_text("{}\n")
+    assert REAL_ETL_COMMIT(tmp_path) is None
+    # By default it checks the repository root, where src/ and config/ live.
+    root = REAL_ETL_COMMIT.__defaults__[0]
+    assert (root / "src").is_dir() and (root / "config").is_dir()
