@@ -1,5 +1,7 @@
 -- Brazil ONS Power Generation Data
--- Hourly generation data from thermal/fossil fuel plants
+-- Hourly generation data across ONS fuels and plant types.
+-- Legacy loads also contain groups/forecasts. The qualified all-fuel plant
+-- product is mv_ons_individual_plant_monthly (migration 017).
 -- Data source: ONS Geração por Usina em Base Horária
 
 -- Raw/ingestion-side relation: lives in the `ingestion` schema since migration 006.
@@ -52,3 +54,10 @@ CREATE INDEX IF NOT EXISTS idx_ons_gen_plant_id ON ingestion.ons_generation_data
 -- Uses expression index because ons_plant_id is nullable (NULL != NULL in UNIQUE)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_ons_natural_key
 ON ingestion.ons_generation_data (timestamp_ms, plant, COALESCE(ons_plant_id, ''));
+
+-- One row per plant-hour (migration 020): keyed on the ONS ID, so a plant with
+-- an ID that ONS renames is updated in place instead of stored twice; rows
+-- without an ID (aggregate small-plant rows) fall back to their name, so a row
+-- that gains or loses its ID is not matched. Loader conflict target.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ons_plant_hour
+ON ingestion.ons_generation_data (timestamp_ms, (COALESCE(NULLIF(ons_plant_id, ''), 'name:' || plant)));

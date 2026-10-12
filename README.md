@@ -2,7 +2,9 @@
 
 Validates, loads, and schedules power generation data from eight upstream sources into a central PostgreSQL (Neon) database — the source of truth behind the Coal Atlas dashboard.
 
-**Where this sits:** [`energy-extractors`](https://github.com/nicholas-abad/energy-extractors) produces JSONL → **this repo validates and loads it into Neon** → the [dashboard](https://github.com/nicholas-abad/energy-generation-dashboard) reads Neon. See [`docs/INFRASTRUCTURE.md`](docs/INFRASTRUCTURE.md) for the full architecture and the reasoning behind each choice.
+**Where this sits:** [`energy-extractors`](https://github.com/nicholas-abad/energy-extractors) produces JSONL → **this repo validates and loads it into Neon**. The frontend going forward is [`chienleng/global-coal-generation-tracker`](https://github.com/chienleng/global-coal-generation-tracker), confirmed by the user on 2026-10-04. The former `energy-generation-dashboard` is outside the active frontend CI/release plan. See [`docs/INFRASTRUCTURE.md`](docs/INFRASTRUCTURE.md) for backend architecture and historical deployment details; legacy Next.js/Cloudflare instructions below do not configure the replacement frontend.
+
+Use the explicit [staging/production environment commands](docs/ENVIRONMENTS.md) for migrations and loads. They check the selected Neon endpoint and use separate credentials. The fixed ONS staging benchmarks cover **2019 and 2024**. Additional audited years can be loaded and verified individually through the manual staging workflow, with the same source-file hashes, full source reconciliation, coal regression checks, and identical repeat load.
 
 The next expansion is the [ENTSO-E Czech unit pilot](docs/ENTSOE_STAGING_PILOT.md), with stable unit IDs, preserved source interval lengths, migration 018 and 2019/2024 staging benchmarks, followed by the [certified ENTSO-E coal rebuild](docs/ENTSOE_COAL_REBUILD.md). Production changes happen only through the reviewed repair/rebuild commands, with explicit `--allow-production` authorization for each apply. Feature-branch CI uses disposable PostgreSQL; the separate manual data workflow targets staging only.
 
@@ -35,7 +37,7 @@ All 5 data sources are extracted via the unified [`energy-extractors`](https://g
 - **EIA** — U.S. Energy Information Administration
 - **NPP** — India National Power Portal generation data
 - **ENTSOE** — European power generation data
-- **ONS** — Brazil ONS (Operador Nacional do Sistema Elétrico) thermal generation data
+- **ONS** — Brazil ONS (Operador Nacional do Sistema Elétrico) hourly generation; thermal history plus all-fuel individual plants (validated on staging for 2019 – Aug 2026; see `docs/ONS_PRODUCTION_ROLLOUT.md`)
 - **OE** — Australia OpenElectricity (NEM) generation data
 
 This repository **does not** contain scraping logic itself.
@@ -90,7 +92,8 @@ power-generation-etl/
 │   └── checks/                 # read-only assertions run by the weekly workflow (dashboard_ro surface)
 ├── docs/
 │   ├── INFRASTRUCTURE.md       # the architecture, and why each piece was chosen
-│   └── DATA_UNITS.md           # MW vs MWh, per source
+│   ├── DATA_UNITS.md           # MW vs MWh, per source
+│   └── OCCTO_ALL_FUELS_REBUILD.md # staging-only audited rebuild of Japan (all fuels)
 ├── src/
 │   ├── database_management.py  # THE CLI: setup / load-data / stats / ...
 │   ├── database.py             # validation + staging-table upsert
@@ -99,7 +102,8 @@ power-generation-etl/
 │   ├── incremental_extract.py  # resolves the extraction window for a cron run
 │   ├── refresh_views.py        # refresh materialized views after a load
 │   ├── check_crosswalk_drift.py# plants upstream but missing from plant_crosswalk
-│   └── backfill_extraction_dates.py
+│   ├── backfill_extraction_dates.py
+│   └── rebuild_occto.py        # certified OCCTO rebuild: plan / apply / rollback (staging only)
 ├── tests/                      # pytest — validator, loaders, incremental logic
 └── pyproject.toml              # uv-managed; no requirements.txt
 ```
@@ -219,6 +223,8 @@ Since migration `006` the database is split into two Postgres schemas:
 
 The ETL's code is unchanged: `neondb_owner` carries `search_path = "$user", public, ingestion`, so unqualified reads/writes of raw tables fall through to `ingestion` and unqualified CREATEs (views, crosswalk staging) land in `public`. Two guards run weekly: `schema/checks/dashboard_ro_surface.sql` (the role reads exactly the intended set) and `schema/checks/no_shadow_tables.sql` (no raw-table name exists in `public` — a pre-006 `CREATE TABLE IF NOT EXISTS` there would silently swallow writes; plant-data's sibling checkout of this repo must be on a post-006 commit).
 
+Migration `017` also adds `public.mv_ons_individual_plant_monthly` for ETL validation of the all-fuel pilot. It has no `dashboard_ro` grant and does not expand the dashboard's permitted surface.
+
 ## Schema migrations
 
 `schema/*.sql` files are idempotent creators (`CREATE TABLE IF NOT EXISTS`) applied by `setup`. **Changes to existing tables live in `schema/migrations/` and are applied by hand:**
@@ -246,6 +252,7 @@ psql "$DATABASE_URL" -f schema/migrations/002_npp_fuel_type.sql
 | `014_occto_unit_view.sql` | `mv_occto_unit_monthly` — Japan per-unit generation, granted to `dashboard_ro` |
 | `015_crosswalk_owner.sql` | `plant_crosswalk` + its review view owned by `etl_writer` again (the CI swap needs ownership) |
 | `016_ct_gem_crosswalk.sql` | Grants plant-data's `ct_gem_crosswalk` (Climate TRACE's own CT → GEM links) to `dashboard_ro`, owner `etl_writer`. **Apply after plant-data's `--ct-gem-only` load; merge and apply in the same sitting** |
+| `017_ons_individual_plant_view.sql` | Adds `mv_ons_individual_plant_monthly`, an ETL-only view of qualifying ONS plants across loaded fuels; preserves ONS IDs and the existing coal dashboard view. Apply before the updated ONS view refresher. See [the 2019 pilot](docs/ONS_2019_PILOT.md) |
 | `018_entsoe_unit_identifiers.sql` | Adds generation/production EICs, original source names, unit/time uniqueness and ETL-only `mv_entsoe_unit_monthly`. Until it is applied, the loader writes no identity columns (as before) and the refresher skips the unit view; apply it before bumping the ENTSO-E extractor pin. See [the staging pilot](docs/ENTSOE_STAGING_PILOT.md) |
 
 **Read the header comment before running one** — several state a required ordering with an extractor release (e.g. `002` must be applied *before* the fuel-emitting extractor ships, or the load fails).
@@ -507,4 +514,3 @@ Notes:
 	•	Add dbt for SQL modeling and tests
 	•	Source-level data quality checks
 	•	Alerting on failed or delayed pipelines
-

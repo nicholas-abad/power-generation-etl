@@ -1,0 +1,115 @@
+{
+  "status": "passed",
+  "environment": "staging",
+  "branch_id": "br-sweet-voice-aglj4sd7",
+  "verified_on": "2026-10-04",
+  "scope": "ONS qualifying individual-plant observations; not national generation totals",
+  "rows_written_note": "Counts include inserts and updates, not only newly added observations.",
+  "github_run": "https://github.com/nicholas-abad/power-generation-etl/actions/runs/37184463618",
+  "github_ci": "https://github.com/nicholas-abad/power-generation-etl/actions/runs/37184378116",
+  "manifest_sha256": "ab76f362ba8a6d98a3507fc0776496a1e3a37aa60128ec4e7cf79a9b5d64d131",
+  "tests": {
+    "etl": 113,
+    "postgresql_integration_tests_included": 7
+  },
+  "data_locations": {
+    "database": "neondb",
+    "hourly_observations": "ingestion.ons_generation_data",
+    "qualified_monthly_aggregates": "public.mv_ons_individual_plant_monthly"
+  },
+  "years": {
+    "2022": {
+      "status": "passed",
+      "source_rows_reconciled": 2667216,
+      "source_files_verified": 12,
+      "source_files": [
+        {
+          "label": "2022-01",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2022_01.parquet",
+          "sha256": "210df40e97be7d1a4aa31063f0e7847291fcda6345aee8efcdb6077e8d0799e9",
+          "raw_records": 429384
+        },
+        {
+          "label": "2022-02",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2022_02.parquet",
+          "sha256": "221313b4769d8b5f4433a6fa141265c51d1d0b98e4dafc72b52d7615eff69289",
+          "raw_records": 388032
+        },
+        {
+          "label": "2022-03",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2022_03.parquet",
+          "sha256": "d8697bc9bfcb64f27b7591796ecf7eb8777b1a4fef8162a620c51968aff86fff",
+          "raw_records": 430368
+        },
+        {
+          "label": "2022-04",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2022_04.parquet",
+          "sha256": "b9719b0e4a853581f911448c8eaa2f6e2b798bf9c254c50e73f93a0e6b5e502a",
+          "raw_records": 419640
+        },
+        {
+          "label": "2022-05",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2022_05.parquet",
+          "sha256": "c25e142e9b941fae172fc6bdc0b77d4f862211eefd30858c9455006115043707",
+          "raw_records": 436632
+        },
+        {
+          "label": "2022-06",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2022_06.parquet",
+          "sha256": "b1378ea12691f9287d6e9b11bfaf12650964da62b1b2652b949ac4e4f10641e5",
+          "raw_records": 422880
+        },
+        {
+          "label": "2022-07",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2022_07.parquet",
+          "sha256": "d208e1676f978f78eae11bdae47684f2dfed7871cd47e24392ac5eee25400aa7",
+          "raw_records": 443688
+        },
+        {
+          "label": "2022-08",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2022_08.parquet",
+          "sha256": "f8705c816f25446091d26353d38b8652226a5a0328c1307f1b31cb407dc063fe",
+          "raw_records": 446472
+        },
+        {
+          "label": "2022-09",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2022_09.parquet",
+          "sha256": "2cc7478d4071729aacbb20b22893358f8051158fc44e13edcb48916bdb0eefcf",
+          "raw_records": 435504
+        },
+        {
+          "label": "2022-10",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2022_10.parquet",
+          "sha256": "84503e111e1ca6b77f044606f83fa730e9b7877b23522722b18f134f1ec3d557",
+          "raw_records": 457704
+        },
+        {
+          "label": "2022-11",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2022_11.parquet",
+          "sha256": "ced8b117179959f8efa5985d3aa52cbef5d33e15ead5ceb16641de14b014c299",
+          "raw_records": 446544
+        },
+        {
+          "label": "2022-12",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2022_12.parquet",
+          "sha256": "32f3c819a7eba8a5efa94ac1b35dd1982f062ae311c9b888432e2ae13dc5ed66",
+          "raw_records": 462984
+        }
+      ],
+      "qualified_monthly_rows": 3665,
+      "qualified_months": 12,
+      "qualified_fuel_labels": 11,
+      "qualified_generation_mwh": 468674384.2059641,
+      "coal_rows_preserved": 78840,
+      "coal_sha256": "82b6048a68be5882c1fbc6d3d925892d91449f401e36c5e77b8f5994616f366c",
+      "coal_monthly_totals_preserved": true,
+      "first_load_rows_written": 2667216,
+      "repeat_load_rows_written": 0,
+      "invalid_records": 0,
+      "duplicate_records": 0,
+      "extraction_run_id": "f7855b41-576a-4edf-93f8-8a9ac7683ee7",
+      "extractors_commit": "db56cb9023b9844356fc633651d49f7027ac3274",
+      "etl_commit": "c5a8f05d6f72a99efd03301c4f1e9ccb5afa2524"
+    }
+  }
+}

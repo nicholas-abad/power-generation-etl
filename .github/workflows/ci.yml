@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, develop, feature/*]
+    branches: [main, develop, feature/*, feat/*]
   pull_request:
     branches: [main, develop]
 
@@ -23,7 +23,7 @@ jobs:
           version: "latest"
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --frozen --dev
 
       - name: Run Ruff linter
         run: uv run ruff check src/
@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -64,7 +64,7 @@ jobs:
           version: "latest"
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --frozen --dev
 
       - name: Run tests
         env:
@@ -74,6 +74,7 @@ jobs:
           POSTGRES_DB: power_generation_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
+          ONS_TEST_PG_DSN: host=/tmp/coal-hotfix-ci port=5432 dbname=power_generation_test user=postgres password=postgres
         run: uv run pytest tests/ -v --tb=short
 
   type-check:
@@ -92,7 +93,7 @@ jobs:
           version: "latest"
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --frozen --dev
 
       - name: Run mypy (optional)
         run: uv run mypy src/ --ignore-missing-imports || true
