@@ -114,13 +114,23 @@ OCCTO_PUBLICATION_LAG_DAYS = 2  # TSOs publish ~15:00 JST the next day
 JST = timezone(timedelta(hours=9))
 
 
-def occto_window(resume: date, end: date, override: bool, now_jst: date) -> tuple[date, date]:
+def occto_window(
+    resume: date, end: date, override: bool, now_jst: date
+) -> tuple[date, date]:
     """(start, end) for OCCTO: end at the last fully published day; without a
-    START_OVERRIDE, start no later than OCCTO_LOOKBACK_DAYS before that."""
+    START_OVERRIDE, start no later than OCCTO_LOOKBACK_DAYS before that.
+
+    OCCTO stores 24:00 as the next day's 00:00, so the latest stored date is
+    the day after the last complete day and resume_from's +1 skips a day:
+    step back one day so a run that is far behind still starts at the first
+    unfetched day."""
     published = now_jst - timedelta(days=OCCTO_PUBLICATION_LAG_DAYS)
     end = min(end, published)
     if not override:
-        resume = min(resume, published - timedelta(days=OCCTO_LOOKBACK_DAYS - 1))
+        resume = min(
+            resume - timedelta(days=1),
+            published - timedelta(days=OCCTO_LOOKBACK_DAYS - 1),
+        )
     return max(resume, SOURCES["occto"].min_start_date), end
 
 

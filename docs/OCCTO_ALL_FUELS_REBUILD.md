@@ -56,5 +56,11 @@ stored as the next day's 00:00, so resuming from `latest + 1` skipped every Sund
 - **Persistent gaps.** A day that fails (no data, unresolved request, certificate problem) turns
   the job red, but only while it is inside the 14-day lookback. Repair older holes with
   `START_OVERRIDE`/`END_OVERRIDE`.
-- **Revisions** update values and labels in place; a value the source later blanks is not
+- **Production before its rebuild.** Merging switches production's weekly runs to all fuels at
+  once, while production history stays coal/thermal-only with the Berlin-keyed bulk rows until the
+  production rebuild (separate sign-off). Coal reads are unaffected (they filter `fuel_type =
+  'coal'`); other fuels and `mv_occto_row_counts` only cover the weeks loaded since the merge.
+- **Revisions** update values, fuel, codes and area labels in place. The key is
+  `(timestamp_ms, plant, unit)`, so a plant or unit renamed retroactively inside the lookback
+  adds rows under the new name next to the old ones. A value the source later blanks is not
   deleted (upserts never delete).

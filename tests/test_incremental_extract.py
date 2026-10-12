@@ -154,7 +154,17 @@ class TestOcctoWindow:
         from incremental_extract import occto_window
 
         start, _ = occto_window(date(2026, 1, 1), date(2026, 9, 27), False, date(2026, 9, 27))
-        assert start == date(2026, 1, 1)
+        assert start == date(2025, 12, 31)  # the latest stored date itself
+
+    def test_far_behind_run_starts_at_the_first_unfetched_day(self, monkeypatch):
+        import incremental_extract as ie
+
+        # stored through Sat 2026-09-26 24:00 = 2026-09-27 00:00; the job then
+        # did not run for four weeks
+        monkeypatch.delenv("START_OVERRIDE", raising=False)
+        monkeypatch.setattr(ie, "get_latest_date", lambda source: "2026-09-27")
+        start, end = ie.occto_window(ie.window_start("occto"), date(2026, 10, 25), False, date(2026, 10, 25))
+        assert (start, end) == (date(2026, 9, 27), date(2026, 10, 23))
 
     def test_start_override_is_honoured_but_end_still_clamped(self):
         from incremental_extract import occto_window

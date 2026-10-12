@@ -300,6 +300,8 @@ def test_every_statement_targets_only_occto_objects(pg, tmp_path):
             if m.upper() not in {"STDIN", "PUBLIC", "SELECT"}
         }
     targets -= {"moved"}  # the DELETE ... RETURNING CTE inside apply_window
+    # REVOKE ... FROM <role> names roles, not tables (only where the roles exist)
+    targets -= {"etl_writer", "dashboard_ro"}
     assert targets <= allowed, targets - allowed
 
 
