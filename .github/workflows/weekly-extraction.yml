@@ -164,6 +164,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: nicholas-abad/energy-extractors
+          ref: 40048956982aebdf86d3a102727fb8231b9f40b1 # ONS all fuels (extractors #19), reviewed and staging-validated
           path: extractors
           token: ${{ secrets.EXTRACTORS_REPO_TOKEN }}
 
