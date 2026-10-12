@@ -39,7 +39,9 @@ class SourceConfig:
 
 SOURCES = {
     "entsoe": SourceConfig("entsoe", date(2019, 1, 1)),
-    "occto": SourceConfig("occto", date(2024, 1, 1)),
+    # OCCTO publishes nationwide unit data from 2024-03-25 (earlier days are
+    # Kyushu-only or empty; the extractor refuses them as an empty window).
+    "occto": SourceConfig("occto", date(2024, 3, 25)),
 }
 
 
@@ -119,7 +121,7 @@ def occto_window(resume: date, end: date, override: bool, now_jst: date) -> tupl
     end = min(end, published)
     if not override:
         resume = min(resume, published - timedelta(days=OCCTO_LOOKBACK_DAYS - 1))
-    return resume, end
+    return max(resume, SOURCES["occto"].min_start_date), end
 
 
 def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:

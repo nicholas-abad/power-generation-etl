@@ -42,3 +42,19 @@ Paths: `EXT` = energy-extractors checkout, `ARCHIVE`/`EVID` = evidence directori
 
 Ledger: `ingestion.occto_rebuilds`, `ingestion.occto_rebuild_windows`; original rows in
 `ingestion.occto_rebuild_backup` (by `repair_id`, `window_start`).
+
+## Weekly job after the rebuild
+
+The weekly `extract-occto` job now runs `energy-extract occto --backend json` (all fuels, the
+same client and parser as the rebuild), refetches a 14-day lookback and ends at the last fully
+published JST day (two days back). This fixes the lost day per run: OCCTO's 24:00 slot is
+stored as the next day's 00:00, so resuming from `latest + 1` skipped every Sunday.
+
+- **Deploy order.** CI checks out the extractors' default branch unpinned. Merge the extractors
+  change first, then the ETL change, between two Sunday runs (cron 06:23 UTC). Old ETL with the new
+  extractor still skips a day; new ETL with the old extractor fails on `--backend json`.
+- **Persistent gaps.** A day that fails (no data, unresolved request, certificate problem) turns
+  the job red, but only while it is inside the 14-day lookback. Repair older holes with
+  `START_OVERRIDE`/`END_OVERRIDE`.
+- **Revisions** update values and labels in place; a value the source later blanks is not
+  deleted (upserts never delete).

@@ -1470,6 +1470,10 @@ class PowerGenerationDatabase:
                         update_columns=[
                             "generation_mwh",
                             "fuel_type",
+                            "fuel_code",
+                            "plant_code",
+                            "area_code",
+                            "area_name",
                             "extraction_run_id",
                             "created_at_ms",
                         ],

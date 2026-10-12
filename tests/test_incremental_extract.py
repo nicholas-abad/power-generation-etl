@@ -182,3 +182,9 @@ class TestOcctoWindow:
         assert cmd[cmd.index("--backend") + 1] == "json"
         assert cmd[cmd.index("--start-date") + 1] == "2025-01-01"
         assert cmd[cmd.index("--end-date") + 1] == "2025-01-03"
+
+    def test_override_before_publication_is_clamped(self):
+        from incremental_extract import occto_window
+
+        start, _ = occto_window(date(2024, 1, 1), date(2024, 4, 30), True, date(2026, 9, 27))
+        assert start == date(2024, 3, 25)
