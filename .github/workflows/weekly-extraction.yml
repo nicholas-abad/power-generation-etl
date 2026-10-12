@@ -467,8 +467,8 @@ jobs:
           retention-days: 14
 
   # ─────────────────────────────────────────────
-  # OCCTO (Japan) — Half-hourly via Selenium
-  # No API key. Needs headless Chrome.
+  # OCCTO (Japan) — Half-hourly, all fuels, via the JSON search endpoint
+  # No API key, no browser. Refetches a 14-day lookback every run.
   # ─────────────────────────────────────────────
   extract-occto:
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'OCCTO (Japan)' }}
