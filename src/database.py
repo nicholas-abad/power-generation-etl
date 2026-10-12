@@ -30,6 +30,37 @@ from tenacity import (
 from validator import DataValidator, ValidationReport, save_report
 from entsoe_coal import check_coal_records, prepare_coal_upsert, source_coal
 
+# ONS natural key since migration 020 (uq_ons_plant_hour).
+ONS_PLANT_HOUR = "timestamp_ms, COALESCE(NULLIF(ons_plant_id, ''), 'name:' || plant)"
+
+
+def ons_plant_hour_conflict(jsonl_file_path: str) -> Optional[str]:
+    """Describe the first plant-hour the file gives two different rows, if any.
+
+    Scans the whole file before anything is written: an upsert on the
+    plant-hour key would otherwise keep whichever row came last (e.g. the old
+    and the new name of one ONS ID). Identical repeats are left to the
+    validator's duplicate count. Hashes keep memory small for yearly files.
+    """
+    seen: Dict[int, int] = {}
+    with open(jsonl_file_path) as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            key = (
+                record.get("timestamp_ms"),
+                record.get("ons_plant_id") or f"name:{record.get('plant')}",
+            )
+            content = hash(json.dumps(record, sort_keys=True, default=str))
+            if seen.setdefault(hash(key), content) != content:
+                return (
+                    f"ONS file has two different rows for {key[1]} at {key[0]}; "
+                    "refusing to choose one"
+                )
+    return None
+
+
 # ENTSO-E PSR type codes to human-readable fuel type names.
 # Used to fix fuel_type during JSONL ingestion (records extracted before the
 # extractor fix may have fuel_type="Unknown" due to column-name parsing bugs).
@@ -1254,6 +1285,9 @@ class PowerGenerationDatabase:
                 extraction_run_id = str(uuid.uuid4())
             created_at_ms = int(datetime.now().timestamp() * 1000)
 
+            conflict = ons_plant_hour_conflict(jsonl_file_path)
+            if conflict:
+                raise ValueError(conflict)
             validator = DataValidator()
             total_inserted = 0
             total_valid = 0
@@ -1311,18 +1345,38 @@ class PowerGenerationDatabase:
                     # Insert valid records via upsert (skips duplicates)
                     if valid_records:
                         df = pd.DataFrame(valid_records)
+                        # ONS ID is optional; the plant-hour key needs the column.
+                        if "ons_plant_id" not in df:
+                            df["ons_plant_id"] = None
 
                         def _upsert_chunk():
+                            # The conflict target needs migration 020's key.
+                            with self.engine.connect() as conn:
+                                key = conn.execute(
+                                    text(
+                                        "SELECT to_regclass('ingestion.uq_ons_plant_hour')"
+                                    )
+                                ).scalar()
+                            if key is None:
+                                raise ValueError(
+                                    "ingestion.uq_ons_plant_hour is missing: apply "
+                                    "migration 020 (after repair_ons_rename_duplicates.py)"
+                                )
                             return self._upsert_via_staging(
                                 df,
                                 "ons_generation_data",
-                                conflict_expr="timestamp_ms, plant, COALESCE(ons_plant_id, '')",
+                                # One row per plant-hour: keyed on the ONS ID so a
+                                # renamed plant updates in place (migration 020);
+                                # rows without an ID fall back to their name.
+                                conflict_expr=ONS_PLANT_HOUR,
                                 # ONS re-publishes current-year files under a
                                 # documented "recurring consistency process";
                                 # the weekly run re-downloads the whole year,
                                 # so DO NOTHING discarded restatements weekly
                                 # (2026-09 audit: 21/205 plants restated).
                                 update_columns=[
+                                    "plant",
+                                    "ceg",
                                     "generation_mwh",
                                     "fuel_type",
                                     "plant_type",
