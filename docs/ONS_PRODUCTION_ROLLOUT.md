@@ -1,8 +1,19 @@
 # ONS production rollout
 
 Two changes, in this order. **Every step marked ⚑ needs explicit authorization
-before it runs.** Nothing here has been executed in production; the only
-production access so far was one read-only check (2026-10-11, `dashboard_ro`).
+before it runs.** Nothing here has been executed in the production database;
+the only production access so far was one read-only check (2026-10-11,
+`dashboard_ro`).
+
+> **Status 2026-10-12: code merged, production database untouched, weekly job
+> paused.** The weekly workflow was disabled first, then extractors #19,
+> power-generation-etl #117, this PR and the `extract-ons` pin (to #19's merge
+> commit) were merged. The merge steps below (A5, B4, B5) are therefore done;
+> every database step is not. **Do not re-enable the weekly workflow until
+> production has Part A steps 2–4 (repair, migration 020) and migrations 017 and
+> 021.** Without 020 the ONS load stops with "ingestion.uq_ons_plant_hour is
+> missing"; without 017 the weekly view refresh fails. Production still shows
+> the doubled May/June 2026 coal until Part A runs.
 
 | Part | PR | What it fixes or adds |
 |---|---|---|
