@@ -31,7 +31,7 @@ from sqlalchemy.engine import URL
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 import repair_entsoe_coal as repair  # noqa: E402
-from entsoe_coal import ALIASES  # noqa: E402
+from entsoe_coal import aliases_for  # noqa: E402
 from local_postgres import (
     local_settings as checked_local_settings,
     verify_local_connection,
@@ -171,7 +171,8 @@ def setup(connection, seed, source, changes, output):
             )
             expected_path = output / "expected-coal.csv"
             names = {
-                (a["psr_type"], a["source_name"]): a["legacy_name"] for a in ALIASES
+                (a["psr_type"], a["source_name"]): a["legacy_name"]
+                for a in aliases_for("CZ")
             }
             monthly = defaultdict(Decimal)
             with expected_path.open("w", newline="") as expected_file:

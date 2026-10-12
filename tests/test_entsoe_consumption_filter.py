@@ -50,6 +50,7 @@ def _db_with_captured_batches(monkeypatch):
         )
 
     monkeypatch.setattr(db, "_insert_entsoe_batch", fake_batch)
+    monkeypatch.setattr(db, "_entsoe_identity_ready", lambda: True)
     monkeypatch.setattr(db, "_get_date_range_for_run", lambda *a, **k: (None, None))
     monkeypatch.setattr(db, "insert_extraction_metadata", lambda *a, **k: True)
     return db, captured

@@ -1,0 +1,555 @@
+{
+  "scope": "The single reviewed ENTSO-E unit identity table. For each (country, unit EIC): plant_name is the canonical display/join name written to entsoe_generation_data; source_names are the reviewed spellings the source has used for this EIC (a source row with any other name fails until reviewed); legacy_names are stored names this EIC's rows replace in a rebuild (used by the repair and to carry crosswalk decisions over; a legacy name shared by several EICs is a collapsed unit). Units absent from this table keep their literal source name. Canonical name rule: the latest correct source spelling (broken encodings excluded); renamed units' older spellings stay in source_names, and stored names they replace in legacy_names.",
+  "evidence": {
+    "country": "CZ",
+    "period": "2019-03 UTC",
+    "content_sha256": "2b77eaaab0c65835346bcf8f9e02761a78c64a0f30ecf85ffda05c2f6054f9b3",
+    "comparison": "All existing fossil observations matched in MW, interval duration and fuel; no missing coal rows after these explicit aliases."
+  },
+  "units": [
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-ECHVG1--C",
+      "psr_type": "B02",
+      "plant_name": "ECHV_G1___",
+      "source_names": [
+        "ECHV_G1____"
+      ],
+      "legacy_names": [
+        "ECHV_G1___"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-ECHVG2--8",
+      "psr_type": "B02",
+      "plant_name": "ECHV_G2___",
+      "source_names": [
+        "ECHV_G2____"
+      ],
+      "legacy_names": [
+        "ECHV_G2___"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-ECHVG3--4",
+      "psr_type": "B02",
+      "plant_name": "ECHV_G3___",
+      "source_names": [
+        "ECHV_G3____"
+      ],
+      "legacy_names": [
+        "ECHV_G3___"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-ECHVG4--0",
+      "psr_type": "B02",
+      "plant_name": "ECHV_G4___",
+      "source_names": [
+        "ECHV_G4____"
+      ],
+      "legacy_names": [
+        "ECHV_G4___"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EDETG1--0",
+      "psr_type": "B05",
+      "plant_name": "EDET_G1___",
+      "source_names": [
+        "EDET_G1____"
+      ],
+      "legacy_names": [
+        "EDET_G1___"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EDETG2--X",
+      "psr_type": "B05",
+      "plant_name": "EDET_G2___",
+      "source_names": [
+        "EDET_G2____"
+      ],
+      "legacy_names": [
+        "EDET_G2___"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EDETG3--T",
+      "psr_type": "B05",
+      "plant_name": "EDET_G3___",
+      "source_names": [
+        "EDET_G3____"
+      ],
+      "legacy_names": [
+        "EDET_G3___"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EDETG4--P",
+      "psr_type": "B05",
+      "plant_name": "EDET_G4___",
+      "source_names": [
+        "EDET_G4____"
+      ],
+      "legacy_names": [
+        "EDET_G4___"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EECKG4--B",
+      "psr_type": "B02",
+      "plant_name": "EECK_G4___",
+      "source_names": [
+        "EECK_G4____"
+      ],
+      "legacy_names": [
+        "EECK_G4___"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EECKG5--7",
+      "psr_type": "B02",
+      "plant_name": "EECK_G5___",
+      "source_names": [
+        "EECK_G5____"
+      ],
+      "legacy_names": [
+        "EECK_G5___"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-ELEDG6--C",
+      "psr_type": "B02",
+      "plant_name": "ELED_G6___",
+      "source_names": [
+        "ELED_G6____"
+      ],
+      "legacy_names": [
+        "ELED_G6___"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EME3G11-4",
+      "psr_type": "B02",
+      "plant_name": "EME3_G11__",
+      "source_names": [
+        "EME3_G11___"
+      ],
+      "legacy_names": [
+        "EME3_G11__"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EPC1G2--8",
+      "psr_type": "B02",
+      "plant_name": "EPC1_G2___",
+      "source_names": [
+        "EPC1_G2____"
+      ],
+      "legacy_names": [
+        "EPC1_G2___"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EPC1G3--4",
+      "psr_type": "B02",
+      "plant_name": "EPC1_G3___",
+      "source_names": [
+        "EPC1_G3____"
+      ],
+      "legacy_names": [
+        "EPC1_G3___"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EPC1G4--0",
+      "psr_type": "B02",
+      "plant_name": "EPC1_G4___",
+      "source_names": [
+        "EPC1_G4____"
+      ],
+      "legacy_names": [
+        "EPC1_G4___"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EPC1G5--X",
+      "psr_type": "B02",
+      "plant_name": "EPC1_G5___",
+      "source_names": [
+        "EPC1_G5____"
+      ],
+      "legacy_names": [
+        "EPC1_G5___"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EPC1G6--T",
+      "psr_type": "B02",
+      "plant_name": "EPC1_G6___",
+      "source_names": [
+        "EPC1_G6____"
+      ],
+      "legacy_names": [
+        "EPC1_G6___"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EPC2B21-L",
+      "psr_type": "B04",
+      "plant_name": "EPC2_B21__",
+      "source_names": [
+        "EPC2_B21___"
+      ],
+      "legacy_names": [
+        "EPC2_B21__"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EPR2G23-X",
+      "psr_type": "B02",
+      "plant_name": "EPR2_G23__",
+      "source_names": [
+        "EPR2_G23___"
+      ],
+      "legacy_names": [
+        "EPR2_G23__"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EPR2G24-U",
+      "psr_type": "B02",
+      "plant_name": "EPR2_G24__",
+      "source_names": [
+        "EPR2_G24___"
+      ],
+      "legacy_names": [
+        "EPR2_G24__"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-EPR2G25-R",
+      "psr_type": "B02",
+      "plant_name": "EPR2_G25__",
+      "source_names": [
+        "EPR2_G25___"
+      ],
+      "legacy_names": [
+        "EPR2_G25__"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-ETU2G21-N",
+      "psr_type": "B02",
+      "plant_name": "ETU2_G21__",
+      "source_names": [
+        "ETU2_G21___"
+      ],
+      "legacy_names": [
+        "ETU2_G21__"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-ETU2G22-K",
+      "psr_type": "B02",
+      "plant_name": "ETU2_G22__",
+      "source_names": [
+        "ETU2_G22___"
+      ],
+      "legacy_names": [
+        "ETU2_G22__"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-ETU2G23-H",
+      "psr_type": "B02",
+      "plant_name": "ETU2_G23__",
+      "source_names": [
+        "ETU2_G23___"
+      ],
+      "legacy_names": [
+        "ETU2_G23__"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27W-GU-ETU2G24-E",
+      "psr_type": "B02",
+      "plant_name": "ETU2_G24__",
+      "source_names": [
+        "ETU2_G24___"
+      ],
+      "legacy_names": [
+        "ETU2_G24__"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "CZ",
+      "unit_eic": "27WGU-EECKG7---A",
+      "psr_type": "B02",
+      "plant_name": "EECK_G7___",
+      "source_names": [
+        "EECK_G7____"
+      ],
+      "legacy_names": [
+        "EECK_G7___"
+      ],
+      "basis": "CZ 2019-03 reviewed alias (one trailing underscore)"
+    },
+    {
+      "country_code": "DE_TENNET",
+      "unit_eic": "11WD2HEY40000638",
+      "psr_type": "B05",
+      "plant_name": "Heyden 4",
+      "source_names": [
+        "Heyden",
+        "Heyden 4"
+      ],
+      "legacy_names": [
+        "Heyden",
+        "Heyden 4"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling"
+    },
+    {
+      "country_code": "ES",
+      "unit_eic": "18WABO1-12345-D7",
+      "psr_type": "B05",
+      "plant_name": "ABOÑO 1",
+      "source_names": [
+        "ABO¿O 1",
+        "ABOÑO 1"
+      ],
+      "legacy_names": [
+        "ABOÑO 1"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling; 'ABO¿O' is a broken encoding of the source"
+    },
+    {
+      "country_code": "ES",
+      "unit_eic": "18WABO2-12345-DY",
+      "psr_type": "B05",
+      "plant_name": "ABOÑO 2",
+      "source_names": [
+        "ABO¿O 2",
+        "ABOÑO 2"
+      ],
+      "legacy_names": [
+        "ABOÑO 2"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling; 'ABO¿O' is a broken encoding of the source"
+    },
+    {
+      "country_code": "FI",
+      "unit_eic": "44W-00000000009F",
+      "psr_type": "B05",
+      "plant_name": "Naantali B4",
+      "source_names": [],
+      "legacy_names": [
+        "Naantali B4"
+      ],
+      "basis": "Source sends this EIC unnamed; its 2019-2020 coal series equals stored Naantali B4 month for month (the source lists the unit under biomass afterwards)"
+    },
+    {
+      "country_code": "GR",
+      "unit_eic": "29WGU-AGDIMI-I-8",
+      "psr_type": "B02",
+      "plant_name": "AGIOS DIMITRIOS I",
+      "source_names": [
+        "AGIOS DIMITRIOS I",
+        "AG_DIMITRIOS1"
+      ],
+      "legacy_names": [
+        "AG",
+        "AGIOS DIMITRIOS I"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling; legacy 'AG' collapsed several units"
+    },
+    {
+      "country_code": "GR",
+      "unit_eic": "29WGU-AGDIMI-II7",
+      "psr_type": "B02",
+      "plant_name": "AGIOS DIMITRIOS II",
+      "source_names": [
+        "AGIOS DIMITRIOS II",
+        "AG_DIMITRIOS2"
+      ],
+      "legacy_names": [
+        "AG",
+        "AGIOS DIMITRIOS II"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling; legacy 'AG' collapsed several units"
+    },
+    {
+      "country_code": "GR",
+      "unit_eic": "29WGU-AGDIMI-IVI",
+      "psr_type": "B02",
+      "plant_name": "AGIOS DIMITRIOS IV",
+      "source_names": [
+        "AGIOS DIMITRIOS IV",
+        "AG_DIMITRIOS4"
+      ],
+      "legacy_names": [
+        "AG",
+        "AGIOS DIMITRIOS IV"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling; legacy 'AG' collapsed several units"
+    },
+    {
+      "country_code": "GR",
+      "unit_eic": "29WGU-AGDIMI-V-6",
+      "psr_type": "B02",
+      "plant_name": "AGIOS DIMITRIOS V",
+      "source_names": [
+        "AGIOS DIMITRIOS V",
+        "AG_DIMITRIOS5"
+      ],
+      "legacy_names": [
+        "AG",
+        "AGIOS DIMITRIOS V"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling; legacy 'AG' collapsed several units"
+    },
+    {
+      "country_code": "GR",
+      "unit_eic": "29WGU-AGDIMIIII5",
+      "psr_type": "B02",
+      "plant_name": "AGIOS DIMITRIOS III",
+      "source_names": [
+        "AGIOS DIMITRIOS III",
+        "AG_DIMITRIOS3"
+      ],
+      "legacy_names": [
+        "AG",
+        "AGIOS DIMITRIOS III"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling; legacy 'AG' collapsed several units"
+    },
+    {
+      "country_code": "GR",
+      "unit_eic": "29WGU-MEGAL-IV-Z",
+      "psr_type": "B02",
+      "plant_name": "MEGALOPOLI IV",
+      "source_names": [
+        "MEGALOPOLI IV",
+        "MEGALOPOLI4"
+      ],
+      "legacy_names": [
+        "MEGALOPOLI IV",
+        "MEGALOPOLI4"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling"
+    },
+    {
+      "country_code": "GR",
+      "unit_eic": "29WGU-MEGALIII-G",
+      "psr_type": "B02",
+      "plant_name": "MEGALOPOLI III",
+      "source_names": [
+        "MEGALOPOLI III",
+        "MEGALOPOLI3"
+      ],
+      "legacy_names": [
+        "MEGALOPOLI III",
+        "MEGALOPOLI3"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling"
+    },
+    {
+      "country_code": "PL",
+      "unit_eic": "19W0000000000709",
+      "psr_type": "B05",
+      "plant_name": "EC Karolin G2",
+      "source_names": [
+        "EC Karolin G2",
+        "Karolin B2"
+      ],
+      "legacy_names": [
+        "EC Karolin G2",
+        "Karolin B2"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling"
+    },
+    {
+      "country_code": "PL",
+      "unit_eic": "19W0000000000717",
+      "psr_type": "B05",
+      "plant_name": "EC Karolin G3",
+      "source_names": [
+        "EC Karolin G3",
+        "Karolin B3"
+      ],
+      "legacy_names": [
+        "EC Karolin G3",
+        "Karolin B3"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling"
+    },
+    {
+      "country_code": "PL",
+      "unit_eic": "19W000000000288J",
+      "psr_type": "B05",
+      "plant_name": "Jaworzno 2 B7",
+      "source_names": [
+        "Jaworzno 2  B7",
+        "Jaworzno 2 B7",
+        "Jaworzno 2 JWCD B7"
+      ],
+      "legacy_names": [
+        "Jaworzno 2  B7",
+        "Jaworzno 2 B7",
+        "Jaworzno 2 JWCD B7"
+      ],
+      "basis": "Source renamed this EIC over time (certified 2019-01..2026-09); canonical = latest correct source spelling"
+    }
+  ]
+}

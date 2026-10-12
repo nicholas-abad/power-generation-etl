@@ -16,8 +16,9 @@ internal owner-controlled audit/backup tables when an actual repair is applied.
 ## Hotfix behavior
 
 The matching extractor reads each Czech coal observation's XML Period duration.
-The ETL recognizes only the reviewed Czech coal name/EIC aliases in
-`config/entsoe-coal-aliases.json`. If one name already exists at that timestamp,
+The ETL recognizes only the reviewed name/EIC identities in
+`config/entsoe-unit-names.json` (the single identity table; its CZ coal entries
+equal the frozen release record `config/entsoe-coal-aliases.json`). If one name already exists at that timestamp,
 the loader retains that key. Otherwise it uses the reviewed legacy name. It
 does not trim arbitrary names. If both names exist, it stops for an audited
 repair instead of choosing or deleting a copy. Concurrent name lookup/insertion
@@ -29,6 +30,22 @@ existing table. Recognized EIC/name mismatches and conflicting input copies fail
 Legacy files cannot change a stored Czech coal interval duration. Other
 countries and fuels retain their existing loading behavior. The generic loader
 still commits in batches; use the repair command for the atomic historical fix.
+
+### Country scopes
+
+`config/entsoe-coal-scopes.json` lists the countries whose coal arrives as
+source-period records; it is CZ only until each further country passes its
+strict-parser survey. Within those countries the guards above apply: legacy
+files cannot change a stored duration, reviewed aliases are normalized, and
+source names are kept literally. Source-period coal from any other country
+fails the load as soon as the record is read. Change this file together with
+the extractor's `SOURCE_PERIOD_COAL_COUNTRIES` and the pinned extractor commit.
+
+Add a country only with reviewed identities for its units: every source
+name/EIC must match its stored legacy name or have an entry in
+`config/entsoe-unit-names.json`. A literal source name that differs from the
+stored name, with no alias, inserts as a second row for the same unit, and no
+guard detects it.
 
 The weekly ENTSO-E job pins the matching extractor commit. Both hotfix branches
 are published for review in

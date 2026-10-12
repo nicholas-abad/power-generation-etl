@@ -56,7 +56,14 @@ def field(element, path):
     return item.text.strip() if item is not None and item.text else None
 
 
-def independent_day(xml, lower, upper):
+def independent_day(
+    xml, lower, upper, domain="10YCZ-CEPS-----N", include_unnamed=False
+):
+    """Observations {(ts, eic): (psr, name, MW, minutes, parent)}, block MWh, counts.
+
+    With include_unnamed, a series with a unit EIC but no name is kept with
+    name None (counted as unnamed_series); otherwise it is skipped.
+    """
     root = ET.fromstring(xml)
     require(
         field(root, "type") == "A73" and field(root, "process.processType") == "A16",
@@ -73,10 +80,13 @@ def independent_day(xml, lower, upper):
             counters["consumption_series"] += 1
             continue
         name = field(series, "MktPSRType/PowerSystemResources/name")
-        if not name:
-            counters["nameless_series"] += 1
-            continue
         unit = field(series, "MktPSRType/PowerSystemResources/mRID")
+        if not name:
+            if not (include_unnamed and unit):
+                counters["nameless_series"] += 1
+                continue
+            counters["unnamed_series"] += 1
+            name = None
         parent = field(series, "registeredResource.mRID")
         require(
             unit is not None and re.fullmatch(r"[A-Z0-9-]{16}", unit),
@@ -87,7 +97,7 @@ def independent_day(xml, lower, upper):
             if element is not None and element.text:
                 require(element.get("codingScheme") == "A01", "Non-EIC identity coding")
         require(
-            field(series, "inBiddingZone_Domain.mRID") == "10YCZ-CEPS-----N",
+            field(series, "inBiddingZone_Domain.mRID") == domain,
             "Wrong bidding domain",
         )
         require(

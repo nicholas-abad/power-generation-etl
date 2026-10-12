@@ -1,0 +1,12 @@
+{
+  "scope": "Countries whose ENTSO-E coal (B02, B03, B05) arrives as per-Period source records (resolution_source=xml_period). Within these, legacy files cannot change a stored interval duration, reviewed aliases are normalized, and source names are kept literally. Add a country only together with the extractor's matching allow-list, after its strict-parser survey passes and every unit's source name either matches its stored legacy name or has a reviewed alias (see docs/ENTSOE_COAL_HOTFIX.md). rebuilt_countries: countries whose coal history was rebuilt from certified source; legacy rows without source provenance are rejected for them. Add a country here in the same release as its rebuild cutover (docs/ENTSOE_COAL_REBUILD.md).",
+  "psr_types": [
+    "B02",
+    "B03",
+    "B05"
+  ],
+  "countries": [
+    "CZ"
+  ],
+  "rebuilt_countries": []
+}

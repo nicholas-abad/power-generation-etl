@@ -28,7 +28,13 @@ from tenacity import (
 )
 
 from validator import DataValidator, ValidationReport, save_report
-from entsoe_coal import check_coal_records, prepare_coal_upsert, source_coal
+from entsoe_coal import (
+    check_coal_records,
+    check_source_scope,
+    prepare_coal_upsert,
+    source_coal,
+)
+from entsoe_identity import prepare_record as prepare_entsoe_record
 
 # ONS natural key since migration 020 (uq_ons_plant_hour).
 ONS_PLANT_HOUR = "timestamp_ms, COALESCE(NULLIF(ons_plant_id, ''), 'name:' || plant)"
@@ -85,6 +91,7 @@ PSR_TO_FUEL_TYPE = {
     "B18": "Wind Offshore",
     "B19": "Wind Onshore",
     "B20": "Other",
+    "B25": "Energy storage",
 }
 
 # Suffixes that leak into plant names from column flattening
@@ -268,6 +275,8 @@ class PowerGenerationDatabase:
         conflict_columns: list = None,
         conflict_expr: str = None,
         update_columns: list = None,
+        identity_columns: list = None,
+        preserve_identified_metadata: bool = False,
         replace_where: Optional[Tuple[str, Dict[str, Any]]] = None,
     ) -> int:
         """Insert rows via a staging table, skipping duplicates on conflict.
@@ -328,9 +337,23 @@ class PowerGenerationDatabase:
         if update_columns:
             for col in update_columns:
                 _validate_identifier(col)
-            set_list = ", ".join(f"{c} = EXCLUDED.{c}" for c in update_columns)
+            if (
+                preserve_identified_metadata
+                and target_table != "entsoe_generation_data"
+            ):
+                raise ValueError("The identified metadata guard is ENTSO-E-specific")
+            values = {
+                c: (
+                    f"CASE WHEN t.unit_eic IS NOT NULL THEN t.{c} ELSE EXCLUDED.{c} END"
+                    if c in {"data_type", "resolution_minutes"}
+                    and preserve_identified_metadata
+                    else f"EXCLUDED.{c}"
+                )
+                for c in update_columns
+            }
+            set_list = ", ".join(f"{c} = {values[c]}" for c in update_columns)
             t_tuple = ", ".join(f"t.{c}" for c in update_columns)
-            e_tuple = ", ".join(f"EXCLUDED.{c}" for c in update_columns)
+            e_tuple = ", ".join(values[c] for c in update_columns)
             conflict_action = (
                 f"DO UPDATE SET {set_list} "
                 f"WHERE ({t_tuple}) IS DISTINCT FROM ({e_tuple})"
@@ -369,6 +392,29 @@ class PowerGenerationDatabase:
 
             if target_table == "entsoe_generation_data":
                 prepare_coal_upsert(cursor)
+            if identity_columns:
+                if not conflict_columns:
+                    raise ValueError("Identity guards require plain conflict columns")
+                for column in identity_columns:
+                    _validate_identifier(column)
+                # Serialize identified writers so this check and the upsert
+                # below cannot interleave with another load of the same keys
+                # (coal batches already hold this lock via prepare_coal_upsert).
+                cursor.execute("SET LOCAL lock_timeout = '10s'")
+                cursor.execute(f"LOCK TABLE {target_table} IN SHARE ROW EXCLUSIVE MODE")
+                join = " AND ".join(f"t.{c}=s.{c}" for c in conflict_columns)
+                conflicts = " OR ".join(
+                    f"(t.{c} IS NOT NULL AND t.{c} IS DISTINCT FROM s.{c})"
+                    for c in identity_columns
+                )
+                cursor.execute(
+                    f"SELECT EXISTS (SELECT 1 FROM {staging} s JOIN {target_table} t "
+                    f"ON {join} WHERE {conflicts})"
+                )
+                if cursor.fetchone()[0]:
+                    raise ValueError(
+                        "Incoming observations would replace a known source identity"
+                    )
 
             # 3. INSERT from staging into target; conflicts are skipped
             # (DO NOTHING) or, with update_columns, revised in place.
@@ -552,7 +598,11 @@ class PowerGenerationDatabase:
         # A fresh database is complete from one command: the dashboard reads
         # materialized views, and /data-quality reads the row-count views —
         # neither was created by setup until 2026-08 (review finding).
-        for extra in ("materialized_views.sql", "row_count_views.sql"):
+        for extra in (
+            "materialized_views.sql",
+            "row_count_views.sql",
+            "entsoe_unit_monthly.sql",
+        ):
             try:
                 if not self._execute_schema_file(extra):
                     success = False
@@ -745,17 +795,57 @@ class PowerGenerationDatabase:
             batch_num = 0
             first_run_id = None
 
+            # Rows carrying their unit EIC (source-period records) and legacy
+            # rows have different columns, so each kind is batched separately;
+            # one file may hold both (e.g. allow-listed coal plus other fuels).
+            identity_columns = ["unit_eic", "production_unit_eic", "source_unit_name"]
+            # Before migration 018 the table has no identity columns: identified
+            # records then load by the name key alone, as before this change.
+            identity_ready = self._entsoe_identity_ready()
+            columns_for = {
+                False: expected_columns,
+                True: expected_columns + (identity_columns if identity_ready else []),
+            }
+            batches = {False: [], True: []}
+
             validator = DataValidator()
+
+            def flush(kind, line_num):
+                nonlocal batch_num, total_inserted, total_valid
+                nonlocal total_invalid, total_duplicate
+                if not batches[kind]:
+                    return
+                batch_num += 1
+                inserted, valid, invalid, dup = self._insert_entsoe_batch(
+                    batches[kind],
+                    columns_for[kind],
+                    validator,
+                    batch_num,
+                    line_num,
+                    total_lines,
+                    identity_ready,
+                )
+                total_inserted += inserted
+                total_valid += valid
+                total_invalid += invalid
+                total_duplicate += dup
+                batches[kind] = []
 
             # Process file in batches
             with open(jsonl_file_path, "r") as f:
-                batch = []
+                line_num = 0
                 consumption_skipped = 0
                 for line_num, line in enumerate(f, 1):
                     if not line.strip():
                         continue
 
                     record = json.loads(line)
+                    # Before any filter or name cleanup below can drop the row.
+                    check_source_scope(record)
+
+                    has_eic = "unit_eic" in record
+                    if has_eic:
+                        record = prepare_entsoe_record(record)
 
                     # This is a GENERATION table. ENTSO-E per-plant responses
                     # also carry 'Actual Consumption' series (a plant's own
@@ -822,6 +912,13 @@ class PowerGenerationDatabase:
                     if psr in PSR_TO_FUEL_TYPE:
                         record["fuel_type"] = PSR_TO_FUEL_TYPE[psr]
 
+                    # Identified XML names are exact source text, never flattened labels.
+                    if has_eic:
+                        batches[True].append(record)
+                        if len(batches[True]) >= batch_size:
+                            flush(True, line_num)
+                        continue
+
                     # Clean plant_name: strip leaked fuel-type and data-type suffixes
                     plant_name = record.get("plant_name", "")
                     if not source_coal(record):
@@ -848,40 +945,13 @@ class PowerGenerationDatabase:
                                 break
                     record["plant_name"] = plant_name
 
-                    batch.append(record)
-
-                    # Process batch when full
-                    if len(batch) >= batch_size:
-                        batch_num += 1
-                        inserted, valid, invalid, dup = self._insert_entsoe_batch(
-                            batch,
-                            expected_columns,
-                            validator,
-                            batch_num,
-                            line_num,
-                            total_lines,
-                        )
-                        total_inserted += inserted
-                        total_valid += valid
-                        total_invalid += invalid
-                        total_duplicate += dup
-                        batch = []
+                    batches[False].append(record)
+                    if len(batches[False]) >= batch_size:
+                        flush(False, line_num)
 
                 # Process remaining records
-                if batch:
-                    batch_num += 1
-                    inserted, valid, invalid, dup = self._insert_entsoe_batch(
-                        batch,
-                        expected_columns,
-                        validator,
-                        batch_num,
-                        line_num,
-                        total_lines,
-                    )
-                    total_inserted += inserted
-                    total_valid += valid
-                    total_invalid += invalid
-                    total_duplicate += dup
+                flush(False, line_num)
+                flush(True, line_num)
 
             if consumption_skipped:
                 logger.info(
@@ -896,6 +966,7 @@ class PowerGenerationDatabase:
                 valid_count=total_valid,
                 invalid_count=total_invalid,
                 duplicate_count=total_duplicate,
+                written_count=total_inserted,
             )
 
             if (
@@ -913,7 +984,7 @@ class PowerGenerationDatabase:
 
             # Log final summary
             logger.success(
-                f"ENTSO-E load complete: {total_inserted:,} records inserted, "
+                f"ENTSO-E load complete: {total_inserted:,} records written, "
                 f"{total_invalid:,} invalid, {total_duplicate:,} duplicates skipped"
             )
 
@@ -944,6 +1015,97 @@ class PowerGenerationDatabase:
             )
             return False, None
 
+    def _entsoe_identity_ready(self) -> bool:
+        """Whether migration 018's unit-identity columns exist."""
+        with self.engine.connect() as conn:
+            return bool(
+                conn.execute(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid ="
+                        " to_regclass('entsoe_generation_data') AND attname = 'unit_eic'"
+                        " AND NOT attisdropped)"
+                    )
+                ).scalar()
+            )
+
+    def _name_unnamed_units(self, batch: list) -> list:
+        """Name source series that carry a unit EIC but no unit name.
+
+        The extractor emits them with plant_name None (the reviewed identity
+        table has already named its units). Others take the name the same unit
+        (country, EIC) already has at that timestamp, else its latest stored
+        name; a unit never stored under a name cannot be named and is left out
+        with a warning, so a weekly load never fails on it. Distinct EICs that
+        end up sharing a name at one timestamp fail the batch: deduplication by
+        name would otherwise silently drop one unit's generation.
+        """
+        unnamed = [
+            r for r in batch if r.get("plant_name") is None and r.get("unit_eic")
+        ]
+        if unnamed:
+            units = sorted({(r["country_code"], r["unit_eic"]) for r in unnamed})
+            with self.engine.connect() as conn:
+                params = {
+                    "countries": [c for c, _ in units],
+                    "eics": [e for _, e in units],
+                    "times": sorted({r["timestamp_ms"] for r in unnamed}),
+                }
+                exact = conn.execute(
+                    text(
+                        "SELECT t.country_code, t.unit_eic, t.timestamp_ms, t.plant_name"
+                        " FROM entsoe_generation_data t"
+                        " JOIN unnest(CAST(:countries AS text[]), CAST(:eics AS text[]))"
+                        " AS u(country_code, unit_eic) USING (country_code, unit_eic)"
+                        " WHERE t.timestamp_ms = ANY(:times)"
+                    ),
+                    params,
+                ).fetchall()
+                latest = conn.execute(
+                    text(
+                        "SELECT DISTINCT ON (t.country_code, t.unit_eic) t.country_code,"
+                        " t.unit_eic, t.plant_name FROM entsoe_generation_data t"
+                        " JOIN unnest(CAST(:countries AS text[]), CAST(:eics AS text[]))"
+                        " AS u(country_code, unit_eic) USING (country_code, unit_eic)"
+                        " ORDER BY t.country_code, t.unit_eic, t.timestamp_ms DESC"
+                    ),
+                    params,
+                ).fetchall()
+            at_time = {(c, e, t): n for c, e, t, n in exact}
+            names = {(c, e): n for c, e, n in latest}
+            named, dropped = [], {}
+            for row in batch:
+                if row.get("plant_name") is None and row.get("unit_eic"):
+                    unit = (row["country_code"], row["unit_eic"])
+                    name = at_time.get(unit + (row["timestamp_ms"],), names.get(unit))
+                    if name is None:
+                        dropped[unit] = dropped.get(unit, 0) + 1
+                        continue
+                    row = dict(row, plant_name=name)
+                named.append(row)
+            if dropped:
+                logger.warning(
+                    f"Left out {sum(dropped.values())} observations of units that"
+                    f" ENTSO-E sends without a name and that have no stored name:"
+                    f" {dropped}"
+                )
+            batch = named
+        owners = {}
+        for row in batch:
+            if row.get("unit_eic"):
+                key = (
+                    row["timestamp_ms"],
+                    row["country_code"],
+                    row["psr_type"],
+                    row["plant_name"],
+                )
+                if owners.setdefault(key, row["unit_eic"]) != row["unit_eic"]:
+                    raise ValueError(
+                        f"Units {owners[key]} and {row['unit_eic']} would share the"
+                        f" name {row['plant_name']!r} at {row['timestamp_ms']};"
+                        " review their identities in config/entsoe-unit-names.json"
+                    )
+        return batch
+
     def _insert_entsoe_batch(
         self,
         batch: list,
@@ -952,12 +1114,16 @@ class PowerGenerationDatabase:
         batch_num: int,
         current_line: int,
         total_lines: int,
+        identity_ready: bool = True,
     ) -> Tuple[int, int, int, int]:
         """Insert a batch of ENTSO-E records.
 
         Returns:
             Tuple of (inserted_count, valid_count, invalid_count, duplicate_count)
         """
+        if not identity_ready and any(r.get("plant_name") is None for r in batch):
+            raise ValueError("Unnamed ENTSO-E unit series need migration 018")
+        batch = self._name_unnamed_units(batch)
         check_coal_records(batch)
 
         # Validate batch
@@ -976,6 +1142,11 @@ class PowerGenerationDatabase:
 
         # Insert via staging table upsert (handles existing UNIQUE constraint)
         def _upsert():
+            identity_columns = (
+                ["unit_eic", "production_unit_eic"]
+                if "unit_eic" in expected_columns
+                else []
+            )
             return self._upsert_via_staging(
                 df,
                 "entsoe_generation_data",
@@ -990,7 +1161,11 @@ class PowerGenerationDatabase:
                     "resolution_minutes",
                     "extraction_run_id",
                     "created_at_ms",
-                ],
+                ]
+                + identity_columns
+                + (["source_unit_name"] if identity_columns else []),
+                identity_columns=identity_columns,
+                preserve_identified_metadata=identity_ready and not identity_columns,
             )
 
         inserted = self._execute_with_retry(_upsert)
@@ -998,7 +1173,7 @@ class PowerGenerationDatabase:
         skipped = len(df) - inserted
         pct = (current_line / total_lines) * 100
         logger.info(
-            f"Batch {batch_num}: {inserted:,} inserted, {skipped:,} duplicates skipped "
+            f"Batch {batch_num}: {inserted:,} written, {skipped:,} unchanged rows "
             f"({current_line:,}/{total_lines:,} = {pct:.1f}%)"
         )
 
@@ -1854,14 +2029,21 @@ class PowerGenerationDatabase:
 
         Used to populate extraction_metadata.start_date/end_date from the
         actual min/max timestamp_ms of records inserted in this run.
+
+        Materialize the filtered run first: otherwise PostgreSQL can optimize
+        MIN/MAX into two timestamp-index walks across the entire history,
+        rejecting millions of other runs' rows before finding this run.
         """
         sql = text(
             f"""
+            WITH run_observations AS MATERIALIZED (
+                SELECT timestamp_ms FROM {table}
+                WHERE extraction_run_id = :run_id
+            )
             SELECT
                 TO_CHAR(TO_TIMESTAMP(MIN(timestamp_ms) / 1000), 'YYYY-MM-DD'),
                 TO_CHAR(TO_TIMESTAMP(MAX(timestamp_ms) / 1000), 'YYYY-MM-DD')
-            FROM {table}
-            WHERE extraction_run_id = :run_id
+            FROM run_observations
             """
         )
         try:
