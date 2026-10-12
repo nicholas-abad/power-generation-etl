@@ -475,6 +475,11 @@ def test_unit_with_several_spellings_keeps_its_one_stored_name(pg, pl_scope):
     stored = rows(conn)
     assert len(stored) == 1 and stored[0]["plant_name"] == "Jaworzno 2 JWCD B7"
     assert stored[0]["generation_mw"] == 120
+    # A legacy row under the unit's other old spelling lands on the stored row.
+    assert upsert(db, pl("Jaworzno 2  B7", mw=120, **jaworzno)) == 0
+    assert upsert(db, pl("Jaworzno 2  B7", mw=130, **jaworzno), verified=True) == 1
+    stored = rows(conn)
+    assert len(stored) == 1 and stored[0]["generation_mw"] == 130
     insert(conn, pl("Jaworzno 2  B7", **jaworzno))
     with pytest.raises(ValueError, match="overlap"):
         upsert(db, pl("Jaworzno 2 B7", **jaworzno), verified=True)

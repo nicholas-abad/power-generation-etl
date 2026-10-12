@@ -143,8 +143,9 @@ def prepare_coal_upsert(cursor):
     ]
     if rows:
         execute_values(cursor, "INSERT INTO _coal_aliases VALUES %s", rows)
-    # One row per incoming name: a unit with several reviewed spellings joins
-    # one alias row per spelling, so the stored names are counted, not rows.
+    # One row per incoming name. A unit may have several reviewed spellings,
+    # so a stored row is looked for under every spelling of the unit (all
+    # alias rows sharing its canonical name), and stored names are counted.
     cursor.execute("""CREATE TEMP TABLE _coal_names ON COMMIT DROP AS
         SELECT s.timestamp_ms, s.country_code, s.psr_type,
             s.plant_name AS incoming, min(aliases.legacy) AS legacy,
@@ -155,9 +156,11 @@ def prepare_coal_upsert(cursor):
         JOIN _coal_aliases aliases ON s.country_code=aliases.country
             AND s.psr_type=aliases.psr
             AND s.plant_name IN (aliases.legacy, aliases.source)
+        JOIN _coal_aliases spelling ON spelling.country=aliases.country
+            AND spelling.psr=aliases.psr AND spelling.legacy=aliases.legacy
         LEFT JOIN entsoe_generation_data a ON a.country_code=s.country_code
             AND a.timestamp_ms=s.timestamp_ms AND a.psr_type=s.psr_type
-            AND a.plant_name IN (aliases.legacy, aliases.source)
+            AND a.plant_name IN (spelling.legacy, spelling.source)
         GROUP BY 1, 2, 3, 4""")
     cursor.execute("""SELECT country_code FROM _coal_names
         WHERE units>1 OR stored>1 LIMIT 1""")
