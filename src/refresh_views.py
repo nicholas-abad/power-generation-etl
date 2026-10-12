@@ -41,6 +41,15 @@ SOURCE_VIEWS = {
 
 ALL_VIEWS = [v for views in SOURCE_VIEWS.values() for v in views]
 
+# Views that exist only where their migration has been applied (staging
+# pilots). Refreshed only on request (`--source <name>`), never by the
+# default all-views refresh the weekly job runs, so a database without the
+# migration still refreshes cleanly.
+STAGING_VIEWS = {
+    "chile_all_fuels": ["mv_chile_all_fuels_plant_monthly"],  # migration 019
+    "oe_all_fuels": ["mv_oe_all_fuels_unit_monthly"],  # migration 022
+}
+
 
 def get_connection_url() -> str:
     user = os.environ["POSTGRES_USER"]
@@ -87,13 +96,12 @@ if __name__ == "__main__":
         if idx + 1 < len(sys.argv):
             source = sys.argv[idx + 1]
 
+    known = {**SOURCE_VIEWS, **STAGING_VIEWS}
     if source:
-        if source not in SOURCE_VIEWS:
-            logger.error(
-                f"Unknown source: {source}. Valid: {', '.join(SOURCE_VIEWS.keys())}"
-            )
+        if source not in known:
+            logger.error(f"Unknown source: {source}. Valid: {', '.join(known)}")
             sys.exit(1)
-        views = SOURCE_VIEWS[source]
+        views = known[source]
         logger.info(f"Refreshing views for {source}: {views}")
     else:
         views = ALL_VIEWS

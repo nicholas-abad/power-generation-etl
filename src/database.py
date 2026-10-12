@@ -9,10 +9,10 @@ import os
 import re
 import sys
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 from loguru import logger
@@ -29,6 +29,37 @@ from tenacity import (
 
 from validator import DataValidator, ValidationReport, save_report
 from entsoe_coal import check_coal_records, prepare_coal_upsert, source_coal
+
+# ONS natural key since migration 020 (uq_ons_plant_hour).
+ONS_PLANT_HOUR = "timestamp_ms, COALESCE(NULLIF(ons_plant_id, ''), 'name:' || plant)"
+
+
+def ons_plant_hour_conflict(jsonl_file_path: str) -> Optional[str]:
+    """Describe the first plant-hour the file gives two different rows, if any.
+
+    Scans the whole file before anything is written: an upsert on the
+    plant-hour key would otherwise keep whichever row came last (e.g. the old
+    and the new name of one ONS ID). Identical repeats are left to the
+    validator's duplicate count. Hashes keep memory small for yearly files.
+    """
+    seen: Dict[int, int] = {}
+    with open(jsonl_file_path) as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            key = (
+                record.get("timestamp_ms"),
+                record.get("ons_plant_id") or f"name:{record.get('plant')}",
+            )
+            content = hash(json.dumps(record, sort_keys=True, default=str))
+            if seen.setdefault(hash(key), content) != content:
+                return (
+                    f"ONS file has two different rows for {key[1]} at {key[0]}; "
+                    "refusing to choose one"
+                )
+    return None
+
 
 # ENTSO-E PSR type codes to human-readable fuel type names.
 # Used to fix fuel_type during JSONL ingestion (records extracted before the
@@ -109,6 +140,13 @@ logger.add(
 )
 
 
+# OpenElectricity all-fuel parts: `<NET>_<YYYY-MM>__<start>_<end>.jsonl`, the
+# network-local days the extractor requested; NEM and WEM use fixed offsets.
+_OE_PART_NAME = re.compile(
+    r"^([A-Z]+)_(\d{4}-\d{2})__(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})\.jsonl$"
+)
+_OE_UTC_OFFSET_HOURS = {"NEM": 10, "WEM": 8}
+
 _VALID_SQL_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 # Database names may be mixed-case in practice (e.g. PowerGeneration), but we
@@ -128,6 +166,8 @@ _KNOWN_TABLES = frozenset(
         "oe_facility_generation_data",
         "occto_generation_data",
         "chile_generation_data",
+        "chile_generation_all_fuels",
+        "oe_unit_generation_all_fuels",
         "climatetrace_generation_data",
         "extraction_metadata",
         "plant_crosswalk",
@@ -228,8 +268,13 @@ class PowerGenerationDatabase:
         conflict_columns: list = None,
         conflict_expr: str = None,
         update_columns: list = None,
+        replace_where: Optional[Tuple[str, Dict[str, Any]]] = None,
     ) -> int:
         """Insert rows via a staging table, skipping duplicates on conflict.
+
+        ``replace_where`` (SQL condition, parameters) first deletes the target
+        rows it matches, in the same transaction, so a reloaded slice replaces
+        the previous one instead of leaving rows whose key no longer occurs.
 
         Uses CREATE TEMP TABLE + COPY + INSERT ... ON CONFLICT DO NOTHING
         for efficient bulk upsert.
@@ -298,6 +343,10 @@ class PowerGenerationDatabase:
         conn = self.engine.raw_connection()
         try:
             cursor = conn.cursor()
+
+            if replace_where:
+                condition, params = replace_where
+                cursor.execute(f"DELETE FROM {target_table} WHERE {condition}", params)
 
             # 1. Create temp staging table (dropped at end of transaction)
             cursor.execute(
@@ -1236,6 +1285,9 @@ class PowerGenerationDatabase:
                 extraction_run_id = str(uuid.uuid4())
             created_at_ms = int(datetime.now().timestamp() * 1000)
 
+            conflict = ons_plant_hour_conflict(jsonl_file_path)
+            if conflict:
+                raise ValueError(conflict)
             validator = DataValidator()
             total_inserted = 0
             total_valid = 0
@@ -1293,18 +1345,38 @@ class PowerGenerationDatabase:
                     # Insert valid records via upsert (skips duplicates)
                     if valid_records:
                         df = pd.DataFrame(valid_records)
+                        # ONS ID is optional; the plant-hour key needs the column.
+                        if "ons_plant_id" not in df:
+                            df["ons_plant_id"] = None
 
                         def _upsert_chunk():
+                            # The conflict target needs migration 020's key.
+                            with self.engine.connect() as conn:
+                                key = conn.execute(
+                                    text(
+                                        "SELECT to_regclass('ingestion.uq_ons_plant_hour')"
+                                    )
+                                ).scalar()
+                            if key is None:
+                                raise ValueError(
+                                    "ingestion.uq_ons_plant_hour is missing: apply "
+                                    "migration 020 (after repair_ons_rename_duplicates.py)"
+                                )
                             return self._upsert_via_staging(
                                 df,
                                 "ons_generation_data",
-                                conflict_expr="timestamp_ms, plant, COALESCE(ons_plant_id, '')",
+                                # One row per plant-hour: keyed on the ONS ID so a
+                                # renamed plant updates in place (migration 020);
+                                # rows without an ID fall back to their name.
+                                conflict_expr=ONS_PLANT_HOUR,
                                 # ONS re-publishes current-year files under a
                                 # documented "recurring consistency process";
                                 # the weekly run re-downloads the whole year,
                                 # so DO NOTHING discarded restatements weekly
                                 # (2026-09 audit: 21/205 plants restated).
                                 update_columns=[
+                                    "plant",
+                                    "ceg",
                                     "generation_mwh",
                                     "fuel_type",
                                     "plant_type",
@@ -1465,13 +1537,23 @@ class PowerGenerationDatabase:
                         "occto_generation_data",
                         conflict_expr="timestamp_ms, plant, COALESCE(unit, '')",
                         # Backfills must be able to correct history in place
-                        # (2026-09 audit; weekly window never overlaps, so this
-                        # only fires on deliberate re-extractions).
+                        # (2026-09 audit). The weekly run refetches a 14-day
+                        # lookback, so this also applies OCCTO's revisions.
+                        # Only columns the file carries: an older-format
+                        # reload must not null out stored codes and labels.
                         update_columns=[
-                            "generation_mwh",
-                            "fuel_type",
-                            "extraction_run_id",
-                            "created_at_ms",
+                            c
+                            for c in [
+                                "generation_mwh",
+                                "fuel_type",
+                                "fuel_code",
+                                "plant_code",
+                                "area_code",
+                                "area_name",
+                                "extraction_run_id",
+                                "created_at_ms",
+                            ]
+                            if c in df.columns
                         ],
                     )
 
@@ -1977,6 +2059,229 @@ class PowerGenerationDatabase:
 
         except Exception as e:
             logger.error(f"Failed to insert Chile data: {e}")
+            return False, None
+
+    def insert_chile_all_fuels_jsonl_data(
+        self,
+        jsonl_file_path: str,
+        validation_report_path: str = None,
+    ) -> Tuple[bool, Optional[ValidationReport]]:
+        """Load one Chile all-fuel part file (one plant-year) atomically.
+
+        Staging pilot (migration 019). Unlike the coal loader, nothing is
+        written unless EVERY record validates: the whole file is validated
+        first (duplicates checked across the file on the fuel-aware natural
+        key), then written in a single upsert transaction. A part file is one
+        plant-year (at most ~30k rows), so a failed load leaves nothing
+        partial and a replay of the same file is idempotent.
+        """
+        try:
+            keep_cols = [
+                "extraction_run_id",
+                "created_at_ms",
+                "plant_key",
+                "chile_plant_id",
+                "plant",
+                "region",
+                "comuna",
+                "tipo_tecnologia",
+                "subtipo_tecnologia",
+                "fuel_type",
+                "timestamp_ms",
+                "generation_mwh",
+                "resolution_minutes",
+                "unit_count",
+            ]
+            with open(jsonl_file_path, "r") as f:
+                records = [json.loads(line) for line in f if line.strip()]
+
+            valid_records, report = DataValidator().validate_file(
+                records, "chile_all_fuels", jsonl_file_path
+            )
+            if validation_report_path:
+                save_report(report, validation_report_path)
+            if report.invalid_count or report.duplicate_count:
+                logger.error(
+                    f"{jsonl_file_path}: {report.invalid_count} invalid, "
+                    f"{report.duplicate_count} duplicate records — nothing written"
+                )
+                return False, report
+            if not valid_records:
+                logger.warning(f"{jsonl_file_path}: no records")
+                return True, report
+
+            df = pd.DataFrame(valid_records)
+            df = df[[c for c in keep_cols if c in df.columns]]
+            written = self._execute_with_retry(
+                lambda: self._upsert_via_staging(
+                    df,
+                    "chile_generation_all_fuels",
+                    conflict_columns=[
+                        "timestamp_ms",
+                        "plant_key",
+                        "tipo_tecnologia",
+                        "subtipo_tecnologia",
+                    ],
+                    # Names and the derived fuel label are revisable; the key
+                    # is source values only.
+                    update_columns=[
+                        "generation_mwh",
+                        "plant",
+                        "chile_plant_id",
+                        "fuel_type",
+                        "region",
+                        "comuna",
+                        "unit_count",
+                        "extraction_run_id",
+                        "created_at_ms",
+                    ],
+                )
+            )
+            logger.success(
+                f"{jsonl_file_path}: {report.valid_count} valid, {written} inserted or updated"
+            )
+            return True, report
+        except Exception as e:
+            logger.error(f"Failed to insert Chile all-fuel data: {e}")
+            return False, None
+
+    def insert_oe_all_fuels_jsonl_data(
+        self,
+        jsonl_file_path: str,
+        validation_report_path: str = None,
+    ) -> Tuple[bool, Optional[ValidationReport]]:
+        """Load one OpenElectricity all-fuel part file (one network-month) atomically.
+
+        Staging pilot (migration 022). Nothing is written unless every record
+        validates (whole file first, duplicates on the natural key across the
+        file), then one upsert transaction. A part is one network-month
+        (~15-20k rows), so a failed load leaves nothing partial and a replay of
+        the same file is idempotent. The file replaces every stored row of the
+        network and days its name declares, so a re-extracted month leaves no
+        stale rows, even on a day that is no longer in it.
+        """
+        try:
+            m = _OE_PART_NAME.match(Path(jsonl_file_path).name)
+            if not m or m.group(1) not in _OE_UTC_OFFSET_HOURS:
+                logger.error(
+                    f"{jsonl_file_path}: not an all-fuel part name "
+                    "(<NEM|WEM>_<YYYY-MM>__<start>_<end>.jsonl) — nothing written"
+                )
+                return False, None
+            net, month, first, last = m.groups()
+            # The name decides what is deleted: keep it to days of its own month.
+            if not (
+                first.startswith(month) and last.startswith(month) and first <= last
+            ):
+                logger.error(
+                    f"{jsonl_file_path}: {first}..{last} is not within {month} — nothing written"
+                )
+                return False, None
+            tz = timezone(timedelta(hours=_OE_UTC_OFFSET_HOURS[net]))
+            lo = int(
+                datetime.fromisoformat(first).replace(tzinfo=tz).timestamp() * 1000
+            )
+            hi = int(
+                (
+                    datetime.fromisoformat(last).replace(tzinfo=tz) + timedelta(days=1)
+                ).timestamp()
+                * 1000
+            )
+            keep_cols = [
+                "extraction_run_id",
+                "created_at_ms",
+                "network_code",
+                "network_region",
+                "facility_code",
+                "facility_name",
+                "unit_code",
+                "fueltech",
+                "fueltech_group",
+                "unit_status",
+                "direction",
+                "basis",
+                "timestamp_ms",
+                "energy_mwh",
+                "capacity_registered_mw",
+                "latitude",
+                "longitude",
+                "resolution_minutes",
+            ]
+            with open(jsonl_file_path, "r") as f:
+                records = [json.loads(line) for line in f if line.strip()]
+
+            valid_records, report = DataValidator().validate_file(
+                records, "oe_all_fuels", jsonl_file_path
+            )
+            if validation_report_path:
+                save_report(report, validation_report_path)
+            if report.invalid_count or report.duplicate_count:
+                logger.error(
+                    f"{jsonl_file_path}: {report.invalid_count} invalid, "
+                    f"{report.duplicate_count} duplicate records — nothing written"
+                )
+                return False, report
+            if not valid_records:
+                # A whole network-month without data is not plausible; refuse
+                # rather than report a replacement that removed nothing.
+                logger.error(f"{jsonl_file_path}: no records — nothing replaced")
+                return False, report
+
+            df = pd.DataFrame(valid_records)
+            df = df[[c for c in keep_cols if c in df.columns]]
+            networks = df["network_code"].unique().tolist()
+            if networks != [net]:
+                logger.error(
+                    f"{jsonl_file_path}: network {net} expected from the name, got {networks}"
+                )
+                return False, report
+            outside = int(
+                ((df["timestamp_ms"] < lo) | (df["timestamp_ms"] >= hi)).sum()
+            )
+            if outside:
+                logger.error(
+                    f"{jsonl_file_path}: {outside} records outside {first}..{last} — nothing written"
+                )
+                return False, report
+            replace = (
+                "network_code = %(net)s AND timestamp_ms >= %(lo)s AND timestamp_ms < %(hi)s",
+                {"net": net, "lo": lo, "hi": hi},
+            )
+            written = self._execute_with_retry(
+                lambda: self._upsert_via_staging(
+                    df,
+                    "oe_unit_generation_all_fuels",
+                    replace_where=replace,
+                    conflict_columns=[
+                        "timestamp_ms",
+                        "network_code",
+                        "unit_code",
+                        "direction",
+                    ],
+                    # Labels and metadata are revisable; the key is source values only.
+                    update_columns=[
+                        "energy_mwh",
+                        "basis",
+                        "fueltech",
+                        "fueltech_group",
+                        "unit_status",
+                        "facility_code",
+                        "facility_name",
+                        "network_region",
+                        "capacity_registered_mw",
+                        "latitude",
+                        "longitude",
+                        "extraction_run_id",
+                        "created_at_ms",
+                    ],
+                )
+            )
+            logger.success(
+                f"{jsonl_file_path}: {report.valid_count} valid, {written} inserted or updated"
+            )
+            return True, report
+        except Exception as e:
+            logger.error(f"Failed to insert OpenElectricity all-fuel data: {e}")
             return False, None
 
     def insert_climatetrace_jsonl_data(
