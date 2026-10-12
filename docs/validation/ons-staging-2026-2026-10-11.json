@@ -1,0 +1,163 @@
+{
+  "status": "passed",
+  "environment": "staging",
+  "branch_id": "br-sweet-voice-aglj4sd7",
+  "verified_on": "2026-10-11",
+  "scope": "ONS qualifying individual-plant observations, January-August 2026 (audited year-to-date snapshot); not national generation totals",
+  "rows_written_note": "Counts include inserts and updates, not only newly added observations.",
+  "github_run": "https://github.com/nicholas-abad/power-generation-etl/actions/runs/38146061006",
+  "manifest_sha256": "d237ffe991953ebeb2971db5408cf3fa7d1ec11af9db93da4572da9420ebf55d",
+  "tests": {
+    "etl": 208,
+    "postgresql_integration_tests_included": 11
+  },
+  "data_locations": {
+    "database": "neondb",
+    "hourly_observations": "ingestion.ons_generation_data",
+    "qualified_monthly_aggregates": "public.mv_ons_individual_plant_monthly",
+    "source_gaps": "ingestion.ons_source_gaps"
+  },
+  "staging_preparation": "Before this run, staging was repaired with src/repair_ons_rename_duplicates.py (PR #117): 111,720 renamed duplicates, 24,792 withdrawn and 26,208 now-null rows from earlier versions of the 2026 files were archived and removed, and migration 020 (plant-hour key) and 021 (source gaps) were applied.",
+  "years": {
+    "2026": {
+      "status": "passed",
+      "last_month": 8,
+      "source_rows_reconciled": 1700339,
+      "source_files_verified": 8,
+      "source_files": [
+        {
+          "label": "2026-01",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_01.parquet",
+          "sha256": "57db2a68425f74fd51f13dc5bacb8271f53618d86f94461ffd0e2223915a282b",
+          "raw_records": 495227
+        },
+        {
+          "label": "2026-02",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_02.parquet",
+          "sha256": "a0995f815a5a503cc7677e3b772f18bebb9f77eb3684c6dd2eaf9d8218b05aa0",
+          "raw_records": 450264
+        },
+        {
+          "label": "2026-03",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_03.parquet",
+          "sha256": "082a67b10a69b74cce27107ebbcea4fd36a2adc85cfa0be810c48fdb4b760f87",
+          "raw_records": 490992
+        },
+        {
+          "label": "2026-04",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_04.parquet",
+          "sha256": "bc6c339cc135fd91f3587ce745abc75fc8e5566f191094b729a61be123c67236",
+          "raw_records": 473760
+        },
+        {
+          "label": "2026-05",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_05.parquet",
+          "sha256": "c90f2bed4471381a23a971e61ce3e93046555adabe1dfa5cafa5db87b074ddf5",
+          "raw_records": 530808
+        },
+        {
+          "label": "2026-06",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_06.parquet",
+          "sha256": "0787fe30e3c9ade5c8914ce846a41b23748866c6378fefae010205e39caea205",
+          "raw_records": 514728
+        },
+        {
+          "label": "2026-07",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_07.parquet",
+          "sha256": "b5a385e25ea3f09b5a6016d94aa558c000ce54c9445def5ec74d27d5eb750ce6",
+          "raw_records": 533832
+        },
+        {
+          "label": "2026-08",
+          "url": "https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/geracao_usina_2_ho/GERACAO_USINA-2_2026_08.parquet",
+          "sha256": "3fda1f68650edc9c4a2ceae9a53e4591c1422c201bd119fed1828bcdd33059bc",
+          "raw_records": 536712
+        }
+      ],
+      "qualified_monthly_rows": 2416,
+      "qualified_months": 8,
+      "qualified_fuel_labels": 11,
+      "qualified_generation_mwh": 312025822.7330186,
+      "fuels": [
+        {
+          "fuel": "Biomassa",
+          "ons_ids": 32,
+          "observations": 116616,
+          "generation_mwh": 701435.6405305917
+        },
+        {
+          "fuel": "Carvão",
+          "ons_ids": 9,
+          "observations": 52473,
+          "generation_mwh": 6245759.971500026
+        },
+        {
+          "fuel": "Eólica",
+          "ons_ids": 12,
+          "observations": 65352,
+          "generation_mwh": 629844.8310000027
+        },
+        {
+          "fuel": "Fotovoltaica",
+          "ons_ids": 6,
+          "observations": 25296,
+          "generation_mwh": 148109.30549999923
+        },
+        {
+          "fuel": "Gás",
+          "ons_ids": 59,
+          "observations": 312170,
+          "generation_mwh": 24733486.489149805
+        },
+        {
+          "fuel": "Hidráulica",
+          "ons_ids": 162,
+          "observations": 941664,
+          "generation_mwh": 266621409.6523395
+        },
+        {
+          "fuel": "Multi-Combustível Diesel/Óleo",
+          "ons_ids": 1,
+          "observations": 5832,
+          "generation_mwh": 22152.897500000083
+        },
+        {
+          "fuel": "Nuclear",
+          "ons_ids": 2,
+          "observations": 11664,
+          "generation_mwh": 9341653.199499993
+        },
+        {
+          "fuel": "Resíduos Industriais",
+          "ons_ids": 5,
+          "observations": 23254,
+          "generation_mwh": 3356212.324685593
+        },
+        {
+          "fuel": "Óleo Combustível",
+          "ons_ids": 24,
+          "observations": 95410,
+          "generation_mwh": 41972.64581309104
+        },
+        {
+          "fuel": "Óleo Diesel",
+          "ons_ids": 23,
+          "observations": 50608,
+          "generation_mwh": 183785.77550000016
+        }
+      ],
+      "source_gaps_recorded": 24,
+      "source_gap_hours": 50352,
+      "coal_rows_preserved": 52473,
+      "coal_sha256": "386c8bf7638a0bb7e8e6c0e8dcf194119505514e6150c1a8e7441546faf61c8c",
+      "coal_monthly_totals_preserved": true,
+      "first_load_rows_written": 1700339,
+      "repeat_load_rows_written": 0,
+      "invalid_records": 0,
+      "duplicate_records": 0,
+      "extraction_run_id": "9c09d8ee-3c2f-4d6d-a118-45a97be93be0",
+      "extractors_commit": "ce8318724c899a0c552c8d157f52f8d598d7f918",
+      "etl_commit": "4eab04b1078b1480b3ddb76aa3a434d800d49383"
+    }
+  }
+}
