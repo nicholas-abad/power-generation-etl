@@ -828,6 +828,12 @@ jobs:
             || { echo "::error::eia_plant_lookup.csv missing from plant-data checkout"; missing=1; }
           test -f "plant-data/data/crosswalks/NPP_GIPT_crosswalk (1).csv" \
             || { echo "::error::NPP_GIPT_crosswalk (1).csv missing from plant-data checkout"; missing=1; }
+          # GEM's external IDs (EIA plant/generator codes) and the reviewed
+          # EIA <-> GEM-code verdicts: the EIA-code tier and the US unit map.
+          test -f "plant-data/data/crosswalks/gem_external_ids.parquet" \
+            || { echo "::error::gem_external_ids.parquet missing from plant-data checkout"; missing=1; }
+          test -f "plant-data/data/crosswalks/eia_gem_id_review.csv" \
+            || { echo "::error::eia_gem_id_review.csv missing from plant-data checkout"; missing=1; }
           [ "$missing" = "1" ] && exit 1
           echo "reference data present in plant-data checkout"
 
@@ -851,11 +857,21 @@ jobs:
           uv run python - <<'PY'
           import sys
           sys.path.insert(0, "scripts")
-          from bootstrap_neon_db import get_engine, load_npp_unit_map, load_unified_crosswalk
+          from bootstrap_neon_db import (
+              get_engine,
+              load_eia_unit_map,
+              load_gem_external_ids,
+              load_npp_unit_map,
+              load_unified_crosswalk,
+          )
           engine = get_engine()
           load_unified_crosswalk(engine)
           # India at unit grain (plants split across GEM sites, e.g. BARH STPS)
           load_npp_unit_map(engine)
+          # GEM's external IDs (the snapshot the build linked by) and the US
+          # unit map built from them (needs ETL migration 023 to exist)
+          load_gem_external_ids(engine)
+          load_eia_unit_map(engine)
           PY
 
       - name: Export decisions audit trail
