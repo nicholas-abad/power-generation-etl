@@ -24,6 +24,8 @@ DECLARE
     'public.plant_crosswalk', 'public.eia_generator_info', 'public.gcpt_coal_metadata',
     -- India's GEM identity at unit grain (plant-data; view re-created on each swap)
     'public.npp_unit_gem_map', 'public.npp_gem_unit_monthly',
+    -- US GEM identity at unit grain (plant-data eia_unit_gem_map; view re-created on each swap)
+    'public.eia_unit_gem_map', 'public.eia_gem_unit_monthly',
     -- plant-month materialized views
     'public.mv_entsoe_plant_monthly', 'public.mv_npp_plant_monthly',
     'public.mv_npp_unit_monthly', 'public.mv_occto_unit_monthly',
