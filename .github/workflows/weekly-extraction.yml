@@ -859,7 +859,7 @@ jobs:
           sys.path.insert(0, "scripts")
           from bootstrap_neon_db import (
               get_engine,
-              load_eia_unit_map,
+              load_unit_gem_map,
               load_gem_external_ids,
               load_npp_unit_map,
               load_unified_crosswalk,
@@ -868,10 +868,10 @@ jobs:
           load_unified_crosswalk(engine)
           # India at unit grain (plants split across GEM sites, e.g. BARH STPS)
           load_npp_unit_map(engine)
-          # GEM's external IDs (the snapshot the build linked by) and the US
-          # unit map built from them (needs ETL migration 023 to exist)
+          # GEM's external IDs (the snapshot the build linked by) and the
+          # unit map built from them, US rows first (needs ETL migration 023)
           load_gem_external_ids(engine)
-          load_eia_unit_map(engine)
+          load_unit_gem_map(engine)
           PY
 
       - name: Export decisions audit trail
