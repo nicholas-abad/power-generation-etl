@@ -249,7 +249,10 @@ def extract_entsoe() -> int:
 # burn coal; plants with no coal are deferred. The json backend returns every
 # fuel at every plant, so each file is cut to the plants with a coal unit,
 # known from this file or from coal already stored (a coal unit idle for the
-# whole window must not drop its plant's other units).
+# whole window must not drop its plant's other units). It looks backwards
+# only: a plant new to coal whose coal first runs in a later month of the same
+# run keeps no other-fuel rows from the earlier months; the next weekly
+# lookback refills recent ones, a long START_OVERRIDE backfill does not.
 OCCTO_COAL = "coal"
 
 
