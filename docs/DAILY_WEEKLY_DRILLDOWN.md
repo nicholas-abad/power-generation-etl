@@ -58,3 +58,65 @@ No row for a day means not reported (never zero). Weekly views: `week_start` (IS
   `refresh-views` step took 2 min 46 s on 2026-10-11, so the job stays well inside its 30 minutes.
 - One-plant queries use the unique indexes: Neurath G all days 31 ms, BARH STPS all unit-days
   32 ms, Neurath G weekly 6 ms.
+
+## For the tracker (read contract)
+
+**What exists.** Each source with daily data has a daily view next to the monthly view the
+tracker already reads, at the same keys, plus a weekly view over it (table under "Views"). A
+plant page reads them exactly as it reads the monthly views, swapping the view name and `month`
+for `day` / `week_start`. Japan's views appear only where migration 025 is applied (staging now;
+production after the OCCTO history rebuild): until then they do not exist, which
+`TRANSITIONAL` in `scripts/neon-surface-check.mjs` already treats as "skip".
+
+**Columns.** Daily: the monthly view's keys, `day` (date), `generation_mwh`, `observation_count`,
+`covered_minutes`, `completeness`. Weekly: the keys, `week_start` (ISO Monday), `generation_mwh`,
+`days_reported`, `days_complete`, `days_in_period` (7, or fewer in the latest week),
+`is_complete`.
+
+**Coal.** The views already contain only coal, filtered exactly as `COAL_PREDICATES` does (please
+confirm this table matches your code):
+
+| Source | Predicate |
+|---|---|
+| ENTSO-E | `fuel_type in ('Fossil Hard coal', 'Fossil Brown coal/Lignite')` |
+| NPP | `fuel_type = 'THERMAL'` (per unit-month, as `mv_npp_unit_monthly` carries it) |
+| ONS | `fuel_type = 'Carvão'` |
+| OCCTO | `fuel_type = 'coal'` (per unit-month, as `mv_occto_unit_monthly` carries it) |
+| Chile | `fuel_type = 'Carbón'` |
+| OE | `fueltech in ('coal_black', 'coal_brown')` |
+
+**Gaps and completeness.** No row for a day means the source did not report it: draw a gap, never
+a zero. A row with `generation_mwh = 0` is a reported zero. `completeness`:
+- `complete`: every slot of the day is present;
+- `partial`: some slots missing (the day's total is an undercount);
+- `unknown`: coverage cannot be established. Chile and Australia are always `unknown` (their
+  rows are plant/facility sums built by skipping missing units); ENTSO-E days that mix interval
+  lengths too.
+
+Compare only `is_complete` weeks, or label partial ones. A month view should use daily rows
+(weeks cross month ends).
+
+**Days.** Days follow the monthly views' clock, so a month's days add up to its monthly bar:
+UTC days for ENTSO-E and Chile, local dates for ONS (Brazil) and OCCTO (Japan, whose 24:00 slot
+counts on the next day), the report date for India, and the network-local date for Australia
+(so Australian daily bars do not sum to the UTC-month `mv_oe_plant_monthly` bar at month edges).
+
+**Query shapes** (each hits the view's unique index; ~30 ms for a plant's full history on
+staging):
+
+```sql
+SELECT day, generation_mwh, completeness FROM mv_entsoe_plant_daily
+WHERE plant_name = $1 ORDER BY day;
+SELECT week_start, generation_mwh, is_complete FROM entsoe_plant_weekly
+WHERE plant_name = $1 ORDER BY week_start;
+SELECT day, unit, generation_mwh, completeness FROM mv_npp_unit_daily
+WHERE plant = $1 ORDER BY day, unit;
+```
+
+**GEM-unit pages.** `gem_unit_daily` / `gem_unit_weekly` (beside `gem_unit_monthly`) and
+`npp_gem_unit_daily` come from plant-data once its unit map is in production. A GEM plant-day is
+complete only if every mapped source row is complete. Australia is not in `gem_unit_daily` this
+release (its unit map joins unit codes the facility rows lack): use the facility fallback.
+
+**Surface lists.** Add the new names to `TRANSITIONAL` first, then to `SURFACE` once production
+has them.

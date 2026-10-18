@@ -67,3 +67,12 @@ def test_rebuild_tools_refresh_installed_daily_views_only():
         refresh_views.installed_migration_views(cursor, ["mv_entsoe_plant_daily"])
     # no ledger table at all (fresh database): skip
     assert refresh_views.installed_migration_views(FakeCursor(set(), set()), ["mv_npp_unit_daily"]) == []
+
+
+def test_every_daily_view_has_a_rollup_check():
+    import check_daily_rollups as c
+
+    assert set(c.ROLLUPS) == {v for v in refresh_views.MIGRATION_VIEWS if v.endswith("_daily")}
+    assert not c.ROLLUPS["mv_oe_plant_daily"].by_month  # local days vs UTC months
+    sql = c.rollup_sql("mv_npp_unit_daily", c.ROLLUPS["mv_npp_unit_daily"])
+    assert "d.m = mo.m" in sql and "IS NOT DISTINCT FROM" not in sql  # hashable FULL JOIN
