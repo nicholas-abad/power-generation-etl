@@ -861,15 +861,14 @@ jobs:
               get_engine,
               load_unit_gem_map,
               load_gem_external_ids,
-              load_npp_unit_map,
               load_unified_crosswalk,
           )
           engine = get_engine()
           load_unified_crosswalk(engine)
-          # India at unit grain (plants split across GEM sites, e.g. BARH STPS)
-          load_npp_unit_map(engine)
           # GEM's external IDs (the snapshot the build linked by) and the
-          # unit map built from them, US rows first (needs ETL migration 023)
+          # unit map for every source, India included (its older names
+          # npp_unit_gem_map / npp_gem_unit_monthly are views over it); the
+          # US rows need ETL migration 023
           load_gem_external_ids(engine)
           load_unit_gem_map(engine)
           PY
