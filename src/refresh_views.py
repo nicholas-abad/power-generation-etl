@@ -15,7 +15,6 @@ from dotenv import load_dotenv
 from loguru import logger
 from sqlalchemy import create_engine, text
 
-load_dotenv()
 
 # Source → list of materialized views to refresh.
 # `mv_<source>_row_counts` powers the dashboard's /data-quality coverage matrix.
@@ -87,31 +86,43 @@ def migration_view_action(recorded: bool, exists: bool) -> str:
     return "fail" if recorded else "skip"
 
 
+def migration_view_state(view: str, scalar) -> str:
+    """migration_view_action for ``view``, asking the database through
+    ``scalar(sql, value)``, which runs a one-value query with one parameter
+    written ``%s`` and returns its result. A database without the ledger table
+    counts as "not recorded"."""
+    version = MIGRATION_VIEWS[view]
+    exists = scalar("SELECT to_regclass(%s) IS NOT NULL", f"public.{view}")
+    recorded = bool(scalar("SELECT to_regclass(%s) IS NOT NULL", LEDGER)) and bool(
+        scalar(f"SELECT EXISTS (SELECT 1 FROM {LEDGER} WHERE version = %s)", version)
+    )
+    action = migration_view_action(recorded, exists)
+    if action == "fail":
+        raise RuntimeError(f"migration {version} is recorded but {view} does not exist")
+    return action
+
+
+def sqlalchemy_scalar(conn):
+    """``scalar`` for migration_view_state over a SQLAlchemy connection."""
+    return lambda sql, value: conn.execute(
+        text(sql.replace("%s", ":p")), {"p": value}
+    ).scalar()
+
+
+def psycopg2_scalar(cursor):
+    """``scalar`` for migration_view_state over a psycopg2 cursor."""
+
+    def scalar(sql, value):
+        cursor.execute(sql, (value,))
+        return cursor.fetchone()[0]
+
+    return scalar
+
+
 def installed_migration_views(cursor, views: list[str]) -> list[str]:
-    """The views of ``views`` to refresh now, for psycopg2 callers (the rebuild
-    tools), by the same rule as refresh_views(): skip a view whose migration is
-    not recorded, fail on one whose migration is recorded but which is missing."""
-    cursor.execute("SELECT to_regclass(%s) IS NOT NULL", (LEDGER,))
-    ledger = cursor.fetchone()[0]
-    out = []
-    for view in views:
-        version = MIGRATION_VIEWS[view]
-        cursor.execute("SELECT to_regclass(%s) IS NOT NULL", (f"public.{view}",))
-        exists = cursor.fetchone()[0]
-        recorded = False
-        if ledger:
-            cursor.execute(
-                f"SELECT EXISTS (SELECT 1 FROM {LEDGER} WHERE version = %s)", (version,)
-            )
-            recorded = cursor.fetchone()[0]
-        action = migration_view_action(recorded, exists)
-        if action == "fail":
-            raise RuntimeError(
-                f"migration {version} is recorded but {view} does not exist"
-            )
-        if action == "refresh":
-            out.append(view)
-    return out
+    """The views of ``views`` to refresh now, for the psycopg2 rebuild tools."""
+    scalar = psycopg2_scalar(cursor)
+    return [v for v in views if migration_view_state(v, scalar) == "refresh"]
 
 
 # Views that exist only where their migration has been applied (staging
@@ -146,33 +157,13 @@ def refresh_views(views: list[str]) -> bool:
         logger.info(f"Refreshing {view}...")
         try:
             with engine.connect() as conn:
-                if view in MIGRATION_VIEWS:
-                    version = MIGRATION_VIEWS[view]
-                    exists = conn.execute(
-                        text("SELECT to_regclass(:v) IS NOT NULL"), {"v": view}
-                    ).scalar()
-                    ledger = conn.execute(
-                        text("SELECT to_regclass(:t) IS NOT NULL"), {"t": LEDGER}
-                    ).scalar()
-                    recorded = (
-                        bool(ledger)
-                        and conn.execute(
-                            text(
-                                f"SELECT EXISTS (SELECT 1 FROM {LEDGER} WHERE version = :v)"
-                            ),
-                            {"v": version},
-                        ).scalar()
+                if view in MIGRATION_VIEWS and (
+                    migration_view_state(view, sqlalchemy_scalar(conn)) == "skip"
+                ):
+                    logger.warning(
+                        f"Skipping {view}: migration {MIGRATION_VIEWS[view]} not applied"
                     )
-                    action = migration_view_action(recorded, exists)
-                    if action == "skip":
-                        logger.warning(
-                            f"Skipping {view}: migration {version} not applied"
-                        )
-                        continue
-                    if action == "fail":
-                        raise RuntimeError(
-                            f"migration {version} is recorded but {view} does not exist"
-                        )
+                    continue
                 # The view queries bucket by date_trunc('month',
                 # to_timestamp(...)), which follows the session TimeZone.
                 # Pin UTC so a refresh from any client bucket-matches the
@@ -194,6 +185,7 @@ def refresh_views(views: list[str]) -> bool:
 
 
 if __name__ == "__main__":
+    load_dotenv()
     source = None
     if "--source" in sys.argv:
         idx = sys.argv.index("--source")

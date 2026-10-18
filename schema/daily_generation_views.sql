@@ -13,10 +13,11 @@
 -- Sparse: a day with no observation has no row (never a zero). Each row carries
 -- observation_count, covered_minutes (distinct slots x their length) and
 -- completeness:
---   complete  every slot of the day is present
+--   complete  every slot of the day is present, once
 --   partial   some slots missing
---   unknown   coverage cannot be established: mixed interval lengths or
---             misaligned stamps in one day, or a source whose stored rows are
+--   unknown   coverage cannot be established: mixed interval lengths,
+--             misaligned stamps, or two observations in one slot (which could
+--             hide a missing one) in that day, or a source whose stored rows are
 --             sums the extractor builds while skipping missing units (Chile
 --             plant rows, Australia facility rows)
 
@@ -29,11 +30,13 @@ SELECT
     fuel_type,
     SUM(generation_mw * COALESCE(resolution_minutes, 60) / 60.0) AS generation_mwh,
     COUNT(*) AS observation_count,
-    SUM(COALESCE(resolution_minutes, 60))::int AS covered_minutes,
+    -- with no slot observed twice, the slots' own lengths; otherwise distinct slots
+    (CASE WHEN COUNT(*) = COUNT(DISTINCT timestamp_ms) THEN SUM(COALESCE(resolution_minutes, 60))
+          ELSE COUNT(DISTINCT timestamp_ms) * MIN(COALESCE(resolution_minutes, 60)) END)::int AS covered_minutes,
     CASE
         WHEN COUNT(DISTINCT COALESCE(resolution_minutes, 60)) > 1
           OR BOOL_OR(timestamp_ms % (COALESCE(resolution_minutes, 60) * 60000) <> 0)
-          OR SUM(COALESCE(resolution_minutes, 60)) > 1440 THEN 'unknown'
+          OR COUNT(*) > COUNT(DISTINCT timestamp_ms) THEN 'unknown'
         WHEN SUM(COALESCE(resolution_minutes, 60)) = 1440 THEN 'complete'
         ELSE 'partial'
     END AS completeness
@@ -54,11 +57,13 @@ SELECT
     fuel_type,
     SUM(generation_mwh) AS generation_mwh,
     COUNT(*) AS observation_count,
-    SUM(COALESCE(resolution_minutes, 60))::int AS covered_minutes,
+    -- with no slot observed twice, the slots' own lengths; otherwise distinct slots
+    (CASE WHEN COUNT(*) = COUNT(DISTINCT timestamp_ms) THEN SUM(COALESCE(resolution_minutes, 60))
+          ELSE COUNT(DISTINCT timestamp_ms) * MIN(COALESCE(resolution_minutes, 60)) END)::int AS covered_minutes,
     CASE
         WHEN COUNT(DISTINCT COALESCE(resolution_minutes, 60)) > 1
           OR BOOL_OR(timestamp_ms % (COALESCE(resolution_minutes, 60) * 60000) <> 0)
-          OR SUM(COALESCE(resolution_minutes, 60)) > 1440 THEN 'unknown'
+          OR COUNT(*) > COUNT(DISTINCT timestamp_ms) THEN 'unknown'
         WHEN SUM(COALESCE(resolution_minutes, 60)) = 1440 THEN 'complete'
         ELSE 'partial'
     END AS completeness
@@ -81,7 +86,9 @@ SELECT
     fuel_type,
     SUM(generation_mwh) AS generation_mwh,
     COUNT(*) AS observation_count,
-    SUM(COALESCE(resolution_minutes, 60))::int AS covered_minutes,
+    -- with no slot observed twice, the slots' own lengths; otherwise distinct slots
+    (CASE WHEN COUNT(*) = COUNT(DISTINCT timestamp_ms) THEN SUM(COALESCE(resolution_minutes, 60))
+          ELSE COUNT(DISTINCT timestamp_ms) * MIN(COALESCE(resolution_minutes, 60)) END)::int AS covered_minutes,
     'unknown'::text AS completeness
 FROM ingestion.chile_generation_data
 WHERE fuel_type = 'Carbón'

@@ -24,11 +24,13 @@ SELECT
     'coal'::text AS fuel_type,
     SUM(g.generation_mwh) AS generation_mwh,
     COUNT(*) AS observation_count,
-    SUM(COALESCE(g.resolution_minutes, 30))::int AS covered_minutes,
+    -- with no slot observed twice, the slots' own lengths; otherwise distinct slots
+    (CASE WHEN COUNT(*) = COUNT(DISTINCT g.timestamp_ms) THEN SUM(COALESCE(g.resolution_minutes, 30))
+          ELSE COUNT(DISTINCT g.timestamp_ms) * MIN(COALESCE(g.resolution_minutes, 30)) END)::int AS covered_minutes,
     CASE
         WHEN COUNT(DISTINCT COALESCE(g.resolution_minutes, 30)) > 1
           OR BOOL_OR(g.timestamp_ms % (COALESCE(g.resolution_minutes, 30) * 60000) <> 0)
-          OR SUM(COALESCE(g.resolution_minutes, 30)) > 1440 THEN 'unknown'
+          OR COUNT(*) > COUNT(DISTINCT g.timestamp_ms) THEN 'unknown'
         WHEN SUM(COALESCE(g.resolution_minutes, 30)) = 1440 THEN 'complete'
         ELSE 'partial'
     END AS completeness

@@ -93,7 +93,7 @@ a zero. A row with `generation_mwh = 0` is a reported zero. `completeness`:
   rows are plant/facility sums built by skipping missing units); ENTSO-E days that mix interval
   lengths too.
 
-Compare only `is_complete` weeks, or label partial ones. A month view should use daily rows
+Compare only `is_complete` weeks, or label partial ones. Chile and Australia weeks are never `is_complete` (their days are always `unknown`), so for them show the totals with an "unverified completeness" label rather than hiding them. A month view should use daily rows
 (weeks cross month ends).
 
 **Days.** Days follow the monthly views' clock, so a month's days add up to its monthly bar:
@@ -114,7 +114,7 @@ WHERE plant = $1 ORDER BY day, unit;
 ```
 
 **GEM-unit pages.** `gem_unit_daily` / `gem_unit_weekly` (beside `gem_unit_monthly`) and
-`npp_gem_unit_daily` come from plant-data once its unit map is in production. A GEM plant-day is
+`npp_gem_unit_daily` come from plant-data once its unit map is in production (plant-data #25 and power-generation-etl #125); the surface check expects them only where `gem_unit_monthly` exists. A GEM plant-day is
 complete only if every mapped source row is complete. Australia is not in `gem_unit_daily` this
 release (its unit map joins unit codes the facility rows lack): use the facility fallback.
 

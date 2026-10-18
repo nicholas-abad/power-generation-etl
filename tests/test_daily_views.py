@@ -73,6 +73,6 @@ def test_every_daily_view_has_a_rollup_check():
     import check_daily_rollups as c
 
     assert set(c.ROLLUPS) == {v for v in refresh_views.MIGRATION_VIEWS if v.endswith("_daily")}
-    assert not c.ROLLUPS["mv_oe_plant_daily"].by_month  # local days vs UTC months
+    assert "Australia/Perth" in c.ROLLUPS["mv_oe_plant_daily"].monthly  # local months from raw rows
     sql = c.rollup_sql("mv_npp_unit_daily", c.ROLLUPS["mv_npp_unit_daily"])
     assert "d.m = mo.m" in sql and "IS NOT DISTINCT FROM" not in sql  # hashable FULL JOIN
