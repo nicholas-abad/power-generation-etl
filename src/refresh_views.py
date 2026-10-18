@@ -30,22 +30,89 @@ SOURCE_VIEWS = {
         "mv_entsoe_plant_monthly",
         "mv_entsoe_unit_monthly",
         "mv_entsoe_row_counts",
+        "mv_entsoe_plant_daily",  # migration 024
     ],
     "ons": [
         "mv_ons_plant_monthly",
         "mv_ons_row_counts",
         "mv_ons_individual_plant_monthly",  # migration 017; ETL-only for now
+        "mv_ons_plant_daily",  # migration 024
     ],
-    "npp": ["mv_npp_plant_monthly", "mv_npp_unit_monthly", "mv_npp_row_counts"],
-    "oe": ["mv_oe_plant_monthly", "mv_oe_row_counts"],
-    "occto": ["mv_occto_plant_monthly", "mv_occto_unit_monthly", "mv_occto_row_counts"],
-    "chile": ["mv_chile_plant_monthly", "mv_chile_row_counts"],
+    "npp": [
+        "mv_npp_plant_monthly",
+        "mv_npp_unit_monthly",
+        "mv_npp_row_counts",
+        "mv_npp_unit_daily",  # migration 024
+    ],
+    "oe": [
+        "mv_oe_plant_monthly",
+        "mv_oe_row_counts",
+        "mv_oe_plant_daily",
+    ],  # daily: 024
+    "occto": [
+        "mv_occto_plant_monthly",
+        "mv_occto_unit_monthly",
+        "mv_occto_row_counts",
+        "mv_occto_unit_daily",  # migration 025
+    ],
+    "chile": [
+        "mv_chile_plant_monthly",
+        "mv_chile_row_counts",
+        "mv_chile_plant_daily",
+    ],  # daily: 024
     "climatetrace": ["mv_climatetrace_coal_monthly"],
 }
 
 ALL_VIEWS = [v for views in SOURCE_VIEWS.values() for v in views]
-# Created by a migration that may not be applied yet; skipped until it is.
-MIGRATION_VIEWS = {"mv_entsoe_unit_monthly": "018"}
+# Created by a migration that may not be applied yet. Skipped while the
+# migration is not in ingestion.schema_migrations; once it is, a missing view is
+# an error (a dropped view must not be silently skipped).
+MIGRATION_VIEWS = {
+    "mv_entsoe_unit_monthly": "018",
+    "mv_entsoe_plant_daily": "024",
+    "mv_ons_plant_daily": "024",
+    "mv_chile_plant_daily": "024",
+    "mv_npp_unit_daily": "024",
+    "mv_oe_plant_daily": "024",
+    "mv_occto_unit_daily": "025",
+}
+LEDGER = "ingestion.schema_migrations"
+DAILY_WORK_MEM = "256MB"
+
+
+def migration_view_action(recorded: bool, exists: bool) -> str:
+    """'refresh', 'skip' (migration not applied) or 'fail' (applied, view missing)."""
+    if exists:
+        return "refresh"
+    return "fail" if recorded else "skip"
+
+
+def installed_migration_views(cursor, views: list[str]) -> list[str]:
+    """The views of ``views`` to refresh now, for psycopg2 callers (the rebuild
+    tools), by the same rule as refresh_views(): skip a view whose migration is
+    not recorded, fail on one whose migration is recorded but which is missing."""
+    cursor.execute("SELECT to_regclass(%s) IS NOT NULL", (LEDGER,))
+    ledger = cursor.fetchone()[0]
+    out = []
+    for view in views:
+        version = MIGRATION_VIEWS[view]
+        cursor.execute("SELECT to_regclass(%s) IS NOT NULL", (f"public.{view}",))
+        exists = cursor.fetchone()[0]
+        recorded = False
+        if ledger:
+            cursor.execute(
+                f"SELECT EXISTS (SELECT 1 FROM {LEDGER} WHERE version = %s)", (version,)
+            )
+            recorded = cursor.fetchone()[0]
+        action = migration_view_action(recorded, exists)
+        if action == "fail":
+            raise RuntimeError(
+                f"migration {version} is recorded but {view} does not exist"
+            )
+        if action == "refresh":
+            out.append(view)
+    return out
+
 
 # Views that exist only where their migration has been applied (staging
 # pilots). Refreshed only on request (`--source <name>`), never by the
@@ -79,19 +146,42 @@ def refresh_views(views: list[str]) -> bool:
         logger.info(f"Refreshing {view}...")
         try:
             with engine.connect() as conn:
-                if view in MIGRATION_VIEWS and (
-                    conn.execute(text("SELECT to_regclass(:v)"), {"v": view}).scalar()
-                    is None
-                ):
-                    logger.warning(
-                        f"Skipping {view}: migration {MIGRATION_VIEWS[view]} not applied"
+                if view in MIGRATION_VIEWS:
+                    version = MIGRATION_VIEWS[view]
+                    exists = conn.execute(
+                        text("SELECT to_regclass(:v) IS NOT NULL"), {"v": view}
+                    ).scalar()
+                    ledger = conn.execute(
+                        text("SELECT to_regclass(:t) IS NOT NULL"), {"t": LEDGER}
+                    ).scalar()
+                    recorded = (
+                        bool(ledger)
+                        and conn.execute(
+                            text(
+                                f"SELECT EXISTS (SELECT 1 FROM {LEDGER} WHERE version = :v)"
+                            ),
+                            {"v": version},
+                        ).scalar()
                     )
-                    continue
+                    action = migration_view_action(recorded, exists)
+                    if action == "skip":
+                        logger.warning(
+                            f"Skipping {view}: migration {version} not applied"
+                        )
+                        continue
+                    if action == "fail":
+                        raise RuntimeError(
+                            f"migration {version} is recorded but {view} does not exist"
+                        )
                 # The view queries bucket by date_trunc('month',
                 # to_timestamp(...)), which follows the session TimeZone.
                 # Pin UTC so a refresh from any client bucket-matches the
                 # cluster default (GMT) the views were built under.
                 conn.execute(text("SET TIME ZONE 'UTC'"))
+                if view.endswith("_daily"):
+                    # Day-grain views aggregate the raw tables (ENTSO-E ~56M rows);
+                    # production's default 4 MB work_mem spills them to disk.
+                    conn.execute(text(f"SET work_mem = '{DAILY_WORK_MEM}'"))
                 conn.execute(text(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view}"))
                 conn.commit()
             elapsed = time.time() - start

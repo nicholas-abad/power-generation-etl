@@ -42,6 +42,7 @@ import subprocess
 import psycopg2
 
 import entsoe_coal
+from refresh_views import DAILY_WORK_MEM, installed_migration_views
 from repair_entsoe_coal import checked_dsn
 
 TABLE = "ingestion.entsoe_generation_data"
@@ -763,6 +764,11 @@ def refresh_views(connection, repair_id):
         with connection.cursor() as cursor:
             cursor.execute("SET TIME ZONE 'UTC'")
             for view in VIEWS:
+                cursor.execute(f"REFRESH MATERIALIZED VIEW CONCURRENTLY public.{view}")
+            # The daily view (once its migration is applied) must follow too, or
+            # the daily charts keep the pre-rebuild rows.
+            cursor.execute(f"SET work_mem = '{DAILY_WORK_MEM}'")
+            for view in installed_migration_views(cursor, ["mv_entsoe_plant_daily"]):
                 cursor.execute(f"REFRESH MATERIALIZED VIEW CONCURRENTLY public.{view}")
             cursor.execute(
                 f"UPDATE {HEADER} SET views_state='refreshed' WHERE repair_id=%s",

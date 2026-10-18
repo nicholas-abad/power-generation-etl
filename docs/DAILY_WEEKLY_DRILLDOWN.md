@@ -31,3 +31,30 @@ each source stores:
 - **Coal = the tracker's predicates** (`COAL_PREDICATES` in the tracker's `plant-generation.ts`);
   India's `THERMAL` is coal (user decision 2026-10-18; every THERMAL plant sits at a GEM coal plant,
   gas and diesel have their own labels `THER (GT)` / `THER (DG)`).
+
+## Views (migrations 024 and 025)
+
+| Source | Daily view (materialized) | Weekly view (plain) | Grain | Completeness |
+|---|---|---|---|---|
+| ENTSO-E | `mv_entsoe_plant_daily` | `entsoe_plant_weekly` | plant_name, country_code, fuel_type | complete / partial / unknown |
+| ONS | `mv_ons_plant_daily` | `ons_plant_weekly` | plant, state, state_name, fuel_type | complete / partial / unknown |
+| Chile | `mv_chile_plant_daily` | `chile_plant_weekly` | plant, region, comuna, fuel_type | always unknown (plant sums) |
+| NPP | `mv_npp_unit_daily` | `npp_unit_weekly` | plant, unit | complete (one report per unit-day) |
+| Open Electricity | `mv_oe_plant_daily` | `oe_plant_weekly` | facility_code, fueltech | always unknown (facility sums) |
+| OCCTO (025) | `mv_occto_unit_daily` | `occto_unit_weekly` | plant, unit | complete / partial / unknown |
+
+No row for a day means not reported (never zero). Weekly views: `week_start` (ISO Monday),
+`days_reported`, `days_complete`, `days_in_period`, `is_complete`.
+
+## Staging results (2026-10-18)
+
+- Migration 024 applied in 1 min 52 s (default `work_mem`), 025 in 43 s. Sizes: NPP 244 MB, ENTSO-E
+  147 MB, OCCTO 16 MB, OE 7.6 MB, Chile 5.8 MB, ONS 4.3 MB (~425 MB total).
+- Reconciliation: daily sums equal the coal-filtered monthly views for every series-month (ENTSO-E
+  29,490, ONS 836, Chile 1,054, NPP 59,088, OCCTO 3,080; none missing, none mismatched), and OE's
+  all-time totals per facility match (its months differ at the edges by design).
+- Weekly refresh of the six daily views (`src/refresh_views.py`, `work_mem` 256 MB): about 3.5 min
+  (ENTSO-E 78 s, OCCTO 79 s, NPP 22 s, ONS 22 s, Chile 3 s, OE 1 s). Production's whole
+  `refresh-views` step took 2 min 46 s on 2026-10-11, so the job stays well inside its 30 minutes.
+- One-plant queries use the unique indexes: Neurath G all days 31 ms, BARH STPS all unit-days
+  32 ms, Neurath G weekly 6 ms.

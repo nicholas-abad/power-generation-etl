@@ -44,6 +44,8 @@ import uuid
 import psycopg2
 from psycopg2.extensions import parse_dsn
 
+from refresh_views import DAILY_WORK_MEM, installed_migration_views
+
 ROOT = Path(__file__).resolve().parents[1]
 TABLE = "ingestion.occto_generation_data"
 HEADER = "ingestion.occto_rebuilds"
@@ -701,6 +703,11 @@ def refresh_views(connection):
         with connection.cursor() as cursor:
             cursor.execute("SET TIME ZONE 'UTC'")
             for view in VIEWS:
+                cursor.execute(f"REFRESH MATERIALIZED VIEW CONCURRENTLY public.{view}")
+            # The daily view (once its migration is applied) must follow too, or
+            # the daily charts keep the pre-rebuild rows.
+            cursor.execute(f"SET work_mem = '{DAILY_WORK_MEM}'")
+            for view in installed_migration_views(cursor, ["mv_occto_unit_daily"]):
                 cursor.execute(f"REFRESH MATERIALIZED VIEW CONCURRENTLY public.{view}")
     finally:
         connection.autocommit = previous
