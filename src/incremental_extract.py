@@ -269,10 +269,17 @@ def occto_coal_plants() -> set[str]:
 def keep_coal_plants(jsonl: Path, coal_plants: set[str]) -> int:
     """Rewrite ``jsonl`` with only the rows of coal plants (updating
     ``coal_plants`` with the file's own); returns the rows dropped."""
-    rows = [json.loads(line) for line in jsonl.read_text().splitlines() if line.strip()]
+    rows = [
+        json.loads(line)
+        for line in jsonl.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
     coal_plants.update(r["plant"] for r in rows if r.get("fuel_type") == OCCTO_COAL)
     kept = [r for r in rows if r.get("plant") in coal_plants]
-    jsonl.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in kept))
+    jsonl.write_text(
+        "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in kept),
+        encoding="utf-8",
+    )
     return len(rows) - len(kept)
 
 
