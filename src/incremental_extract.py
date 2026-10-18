@@ -12,6 +12,7 @@ Fail-fast on any subprocess error.
 Design: see /Users/nicholasabad/.claude/plans/effervescent-hatching-horizon.md
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -21,8 +22,9 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from loguru import logger
+from sqlalchemy import create_engine, text
 
-from get_latest_date import get_latest_date
+from get_latest_date import get_connection_url, get_latest_date
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXTRACTORS_DIR = REPO_ROOT / "extractors"
@@ -243,6 +245,37 @@ def extract_entsoe() -> int:
     return n
 
 
+# Scope decision (2026-10-13 meeting): other fuels only at plants that also
+# burn coal; plants with no coal are deferred. The json backend returns every
+# fuel at every plant, so each file is cut to the plants with a coal unit,
+# known from this file or from coal already stored (a coal unit idle for the
+# whole window must not drop its plant's other units).
+OCCTO_COAL = "coal"
+
+
+def occto_coal_plants() -> set[str]:
+    """OCCTO plants with a coal unit already in the database."""
+    engine = create_engine(get_connection_url())
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT DISTINCT plant FROM occto_generation_data WHERE fuel_type = :coal"
+            ),
+            {"coal": OCCTO_COAL},
+        )
+        return {row[0] for row in rows}
+
+
+def keep_coal_plants(jsonl: Path, coal_plants: set[str]) -> int:
+    """Rewrite ``jsonl`` with only the rows of coal plants (updating
+    ``coal_plants`` with the file's own); returns the rows dropped."""
+    rows = [json.loads(line) for line in jsonl.read_text().splitlines() if line.strip()]
+    coal_plants.update(r["plant"] for r in rows if r.get("fuel_type") == OCCTO_COAL)
+    kept = [r for r in rows if r.get("plant") in coal_plants]
+    jsonl.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in kept))
+    return len(rows) - len(kept)
+
+
 def extract_occto() -> int:
     today = date.today()
     resume, end_date = occto_window(
@@ -255,6 +288,7 @@ def extract_occto() -> int:
         logger.info("OCCTO up to date — 0 iterations")
         return 0
     warn_if_long_window("occto", resume, end_date)
+    coal_plants = occto_coal_plants()
 
     n = 0
     partial_chunks: list[str] = []
@@ -287,6 +321,10 @@ def extract_occto() -> int:
         occto_files = sorted(EXTRACTED_DATA.glob("occto_*_etl.jsonl"))
         if occto_files:
             for f in occto_files:
+                dropped = keep_coal_plants(f, coal_plants)
+                logger.info(
+                    f"{f.name}: {dropped:,} rows of plants without coal left out"
+                )
                 load_and_remove("occto", f)
         elif iter_end < today - timedelta(days=2):
             # A fully-past chunk should always produce a file; only very
