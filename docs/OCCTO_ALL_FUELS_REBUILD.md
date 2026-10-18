@@ -56,10 +56,15 @@ stored as the next day's 00:00, so resuming from `latest + 1` skipped every Sund
 - **Persistent gaps.** A day that fails (no data, unresolved request, certificate problem) turns
   the job red, but only while it is inside the 14-day lookback. Repair older holes with
   `START_OVERRIDE`/`END_OVERRIDE`.
-- **Production before its rebuild.** Merging switches production's weekly runs to all fuels at
-  once, while production history stays coal/thermal-only with the Berlin-keyed bulk rows until the
-  production rebuild (separate sign-off). Coal reads are unaffected (they filter `fuel_type =
-  'coal'`); other fuels and `mv_occto_row_counts` only cover the weeks loaded since the merge.
+- **Coal plants only (2026-10-18).** Per the 2026-10-13 decision (other fuels only at plants that
+  also burn coal), `incremental_extract.py` cuts each file to the plants with a coal unit, known from
+  the file or from coal already stored, before loading. On 2026-10-10 that kept 4,656 of 22,017 rows
+  (68 of 264 plants): every coal row, plus the gas and oil units of mixed plants such as Toyama Shinko.
+- **Production before its rebuild.** Production's weekly runs load all fuels at coal plants, while
+  production history stays coal/thermal-only with the Berlin-keyed bulk rows until the production
+  rebuild (separate sign-off). Coal reads are unaffected (they filter `fuel_type = 'coal'`); other
+  fuels and `mv_occto_row_counts` only cover the weeks loaded since the switch. The rebuild payload
+  (`rebuild_occto.py`) does not apply the coal-plant cut yet; add it before the production rebuild.
 - **Revisions** update values, fuel, codes and area labels in place. The key is
   `(timestamp_ms, plant, unit)`, so a plant or unit renamed retroactively inside the lookback
   adds rows under the new name next to the old ones. A value the source later blanks is not

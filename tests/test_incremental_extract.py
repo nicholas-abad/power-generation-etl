@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Unit tests for the env-var override helpers in incremental_extract."""
 
+import json
 import sys
 from datetime import date
 from pathlib import Path
@@ -13,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from incremental_extract import (
     LONG_WINDOW_MONTHS,
+    keep_coal_plants,
     warn_if_long_window,
     window_end,
     window_start,
@@ -187,6 +189,7 @@ class TestOcctoWindow:
 
         monkeypatch.setattr(ie, "run_extract", fake_extract)
         monkeypatch.setattr(ie, "load_and_remove", lambda source, f: f.unlink())
+        monkeypatch.setattr(ie, "occto_coal_plants", set)
         assert ie.extract_occto() == 1
         cmd = calls[0]
         assert cmd[cmd.index("--backend") + 1] == "json"
@@ -198,3 +201,20 @@ class TestOcctoWindow:
 
         start, _ = occto_window(date(2024, 1, 1), date(2024, 4, 30), True, date(2026, 9, 27))
         assert start == date(2024, 3, 25)
+
+
+def test_occto_files_keep_only_plants_with_coal(tmp_path):
+    rows = [
+        {"plant": "碧南火力発電所", "unit": "1号機", "fuel_type": "coal"},
+        # coal stored earlier, coal unit idle in this window
+        {"plant": "鹿島火力発電所", "unit": "7号機", "fuel_type": "LNG"},
+        {"plant": "柏崎刈羽原子力発電所", "unit": "6号機", "fuel_type": "nuclear"},
+        {"plant": "富津火力発電所", "unit": "1号機", "fuel_type": "LNG"},
+    ]
+    f = tmp_path / "occto_x_etl.jsonl"
+    f.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+    known = {"鹿島火力発電所"}
+    assert keep_coal_plants(f, known) == 2
+    kept = [json.loads(line)["plant"] for line in f.read_text().splitlines()]
+    assert kept == ["碧南火力発電所", "鹿島火力発電所"]
+    assert "碧南火力発電所" in known  # learned from the file
