@@ -29,6 +29,15 @@ inputs:
       133 TWh of 2025 missing). Loaders upsert, so the re-fetch is cheap.
     required: false
     default: '0'
+  lookback_days:
+    description: >-
+      Start this many days before the latest stored date (0 = off; ignored
+      with start_override). Chile passes 14: a run can store a day before the
+      source has published all of it, and starting at the latest date never
+      asks for that day again (2026-10 audit: 623 Saturday plant-hours lost
+      Jun-Aug 2026). Loaders upsert, so the re-fetch is cheap.
+    required: false
+    default: '0'
 
 outputs:
   start_date:
@@ -54,6 +63,7 @@ runs:
         END_OVERRIDE: ${{ inputs.end_override }}
         SOURCE: ${{ inputs.source }}
         LOOKBACK_YEARS: ${{ inputs.lookback_years }}
+        LOOKBACK_DAYS: ${{ inputs.lookback_days }}
       run: |
         set -euo pipefail
         date_re='^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
@@ -66,8 +76,8 @@ runs:
           START_DATE="$START_OVERRIDE"
           echo "Using start_override: $START_DATE"
         else
-          START_DATE=$(uv run python src/get_latest_date.py "$SOURCE")
-          echo "Latest $SOURCE data in DB: $START_DATE"
+          START_DATE=$(uv run python src/get_latest_date.py "$SOURCE" --lookback-days "${LOOKBACK_DAYS:-0}")
+          echo "Latest $SOURCE data in DB, minus ${LOOKBACK_DAYS:-0} lookback days: $START_DATE"
         fi
 
         if [ -n "$END_OVERRIDE" ]; then

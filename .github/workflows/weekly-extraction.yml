@@ -569,6 +569,9 @@ jobs:
           source: chile
           start_override: ${{ inputs.start_override }}
           end_override: ${{ inputs.end_override }}
+          # A run can store a Chile-local Saturday before the Coordinador has
+          # published all of it; the next run re-fetches it (2026-10 audit).
+          lookback_days: '14'
 
       - name: Extract Chile data
         env:
@@ -599,6 +602,12 @@ jobs:
             cat extracted_data/failures.json
             exit 1
           fi
+
+      - name: Check every mature Chile plant-hour is stored
+        # Hours from the window start to two Chile-local days before the run;
+        # newer gaps are pending and re-fetched by the next run's lookback.
+        run: uv run python src/check_chile_hours.py --start-date "${{ steps.latest.outputs.start_date }}"
+
       - name: Upload artifacts (on failure only)
         if: failure()
         uses: actions/upload-artifact@v4
