@@ -1067,6 +1067,28 @@ jobs:
         run: uv run python src/check_totals_drift.py
 
   # ─────────────────────────────────────────────
+  # Daily views reconcile with the monthly views (migrations 024, 025). Skips a
+  # view whose migration is not applied. Informational for its first runs
+  # (continue-on-error); make it blocking, and add it to notify-failure.needs,
+  # once it has passed on production.
+  # ─────────────────────────────────────────────
+  check-daily-rollups:
+    needs: [refresh-views]
+    if: ${{ !cancelled() && needs.refresh-views.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - name: Checkout ETL repo
+        uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+      - name: Install ETL dependencies
+        run: uv sync
+      - name: Daily sums equal the coal-filtered monthly views
+        run: uv run python src/check_daily_rollups.py
+
+  # ─────────────────────────────────────────────
   # Notify on failure — create GitHub Issue
   # ─────────────────────────────────────────────
   notify-failure:

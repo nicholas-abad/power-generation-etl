@@ -51,6 +51,27 @@ BEGIN
     RETURN;
   END IF;
 
+  -- Daily and weekly generation (024, 025): expected once the ledger records the
+  -- migration. plant-data's GEM daily views are expected only where its shared
+  -- unit map exists (gem_unit_monthly) as well: its unit-map load
+  -- (rebuild-crosswalk) creates them before this check runs.
+  IF to_regclass('ingestion.schema_migrations') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM ingestion.schema_migrations WHERE version = '024') THEN
+      expected := expected || ARRAY[
+        'public.mv_entsoe_plant_daily', 'public.mv_ons_plant_daily', 'public.mv_chile_plant_daily',
+        'public.mv_npp_unit_daily', 'public.mv_oe_plant_daily',
+        'public.entsoe_plant_weekly', 'public.ons_plant_weekly', 'public.chile_plant_weekly',
+        'public.npp_unit_weekly', 'public.oe_plant_weekly'];
+      IF to_regclass('public.gem_unit_monthly') IS NOT NULL THEN
+        expected := expected || ARRAY[
+          'public.gem_unit_daily', 'public.gem_unit_weekly', 'public.npp_gem_unit_daily'];
+      END IF;
+    END IF;
+    IF EXISTS (SELECT 1 FROM ingestion.schema_migrations WHERE version = '025') THEN
+      expected := expected || ARRAY['public.mv_occto_unit_daily', 'public.occto_unit_weekly'];
+    END IF;
+  END IF;
+
   -- 006: the dashboard role must not see INTO the ingestion schema at all.
   IF to_regnamespace('ingestion') IS NOT NULL
      AND has_schema_privilege('dashboard_ro', 'ingestion', 'USAGE') THEN
