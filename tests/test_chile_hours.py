@@ -13,7 +13,9 @@ from get_latest_date import FALLBACK_DATE, with_lookback
 
 
 def ms(stamp: str) -> int:
-    return int(datetime.fromisoformat(stamp).replace(tzinfo=timezone.utc).timestamp() * 1000)
+    return int(
+        datetime.fromisoformat(stamp).replace(tzinfo=timezone.utc).timestamp() * 1000
+    )
 
 
 def hours(first: str, last: str, skip: tuple[str, str] | None = None) -> set[int]:
@@ -27,6 +29,7 @@ def hours(first: str, last: str, skip: tuple[str, str] | None = None) -> set[int
 # 26 Jul 03:00).
 SATURDAY = ("2026-07-25 04:00", "2026-07-26 03:00")
 START = ms("2026-07-19 04:00")  # local midnight of the window start, 19 July
+OPEN = sys.maxsize  # no end date: the weekly run
 
 
 class TestWithLookback:
@@ -50,7 +53,9 @@ class TestWithLookback:
 class TestMatureEnd:
     def test_sunday_run_matures_up_to_friday(self):
         # Chile-local Sunday 26 July: Friday 24 is mature, Saturday 25 is not.
-        assert mature_end_ms(datetime(2026, 7, 26, 8, 42, tzinfo=timezone.utc)) == ms("2026-07-25 04:00")
+        assert mature_end_ms(datetime(2026, 7, 26, 8, 42, tzinfo=timezone.utc)) == ms(
+            "2026-07-25 04:00"
+        )
 
 
 class TestFindGaps:
@@ -60,6 +65,7 @@ class TestFindGaps:
             {"TER GUACOLDA": (ms("2019-01-01 03:00"), ms("2026-07-26 06:00"))},
             {"TER GUACOLDA": stored},
             START,
+            OPEN,
             mature_end_ms(datetime(2026, 7, 26, 8, 42, tzinfo=timezone.utc)),
         )
         assert mature == {}
@@ -71,6 +77,7 @@ class TestFindGaps:
             {"TER GUACOLDA": (ms("2019-01-01 03:00"), ms("2026-08-02 06:00"))},
             {"TER GUACOLDA": stored},
             START,
+            OPEN,
             mature_end_ms(datetime(2026, 8, 2, 8, 41, tzinfo=timezone.utc)),
         )
         assert len(mature["TER GUACOLDA"]) == 24
@@ -81,6 +88,7 @@ class TestFindGaps:
             {"TER GUACOLDA": (ms("2019-01-01 03:00"), ms("2026-08-02 06:00"))},
             {"TER GUACOLDA": stored},
             START,
+            OPEN,
             mature_end_ms(datetime(2026, 8, 2, 8, 41, tzinfo=timezone.utc)),
         )
         assert (mature, pending) == ({}, {})
@@ -93,6 +101,7 @@ class TestFindGaps:
             {"TER GUACOLDA": (ms("2019-01-01 03:00"), ms("2026-08-02 06:00"))},
             {"TER GUACOLDA": stored},
             START,
+            OPEN,
             mature_end_ms(datetime(2026, 8, 2, 8, 41, tzinfo=timezone.utc)),
         )
         assert len(mature["TER GUACOLDA"]) == 24
@@ -102,9 +111,36 @@ class TestFindGaps:
             {"TER VENTANAS": (ms("2019-01-01 03:00"), ms("2022-07-06 12:00"))},
             {},
             START,
+            OPEN,
             mature_end_ms(datetime(2026, 8, 2, 8, 41, tzinfo=timezone.utc)),
         )
         assert (mature, pending) == ({}, {})
+
+
+class TestEndDate:
+    # A manual re-run of 7-12 June (Chile-local) on 15 June; the table holds
+    # later hours too.
+    SPAN = {"TER IEM": (ms("2019-01-01 03:00"), ms("2026-06-15 03:00"))}
+    WINDOW = (
+        ms("2026-06-07 04:00"),
+        ms("2026-06-13 04:00"),
+    )  # 7 Jun .. end of 12 Jun local
+
+    def run(self, missing: str) -> dict[str, list[int]]:
+        stored = hours("2026-06-07 04:00", "2026-06-15 03:00") - {ms(missing)}
+        mature, _ = find_gaps(
+            self.SPAN,
+            {"TER IEM": stored},
+            *self.WINDOW,
+            mature_end_ms(datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc)),
+        )
+        return mature
+
+    def test_gap_after_the_end_date_is_ignored(self):
+        assert self.run("2026-06-13 04:00") == {}
+
+    def test_gap_inside_the_window_fails(self):
+        assert self.run("2026-06-12 12:00") == {"TER IEM": [ms("2026-06-12 12:00")]}
 
 
 class TestFallBackHour:
@@ -119,11 +155,15 @@ class TestFallBackHour:
         assert not is_fall_back_repeat(self.REPEAT + HOUR_MS)
 
     def test_repeat_hour_allowed_but_adjacent_gap_fails(self):
-        stored = hours("2026-04-01 03:00", "2026-04-10 03:00") - {self.REPEAT, self.REPEAT + HOUR_MS}
+        stored = hours("2026-04-01 03:00", "2026-04-10 03:00") - {
+            self.REPEAT,
+            self.REPEAT + HOUR_MS,
+        }
         mature, _ = find_gaps(
             {"TER IEM": (ms("2019-01-01 03:00"), ms("2026-04-10 03:00"))},
             {"TER IEM": stored},
             ms("2026-04-01 03:00"),
+            OPEN,
             ms("2026-04-08 04:00"),
         )
         assert mature == {"TER IEM": [self.REPEAT + HOUR_MS]}

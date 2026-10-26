@@ -604,9 +604,14 @@ jobs:
           fi
 
       - name: Check every mature Chile plant-hour is stored
-        # Hours from the window start to two Chile-local days before the run;
-        # newer gaps are pending and re-fetched by the next run's lookback.
-        run: uv run python src/check_chile_hours.py --start-date "${{ steps.latest.outputs.start_date }}"
+        # Hours of this run's window up to two Chile-local days before the run;
+        # newer gaps are pending and re-fetched by the next run's lookback. A
+        # manual re-run only reports: old history has gaps no re-run can fill.
+        run: |
+          uv run python src/check_chile_hours.py \
+            --start-date "${{ steps.latest.outputs.start_date }}" \
+            --end-date "${{ steps.latest.outputs.end_date }}" \
+            ${{ inputs.start_override != '' && '--report-only' || '' }}
 
       - name: Upload artifacts (on failure only)
         if: failure()
