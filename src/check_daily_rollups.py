@@ -2,10 +2,12 @@
 
 For every daily view whose migration is applied (024, 025), the daily rows summed
 by month must equal the coal-filtered monthly view at the same key: no key-month
-on only one side, no difference beyond float noise. Australia's days are on the
-network-local date while its monthly view uses UTC months, so its local months
-are rebuilt from the raw facility rows instead. Also flags any row that claims more than a
-day of coverage without being marked unknown (overlapping intervals).
+on only one side, no difference beyond float noise. Australia is the exception:
+its days are on the network-local date while its monthly view uses UTC months, so
+its local months are rebuilt from the raw facility rows with the same filter.
+That catches a stale or failed refresh, not a divergence from what
+mv_oe_plant_monthly reads. Also flags any row that claims more than a day of
+coverage without being marked unknown (overlapping intervals).
 
 Read-only. Exit codes: 0 ok, 1 mismatch, 2 configuration/connection error.
 Design: docs/DAILY_WEEKLY_DRILLDOWN.md.

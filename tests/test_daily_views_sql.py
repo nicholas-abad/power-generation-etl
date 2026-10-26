@@ -220,6 +220,19 @@ def test_weekly_views_and_the_year_boundary(db):
                     " FROM ons_plant_weekly WHERE plant = 'Plant O'") == [("2025-12-29", 7, 6, False)]  # fmt: skip
 
 
+def test_every_daily_view_has_an_index_on_day(db):
+    # days_in_period reads MAX(day): without the index each weekly query scans the whole daily view
+    views = ["mv_entsoe_plant_daily", "mv_ons_plant_daily", "mv_chile_plant_daily",
+             "mv_npp_unit_daily", "mv_oe_plant_daily", "mv_occto_unit_daily"]  # fmt: skip
+    assert sorted(rows(db, "SELECT tablename FROM pg_indexes WHERE indexdef LIKE '% (day)'")) == sorted(
+        (v,) for v in views
+    )
+    with db.cursor() as cur:
+        cur.execute("SET enable_seqscan = off")
+        plan = "\n".join(r[0] for r in rows(db, "EXPLAIN SELECT MAX(day) FROM mv_npp_unit_daily"))
+    assert "ix_mv_npp_unit_daily_day" in plan
+
+
 def test_the_rollup_check_passes_and_catches_a_lost_row(db):
     assert check_daily_rollups.main() == 0  # incl. NULL vs '' state_name kept apart
     with db.cursor() as cur:
