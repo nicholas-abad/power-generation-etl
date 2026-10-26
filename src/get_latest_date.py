@@ -1,14 +1,18 @@
 """Query the latest data timestamp per source from the Neon database.
 
 Usage:
-    python src/get_latest_date.py <source>
+    python src/get_latest_date.py <source> [--lookback-days N]
 
 Outputs an ISO date string (YYYY-MM-DD) to stdout, or "1970-01-01" if no data exists.
 Used by GitHub Actions to compute incremental extraction start dates.
+--lookback-days moves the date back N days, so a run re-fetches days an earlier
+run stored before the source had published them in full (loaders upsert).
 """
 
+import argparse
 import os
 import sys
+from datetime import date, timedelta
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
@@ -62,6 +66,15 @@ def get_connection_url() -> str:
     return url
 
 
+def with_lookback(latest: str, days: int) -> str:
+    """``latest`` moved back ``days`` days; the empty-table fallback stays as is."""
+    if days < 0:
+        raise ValueError(f"lookback days must be >= 0, got {days}")
+    if latest == FALLBACK_DATE:
+        return latest
+    return (date.fromisoformat(latest) - timedelta(days=days)).isoformat()
+
+
 def get_latest_date(source: str) -> str:
     if source not in SOURCE_CONFIG:
         print(
@@ -88,13 +101,16 @@ def get_latest_date(source: str) -> str:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print(f"Usage: python {sys.argv[0]} <source>", file=sys.stderr)
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Latest stored date for a source.")
+    parser.add_argument("source")
+    parser.add_argument("--lookback-days", type=int, default=0)
+    args = parser.parse_args()
+    if args.lookback_days < 0:
+        parser.error("--lookback-days must be >= 0")
 
     try:
-        date = get_latest_date(sys.argv[1])
+        latest = get_latest_date(args.source)
     except LatestDateQueryError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(2)
-    print(date)
+    print(with_lookback(latest, args.lookback_days))

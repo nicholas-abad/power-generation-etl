@@ -2167,7 +2167,8 @@ class PowerGenerationDatabase:
                                 conflict_expr="timestamp_ms, plant, COALESCE(chile_plant_id, '')",
                                 # Coordinador serves operational data that gets
                                 # revised; the weekly window re-fetches the last
-                                # loaded day (2026-09 audit).
+                                # 14 days (resolve-window lookback_days, 2026-10
+                                # audit), so revisions and late hours land.
                                 update_columns=[
                                     "generation_mwh",
                                     "fuel_type",
