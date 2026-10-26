@@ -43,6 +43,7 @@ GROUP BY 1, 2, 3;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_occto_unit_daily
 ON mv_occto_unit_daily (plant, unit, day);
+CREATE INDEX IF NOT EXISTS ix_mv_occto_unit_daily_day ON mv_occto_unit_daily (day);
 
 CREATE OR REPLACE VIEW occto_unit_weekly AS
 SELECT DATE_TRUNC('week', day)::date AS week_start, plant, unit, fuel_type,

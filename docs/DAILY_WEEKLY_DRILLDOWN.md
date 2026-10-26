@@ -1,7 +1,7 @@
 # Daily and weekly generation drill-down
 
-Plan: `~/.claude/plans/daily-weekly-drilldown.md` (option 1: daily and weekly coal generation for
-ENTSO-E, OCCTO, ONS, Chile, NPP and Open Electricity; EIA and Climate TRACE stay monthly).
+Daily and weekly coal generation for ENTSO-E, OCCTO, ONS, Chile, NPP and Open Electricity; EIA and
+Climate TRACE stay monthly, since neither reports anything finer.
 
 ## Timestamp conventions (step 1, checked on staging 2026-10-18)
 
@@ -57,7 +57,8 @@ No row for a day means not reported (never zero). Weekly views: `week_start` (IS
   (ENTSO-E 78 s, OCCTO 79 s, NPP 22 s, ONS 22 s, Chile 3 s, OE 1 s). Production's whole
   `refresh-views` step took 2 min 46 s on 2026-10-11, so the job stays well inside its 30 minutes.
 - One-plant queries use the unique indexes: Neurath G all days 31 ms, BARH STPS all unit-days
-  32 ms, Neurath G weekly 6 ms.
+  32 ms, Neurath G weekly 6 ms. A weekly query that reads `days_in_period` also looks up the
+  view's latest day, through each daily view's index on `day` (without it, 166–331 ms).
 
 ## For the tracker (read contract)
 
@@ -113,10 +114,11 @@ SELECT day, unit, generation_mwh, completeness FROM mv_npp_unit_daily
 WHERE plant = $1 ORDER BY day, unit;
 ```
 
-**GEM-unit pages.** `gem_unit_daily` / `gem_unit_weekly` (beside `gem_unit_monthly`) and
-`npp_gem_unit_daily` come from plant-data once its unit map is in production (plant-data #25 and power-generation-etl #125); the surface check expects them only where `gem_unit_monthly` exists. A GEM plant-day is
-complete only if every mapped source row is complete. Australia is not in `gem_unit_daily` this
-release (its unit map joins unit codes the facility rows lack): use the facility fallback.
+**GEM-unit pages.** There are no GEM-unit daily views yet. Join the source daily views through
+`unit_gem_map`, as `gem_unit_monthly` does (ENTSO-E on `plant_key = plant_name`; India and Japan
+on `plant_key = plant` and `unit_key = unit`). Australia's unit map joins unit codes the facility
+rows lack, so use the facility rows. Dedicated GEM-unit daily views, and their place in the
+surface check, come with a later change.
 
 **Surface lists.** Add the new names to `TRANSITIONAL` first, then to `SURFACE` once production
 has them.

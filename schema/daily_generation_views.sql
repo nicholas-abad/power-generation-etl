@@ -46,6 +46,7 @@ GROUP BY 1, 2, 3, 4;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_entsoe_plant_daily
 ON mv_entsoe_plant_daily (plant_name, country_code, fuel_type, day);
+CREATE INDEX IF NOT EXISTS ix_mv_entsoe_plant_daily_day ON mv_entsoe_plant_daily (day);
 
 -- ONS (Brazil): per plant, state and fuel, like mv_ons_plant_monthly. Hourly.
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_ons_plant_daily AS
@@ -73,6 +74,7 @@ GROUP BY 1, 2, 3, 4, 5;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_ons_plant_daily
 ON mv_ons_plant_daily (plant, state, state_name, fuel_type, day);
+CREATE INDEX IF NOT EXISTS ix_mv_ons_plant_daily_day ON mv_ons_plant_daily (day);
 
 -- Chile: per plant, region and fuel, like mv_chile_plant_monthly. Hourly. Rows are
 -- plant sums the extractor builds while skipping missing units, so completeness
@@ -96,6 +98,7 @@ GROUP BY 1, 2, 3, 4, 5;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_chile_plant_daily
 ON mv_chile_plant_daily (plant, region, comuna, fuel_type, day);
+CREATE INDEX IF NOT EXISTS ix_mv_chile_plant_daily_day ON mv_chile_plant_daily (day);
 
 -- NPP (India): per plant and unit, like mv_npp_unit_monthly. One report per unit
 -- per day. Coal is decided per unit-month exactly as the tracker reads
@@ -127,6 +130,7 @@ GROUP BY 1, 2, 3;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_npp_unit_daily
 ON mv_npp_unit_daily (plant, unit, day);
+CREATE INDEX IF NOT EXISTS ix_mv_npp_unit_daily_day ON mv_npp_unit_daily (day);
 
 -- Open Electricity (Australia): per facility and fueltech, like
 -- mv_oe_plant_monthly, on the network-local date (as migration 022's unit view).
@@ -151,10 +155,12 @@ GROUP BY 1, 2, 3;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_oe_plant_daily
 ON mv_oe_plant_daily (facility_code, fueltech, day);
+CREATE INDEX IF NOT EXISTS ix_mv_oe_plant_daily_day ON mv_oe_plant_daily (day);
 
 -- Weekly views: ISO weeks (Monday start) summed from the days. days_in_period is
--- 7, or fewer for the week holding the source's latest day; a week is complete
--- only when all its days are present and complete.
+-- 7, or fewer for the week holding the source's latest day (MAX(day), read from
+-- each daily view's index on day); a week is complete only when all its days are
+-- present and complete.
 CREATE OR REPLACE VIEW entsoe_plant_weekly AS
 SELECT DATE_TRUNC('week', day)::date AS week_start, plant_name, country_code, fuel_type,
        SUM(generation_mwh) AS generation_mwh,
