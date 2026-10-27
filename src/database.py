@@ -97,6 +97,10 @@ PSR_TO_FUEL_TYPE = {
 # Suffixes that leak into plant names from column flattening
 _FUEL_TYPE_SUFFIXES = sorted(PSR_TO_FUEL_TYPE.values(), key=len, reverse=True)
 _DATA_TYPE_SUFFIXES = ["Actual Aggregated", "Actual Consumption"]
+# An ENTSO-E load with more invalid rows than this share fails. Weekly loads
+# have none; on 2026-10-25 the loader rejected 94% of a file (null unit EICs it
+# had started to read) and still reported the load as successful.
+ENTSOE_MAX_INVALID_SHARE = 0.01
 
 
 # Retry configuration for database operations
@@ -843,9 +847,24 @@ class PowerGenerationDatabase:
                     # Before any filter or name cleanup below can drop the row.
                     check_source_scope(record)
 
-                    has_eic = "unit_eic" in record
+                    # The extractor writes one DataFrame, so when a file holds
+                    # identified rows every legacy row carries their columns
+                    # as null: a row is identified by an EIC value, not the key.
+                    # A row with other identity data but no EIC is an error.
+                    has_eic = record.get("unit_eic") is not None
+                    if not has_eic and any(
+                        record.get(key) is not None
+                        for key in [*identity_columns, "resolution_source"]
+                    ):
+                        raise ValueError(
+                            f"Line {line_num}: ENTSO-E row carries unit identity "
+                            "data but no unit EIC"
+                        )
                     if has_eic:
                         record = prepare_entsoe_record(record)
+                    else:
+                        for key in identity_columns:
+                            record.pop(key, None)
 
                     # This is a GENERATION table. ENTSO-E per-plant responses
                     # also carry 'Actual Consumption' series (a plant's own
@@ -969,14 +988,12 @@ class PowerGenerationDatabase:
                 written_count=total_inserted,
             )
 
-            if (
-                report.total_count > 0
-                and report.valid_count == 0
-                and report.invalid_count > 0
-            ):
+            if report.invalid_count > ENTSOE_MAX_INVALID_SHARE * report.total_count:
                 logger.error(
-                    f"All {report.total_count:,} ENTSO-E records failed validation - "
-                    "treating load as FAILED (extractor schema drift?)"
+                    f"{report.invalid_count:,} of {report.total_count:,} ENTSO-E "
+                    "records failed validation - treating load as FAILED "
+                    f"(extractor or loader format mismatch?); {total_inserted:,} "
+                    "rows were written"
                 )
                 if validation_report_path:
                     save_report(report, validation_report_path)
@@ -1131,6 +1148,11 @@ class PowerGenerationDatabase:
             batch, "entsoe", f"batch_{batch_num}"
         )
 
+        if report.invalid_count:
+            logger.warning(
+                f"Batch {batch_num}: {report.invalid_count:,} invalid records: "
+                f"{report.errors_by_type}"
+            )
         if not valid_records:
             logger.warning(f"Batch {batch_num}: No valid records")
             return 0, report.valid_count, report.invalid_count, report.duplicate_count
