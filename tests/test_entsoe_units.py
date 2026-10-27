@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pandas as pd
 import pytest
 from sqlalchemy import event
 
@@ -72,6 +73,14 @@ def migrate(dsn):
 def load(db, tmp_path, rows, **kwargs):
     path = tmp_path / "entsoe.jsonl"
     path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    return db.insert_entsoe_jsonl_data(str(path), **kwargs)
+
+
+def load_as_extracted(db, tmp_path, rows, **kwargs):
+    """Write rows the way the extractor does: one DataFrame, so every row
+    carries every column and missing values become null."""
+    path = tmp_path / "entsoe.jsonl"
+    pd.DataFrame(rows).to_json(path, orient="records", lines=True)
     return db.insert_entsoe_jsonl_data(str(path), **kwargs)
 
 
@@ -258,7 +267,7 @@ def test_one_file_with_identified_coal_and_legacy_gas_loads(entsoe_db, tmp_path)
     )
     for key in ("unit_eic", "production_unit_eic"):
         gas.pop(key)
-    ok, report = load(
+    ok, report = load_as_extracted(
         db, tmp_path, [coal, gas, dict(coal, timestamp_ms=1551402000000)], batch_size=1
     )
     assert ok and report.valid_count == 3 and report.written_count == 3
@@ -285,7 +294,7 @@ def test_before_migration_018_the_weekly_file_loads_as_on_main(entsoe_db, tmp_pa
     for key in ("unit_eic", "production_unit_eic"):
         gas.pop(key)
     rows = [coal, gas]
-    ok, report = load(db, tmp_path, rows, batch_size=1)
+    ok, report = load_as_extracted(db, tmp_path, rows, batch_size=1)
     assert ok and report.written_count == 2
     ok, report = load(db, tmp_path, [dict(gas, generation_mw=90.0)], batch_size=1)
     assert ok and report.written_count == 1
@@ -298,9 +307,23 @@ def test_before_migration_018_the_weekly_file_loads_as_on_main(entsoe_db, tmp_pa
             ("B02", "ECHV_G1___", 100.0, 60),
             ("B04", "Gas plant", 90.0, 15),
         ]
-    unnamed = record(plant_name=None, unit_eic="27W-GU-UNNAMED-X", resolution_source="xml_period")
+    unnamed = record(
+        plant_name=None, unit_eic="27W-GU-UNNAMED-X", resolution_source="xml_period"
+    )
     ok, _ = load(db, tmp_path, [unnamed], batch_size=1)
     assert not ok
+
+
+def test_load_fails_when_many_rows_are_invalid(entsoe_db, tmp_path):
+    # 2026-10-25: 94% of the weekly file was rejected and the load still
+    # counted as a successful extraction.
+    connection, db, dsn = entsoe_db
+    gas = record(plant_name="Gas plant", psr_type="B04")
+    for key in ("unit_eic", "production_unit_eic"):
+        gas.pop(key)
+    bad = dict(gas, plant_name="Other gas plant", generation_mw=-1.0)
+    ok, report = load(db, tmp_path, [gas, bad])
+    assert not ok and report.invalid_count == 1 and report.written_count == 1
 
 
 def test_refresh_skips_the_unit_view_until_migration_018(entsoe_db, monkeypatch):
