@@ -98,8 +98,8 @@ PSR_TO_FUEL_TYPE = {
 _FUEL_TYPE_SUFFIXES = sorted(PSR_TO_FUEL_TYPE.values(), key=len, reverse=True)
 _DATA_TYPE_SUFFIXES = ["Actual Aggregated", "Actual Consumption"]
 # An ENTSO-E load with more invalid rows than this share fails. Weekly loads
-# have none; on 2026-10-25 a format change rejected 94% and the run still
-# counted as a successful extraction.
+# have none; on 2026-10-25 the loader rejected 94% of a file (null unit EICs it
+# had started to read) and still reported the load as successful.
 ENTSOE_MAX_INVALID_SHARE = 0.01
 
 
@@ -850,7 +850,16 @@ class PowerGenerationDatabase:
                     # The extractor writes one DataFrame, so when a file holds
                     # identified rows every legacy row carries their columns
                     # as null: a row is identified by an EIC value, not the key.
+                    # A row with other identity data but no EIC is an error.
                     has_eic = record.get("unit_eic") is not None
+                    if not has_eic and any(
+                        record.get(key) is not None
+                        for key in [*identity_columns, "resolution_source"]
+                    ):
+                        raise ValueError(
+                            f"Line {line_num}: ENTSO-E row carries unit identity "
+                            "data but no unit EIC"
+                        )
                     if has_eic:
                         record = prepare_entsoe_record(record)
                     else:
@@ -872,9 +881,9 @@ class PowerGenerationDatabase:
                         continue
 
                     # Add extraction metadata if not present
-                    if record.get("extraction_run_id") is None:
+                    if "extraction_run_id" not in record:
                         record["extraction_run_id"] = extraction_run_id
-                    if record.get("created_at_ms") is None:
+                    if "created_at_ms" not in record:
                         record["created_at_ms"] = created_at_ms
 
                     # Capture first run_id for metadata
@@ -983,7 +992,8 @@ class PowerGenerationDatabase:
                 logger.error(
                     f"{report.invalid_count:,} of {report.total_count:,} ENTSO-E "
                     "records failed validation - treating load as FAILED "
-                    f"(extractor schema drift?); {total_inserted:,} rows were written"
+                    f"(extractor or loader format mismatch?); {total_inserted:,} "
+                    "rows were written"
                 )
                 if validation_report_path:
                     save_report(report, validation_report_path)

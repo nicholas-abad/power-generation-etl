@@ -314,6 +314,25 @@ def test_before_migration_018_the_weekly_file_loads_as_on_main(entsoe_db, tmp_pa
     assert not ok
 
 
+def test_identity_data_without_a_unit_eic_fails_the_load(entsoe_db, tmp_path):
+    # A source-period row whose EIC is missing must not load as a legacy row
+    # and lose its production-unit EIC.
+    connection, db, dsn = entsoe_db
+    migrate(dsn)
+    gas = record(
+        plant_name="Gas plant",
+        psr_type="B04",
+        country_code="FR",
+        unit_eic=None,
+        resolution_source="xml_period",
+    )
+    ok, _ = load_as_extracted(db, tmp_path, [gas])
+    assert not ok
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT count(*) FROM ingestion.entsoe_generation_data")
+        assert cursor.fetchone() == (0,)
+
+
 def test_load_fails_when_many_rows_are_invalid(entsoe_db, tmp_path):
     # 2026-10-25: 94% of the weekly file was rejected and the load still
     # counted as a successful extraction.
