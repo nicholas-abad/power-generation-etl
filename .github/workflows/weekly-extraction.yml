@@ -815,6 +815,9 @@ jobs:
             test -f "$f" || { echo "::error::$f missing — plant-data main predates the GEM crosswalk (merge plant-data#13 first)"; exit 1; }
           done
           grep -q "FROZEN_VALUE_COLUMNS" plant-data/src/build_crosswalk.py || { echo "::error::build_crosswalk.py lacks tier-0 frozen values"; exit 1; }
+          # The load step below calls load_unit_gem_map (plant-data#25); fail
+          # here, before the build and before any swap, if main predates it.
+          grep -q "^def load_unit_gem_map" plant-data/scripts/bootstrap_neon_db.py || { echo "::error::plant-data main predates unit_gem_map (merge plant-data#25 first)"; exit 1; }
 
       - name: Verify non-GEM reference data (GPPD, EIA plant lookup, NPP-GIPT)
         # Committed to plant-data since 2026-09-01 (6e4a196) — no hosted

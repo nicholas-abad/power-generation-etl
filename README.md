@@ -218,7 +218,7 @@ Since migration `006` the database is split into two Postgres schemas:
 
 | Schema | Holds | Who sees it |
 |---|---|---|
-| `public` | The dashboard's whole world: 17 materialized views, the 4 `gem_*` reference tables, `plant_crosswalk` + its review view, `ct_gem_crosswalk`, `eia_generator_info`, `gcpt_coal_metadata` | `dashboard_ro` (SELECT on exactly 25 relations — `schema/checks/dashboard_ro_surface.sql` is the canonical list) and the ETL |
+| `public` | The dashboard's whole world: 17 materialized views, the 4 `gem_*` reference tables, `plant_crosswalk` + its review view, `ct_gem_crosswalk`, `eia_generator_info`, `gcpt_coal_metadata` | `dashboard_ro` (SELECT on exactly the relations `schema/checks/dashboard_ro_surface.sql` lists, the canonical list) and the ETL |
 | `ingestion` | The 10 raw generation tables, `extraction_metadata` + its views, all sequences | the ETL only — `dashboard_ro` has no USAGE |
 
 The ETL's code is unchanged: `neondb_owner` carries `search_path = "$user", public, ingestion`, so unqualified reads/writes of raw tables fall through to `ingestion` and unqualified CREATEs (views, crosswalk staging) land in `public`. Two guards run weekly: `schema/checks/dashboard_ro_surface.sql` (the role reads exactly the intended set) and `schema/checks/no_shadow_tables.sql` (no raw-table name exists in `public` — a pre-006 `CREATE TABLE IF NOT EXISTS` there would silently swallow writes; plant-data's sibling checkout of this repo must be on a post-006 commit).
@@ -264,7 +264,7 @@ Two roles, two jobs:
 | Role | Used by | Can |
 |---|---|---|
 | `neondb_owner` | This ETL (`.env`), the weekly GitHub Actions cron, `refresh_views.py`, plant-data's crosswalk loader | Everything — owns every table |
-| `dashboard_ro` | The Next.js dashboard (Cloudflare `DATABASE_URL`) | `SELECT` on 25 relations only: 4 reference tables (`plant_crosswalk`, `eia_generator_info`, `gcpt_coal_metadata`, `ct_gem_crosswalk`), 17 materialized views, 4 GEM reference tables (`gem_*`). Raw generation tables live in the `ingestion` schema, which the role has no USAGE on — it cannot list them, let alone read them |
+| `dashboard_ro` | The Next.js dashboard (Cloudflare `DATABASE_URL`) | `SELECT` only on the relations `schema/checks/dashboard_ro_surface.sql` lists: 4 reference tables (`plant_crosswalk`, `eia_generator_info`, `gcpt_coal_metadata`, `ct_gem_crosswalk`), plant-data's GEM unit maps (`unit_gem_map`, `gem_unit_monthly`, and India's `npp_unit_gem_map`, `npp_gem_unit_monthly`), the materialized views (plus the daily/weekly ones once 024/025 are applied), 4 GEM reference tables (`gem_*`). Raw generation tables live in the `ingestion` schema, which the role has no USAGE on — it cannot list them, let alone read them |
 
 The dashboard never writes, so its connection string should never be able to. Migration `004` creates the role. **First apply** — generate the password and keep it, you need it for Cloudflare in the next step:
 
