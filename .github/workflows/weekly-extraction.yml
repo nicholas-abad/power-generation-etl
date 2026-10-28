@@ -815,6 +815,9 @@ jobs:
             test -f "$f" || { echo "::error::$f missing — plant-data main predates the GEM crosswalk (merge plant-data#13 first)"; exit 1; }
           done
           grep -q "FROZEN_VALUE_COLUMNS" plant-data/src/build_crosswalk.py || { echo "::error::build_crosswalk.py lacks tier-0 frozen values"; exit 1; }
+          # The load step below calls load_unit_gem_map (plant-data#25); fail
+          # here, before the build and before any swap, if main predates it.
+          grep -q "^def load_unit_gem_map" plant-data/scripts/bootstrap_neon_db.py || { echo "::error::plant-data main predates unit_gem_map (merge plant-data#25 first)"; exit 1; }
 
       - name: Verify non-GEM reference data (GPPD, EIA plant lookup, NPP-GIPT)
         # Committed to plant-data since 2026-09-01 (6e4a196) — no hosted
@@ -828,6 +831,12 @@ jobs:
             || { echo "::error::eia_plant_lookup.csv missing from plant-data checkout"; missing=1; }
           test -f "plant-data/data/crosswalks/NPP_GIPT_crosswalk (1).csv" \
             || { echo "::error::NPP_GIPT_crosswalk (1).csv missing from plant-data checkout"; missing=1; }
+          # GEM's external IDs (EIA plant/generator codes) and the reviewed
+          # EIA <-> GEM-code verdicts: the EIA-code tier and the US unit map.
+          test -f "plant-data/data/crosswalks/gem_external_ids.parquet" \
+            || { echo "::error::gem_external_ids.parquet missing from plant-data checkout"; missing=1; }
+          test -f "plant-data/data/crosswalks/eia_gem_id_review.csv" \
+            || { echo "::error::eia_gem_id_review.csv missing from plant-data checkout"; missing=1; }
           [ "$missing" = "1" ] && exit 1
           echo "reference data present in plant-data checkout"
 
@@ -851,11 +860,20 @@ jobs:
           uv run python - <<'PY'
           import sys
           sys.path.insert(0, "scripts")
-          from bootstrap_neon_db import get_engine, load_npp_unit_map, load_unified_crosswalk
+          from bootstrap_neon_db import (
+              get_engine,
+              load_unit_gem_map,
+              load_gem_external_ids,
+              load_unified_crosswalk,
+          )
           engine = get_engine()
           load_unified_crosswalk(engine)
-          # India at unit grain (plants split across GEM sites, e.g. BARH STPS)
-          load_npp_unit_map(engine)
+          # GEM's external IDs (the snapshot the build linked by) and the
+          # unit map for every source, India included (its older names
+          # npp_unit_gem_map / npp_gem_unit_monthly are views over it); the
+          # US rows need ETL migration 023
+          load_gem_external_ids(engine)
+          load_unit_gem_map(engine)
           PY
 
       - name: Export decisions audit trail
