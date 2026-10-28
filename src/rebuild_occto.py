@@ -8,7 +8,7 @@ certified range (its gas and oil units included) and leaves out plants with no
 coal, the rule the weekly loader applies (incremental_extract.keep_coal_plants).
 plan/apply/rollback take --environment; production also needs
 --allow-production, and both check the pinned direct owner connection before
-connecting (repair_entsoe_coal.checked_dsn). Protocol adapted from
+connecting (run_in_environment.checked_dsn). Protocol adapted from
 src/rebuild_entsoe_coal.py, minus its ENTSO-E scope and tail logic.
 
   build-payload  parser A's canonical rows -> monthly payload files + manifest,
@@ -52,7 +52,7 @@ import uuid
 import psycopg2
 
 from refresh_views import DAILY_WORK_MEM, installed_migration_views
-from repair_entsoe_coal import checked_dsn
+from run_in_environment import checked_dsn
 
 ROOT = Path(__file__).resolve().parents[1]
 TABLE = "ingestion.occto_generation_data"
@@ -239,6 +239,9 @@ def build_payload(
         kept_digest.hexdigest() == report_b["coal_plants_digest"],
         "Parser A and parser B disagree on the coal-plant cut",
     )
+    # Holds by construction (coal plants are the plants of coal rows): a
+    # consistency check on this code. The independent check is verify_load.sh
+    # step 1b, database coal against parser B's whole-source count.
     require(kept_coal == source_coal, "The coal-plant cut lost source coal rows")
     require(months, "Empty payload")
     names = [m["month"] for m in months]

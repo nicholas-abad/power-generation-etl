@@ -43,7 +43,7 @@ import psycopg2
 
 import entsoe_coal
 from refresh_views import DAILY_WORK_MEM, installed_migration_views
-from repair_entsoe_coal import checked_dsn
+from run_in_environment import checked_dsn
 
 TABLE = "ingestion.entsoe_generation_data"
 HEADER = "ingestion.entsoe_coal_rebuilds"

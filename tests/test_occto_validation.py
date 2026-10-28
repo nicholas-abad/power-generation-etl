@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 from pathlib import Path
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 VALIDATION = ROOT / "docs" / "validation" / "occto"
@@ -56,3 +57,16 @@ def test_verify_load_needs_allow_production_before_any_query(tmp_path):
 def test_verify_load_refuses_an_unknown_target():
     assert run_verify("prod", "b", "p", "o").returncode == 2
     assert run_verify("staging").returncode == 2
+
+
+def test_the_occto_tool_does_not_load_entsoe_modules():
+    # its guard is shared; a missing or broken ENTSO-E config must not stop it
+    probe = (
+        "import sys; sys.path.insert(0, 'src'); import rebuild_occto; "
+        "print(sorted(m for m in sys.modules if 'entsoe' in m))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, cwd=ROOT
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "[]"

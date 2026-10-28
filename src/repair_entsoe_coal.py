@@ -11,14 +11,13 @@ from decimal import Decimal
 import gzip
 import hashlib
 import json
-import os
 from pathlib import Path
 
 import psycopg2
-from psycopg2.extensions import parse_dsn
 from psycopg2.extras import Json, execute_values
 
 from entsoe_coal import aliases_for
+from run_in_environment import checked_dsn
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "config/repairs/entsoe-cz-coal-2023-2024.json"
@@ -341,39 +340,6 @@ def _run(connection, manifest, changes, target, mode, expected_plan):
             else:
                 raise ValueError("Unknown repair mode")
             return {**report, **result}
-
-
-def checked_dsn(environment, allow_production, url_variable="DATABASE_URL"):
-    """Fail before connecting unless the owner wrapper has pinned this target.
-
-    ``url_variable`` names the wrapper's URL to use; tools that must bypass the
-    pooler pass "DIRECT_DATABASE_URL" (the host check below refuses a pooler).
-    """
-    if environment == "production" and not allow_production:
-        raise ValueError(
-            "Production access requires explicit --allow-production authorization"
-        )
-    config = json.loads((ROOT / "config/environments.json").read_text())
-    target = config["environments"][environment]
-    if (
-        os.environ.get("ETL_ENVIRONMENT") != environment
-        or os.environ.get("NEON_ENDPOINT_ID") != target["endpoint_id"]
-        or os.environ.get("NEON_BRANCH_ID") != target["branch_id"]
-    ):
-        raise ValueError("Use the pinned environment owner wrapper")
-    dsn = os.environ.get(url_variable, "")
-    parsed = parse_dsn(dsn)
-    if (
-        parsed.get("host") != f"{target['endpoint_id']}.{config['proxy_host']}"
-        or parsed.get("user") != config["roles"]["owner"]
-        or parsed.get("dbname") != config["database"]
-        or parsed.get("port") != "5432"
-        or parsed.get("sslmode") not in {"require", "verify-full"}
-        or any(k in parsed for k in ("hostaddr", "service"))
-        or any(os.environ.get(k) for k in ("PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE"))
-    ):
-        raise ValueError("Expected the pinned direct owner connection")
-    return dsn, f"{environment}/{target['branch_id']}/{config['database']}"
 
 
 def main(argv=None):

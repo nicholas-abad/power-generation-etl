@@ -5,7 +5,8 @@ OCCTO's unit-generation source, one key convention (JST wall-clock written as UT
 **Coal plants only** (decision 2026-10-13): the payload keeps every row (all fuels) of each plant
 that reports coal anywhere in the certified range, and leaves out plants with no coal, the rule the
 weekly loader applies. `src/rebuild_occto.py` takes `--environment staging|production`; production
-also needs `--allow-production`, and both check the pinned direct owner connection before connecting.
+also needs `--allow-production`, and both check the pinned direct owner connection before connecting
+(`run_in_environment.checked_dsn`, shared with the ENTSO-E tools).
 
 Why a rebuild and not an append: the 2026-03-09 bulk load keyed timestamps as Europe/Berlin local
 time (−1 h winter, −2 h summer; spring-forward days lost two half-hours per unit), the first week
@@ -40,7 +41,8 @@ Paths: `EXT` = energy-extractors checkout, `ARCHIVE`/`EVID` = evidence directori
    The manifest records the cut: coal plants kept, rows and MWh left out per fuel, and the source's
    coal (every coal row is kept, or the build refuses). Production refuses a manifest from before
    the cut (no `"plants"`); staging still loads one, so the 2026-10 staging repair can be rolled back.
-7. **Apply** with the reviewed plan: `... rebuild_occto.py apply --payload EVID/payload
+7. **Apply** with the reviewed plan, through the same environment's owner wrapper:
+   `... rebuild_occto.py apply --environment ENV [--allow-production] --payload EVID/payload
    --approved-plan EVID/plan.json --expect-plan-sha256 <plan_sha256> --report EVID/apply.json`.
    Refreshes the three OCCTO views; if that fails, rerun `src/refresh_views.py --source occto`
    through the same environment's wrapper.
@@ -48,8 +50,8 @@ Paths: `EXT` = energy-extractors checkout, `ARCHIVE`/`EVID` = evidence directori
    [--allow-production]` (read-only): no rows after the certified end, database rows equal parser B's
    coal-plant lines, every source coal row is stored, views equal the raw table, the tracker's coal
    reads equal source coal.
-9. **Rollback** (only on request): same as apply with `rollback`; refused per window if anything
-   wrote to it after apply.
+9. **Rollback** (only on request): the apply command with `rollback` in place of `apply` (same
+   `--environment ENV [--allow-production]`); refused per window if anything wrote to it after apply.
 
 **Production.** Keep the weekly workflow disabled from the archive cut until verification is
 signed off: a weekly OCCTO run writes rows after the certified end (step 8 refuses) and revises rows
