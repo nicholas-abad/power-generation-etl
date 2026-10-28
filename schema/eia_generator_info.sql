@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS eia_generator_info (
     energy_source_1 VARCHAR(50),
     nameplate_capacity_mw DOUBLE PRECISION,
     status          VARCHAR(10),  -- Form 860 status code: OP, SB, OS, OA, ..., RE (retired)
+    id_as_registered TEXT,        -- Form 860's spelling; generator_id is eia_generator_key() of it (migration 023)
     PRIMARY KEY (plant_code, generator_id)
 );
 

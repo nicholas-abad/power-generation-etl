@@ -428,10 +428,21 @@ class PowerGenerationDatabase:
             # one row per key (the last in file order — matching the source's
             # "later row supersedes" convention).
             if update_columns:
+                dedup_key = conflict_target[1:-1]
+                # Migration 023's trigger keys EIA generator IDs only on insert,
+                # so "MB1" and "1" for one month pass DISTINCT ON on EIA's
+                # spelling and then collide. Collapse them on the key instead.
+                if target_table == "eia_generation_data":
+                    cursor.execute("SELECT to_regproc('public.eia_generator_key')")
+                    if cursor.fetchone()[0] is not None:
+                        dedup_key = (
+                            "timestamp_ms, plant_code, "
+                            "public.eia_generator_key(plant_code, generator_id)"
+                        )
                 select_sql = (
-                    f"SELECT DISTINCT ON ({conflict_target[1:-1]}) {col_list} "
+                    f"SELECT DISTINCT ON ({dedup_key}) {col_list} "
                     f"FROM (SELECT {col_list}, ROW_NUMBER() OVER () AS _rn FROM {staging}) _s "
-                    f"ORDER BY {conflict_target[1:-1]}, _rn DESC"
+                    f"ORDER BY {dedup_key}, _rn DESC"
                 )
             else:
                 select_sql = f"SELECT {col_list} FROM {staging}"
