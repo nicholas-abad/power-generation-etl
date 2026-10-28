@@ -51,7 +51,8 @@ Paths: `EXT` = energy-extractors checkout, `ARCHIVE`/`EVID` = evidence directori
    coal-plant lines, every source coal row is stored, views equal the raw table, the tracker's coal
    reads equal source coal.
 9. **Rollback** (only on request): the apply command with `rollback` in place of `apply` (same
-   `--environment ENV [--allow-production]`); refused per window if anything wrote to it after apply.
+   `--environment ENV [--allow-production]`) and `--report EVID/rollback.json`, so the apply report
+   is kept; refused per window if anything wrote to it after apply.
 
 **Production.** Keep the weekly workflow disabled from the archive cut until verification is
 signed off: a weekly OCCTO run writes rows after the certified end (step 8 refuses) and revises rows
