@@ -343,8 +343,12 @@ def _run(connection, manifest, changes, target, mode, expected_plan):
             return {**report, **result}
 
 
-def checked_dsn(environment, allow_production):
-    """Fail before connecting unless the owner wrapper has pinned this target."""
+def checked_dsn(environment, allow_production, url_variable="DATABASE_URL"):
+    """Fail before connecting unless the owner wrapper has pinned this target.
+
+    ``url_variable`` names the wrapper's URL to use; tools that must bypass the
+    pooler pass "DIRECT_DATABASE_URL" (the host check below refuses a pooler).
+    """
     if environment == "production" and not allow_production:
         raise ValueError(
             "Production access requires explicit --allow-production authorization"
@@ -357,7 +361,7 @@ def checked_dsn(environment, allow_production):
         or os.environ.get("NEON_BRANCH_ID") != target["branch_id"]
     ):
         raise ValueError("Use the pinned environment owner wrapper")
-    dsn = os.environ.get("DATABASE_URL", "")
+    dsn = os.environ.get(url_variable, "")
     parsed = parse_dsn(dsn)
     if (
         parsed.get("host") != f"{target['endpoint_id']}.{config['proxy_host']}"

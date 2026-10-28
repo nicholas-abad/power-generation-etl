@@ -1,8 +1,11 @@
-# OCCTO (Japan) all-fuel rebuild — staging runbook
+# OCCTO (Japan) rebuild — runbook (staging and production)
 
 Tracker issue #31. Replaces every stored OCCTO row with rows parsed from a certified archive of
-OCCTO's unit-generation source, all nine fuels, one key convention (JST wall-clock written as UTC,
-period-end). Staging only: `src/rebuild_occto.py` refuses any other connection before connecting.
+OCCTO's unit-generation source, one key convention (JST wall-clock written as UTC, period-end).
+**Coal plants only** (decision 2026-10-13): the payload keeps every row (all fuels) of each plant
+that reports coal anywhere in the certified range, and leaves out plants with no coal, the rule the
+weekly loader applies. `src/rebuild_occto.py` takes `--environment staging|production`; production
+also needs `--allow-production`, and both check the pinned direct owner connection before connecting.
 
 Why a rebuild and not an append: the 2026-03-09 bulk load keyed timestamps as Europe/Berlin local
 time (−1 h winter, −2 h summer; spring-forward days lost two half-hours per unit), the first week
@@ -18,27 +21,42 @@ Paths: `EXT` = energy-extractors checkout, `ARCHIVE`/`EVID` = evidence directori
 3. **Two parsers**:
    - A: `uv run python -m energy_extractors.occto.parse --archive-dir ARCHIVE --certificate EVID/certificate.json --out EVID/A.tsv.gz`
    - B: `python3 -I docs/validation/occto/independent_parse.py ARCHIVE EVID/certificate.json EVID/B`
-   — digests must be equal; B's `report.json` lists every gap, rejection and exclusion.
+   — digests must be equal, for the whole source and for the coal-plant cut (B writes its own
+   `canonical_coal_plants.tsv.gz` and `coal_plants_digest`); B's `report.json` lists every gap,
+   rejection and exclusion, and the source's coal rows and kWh.
 4. **Benchmarks** (external totals): `docs/validation/occto/benchmarks.py fetch|build` (TSO area
    actuals, METI 電力調査統計).
 5. **Stored vs source** (local scratch database only): `docs/validation/occto/compare_stored.sh
    load-stored`, `load-source EVID/B`, `run EVID/compare.txt`.
-6. **Payload and plan** (owner wrapper, staging):
+6. **Payload and plan** (owner wrapper; `ENV` = staging or production):
    ```bash
    uv run python src/rebuild_occto.py build-payload --canonical EVID/A.tsv.gz \
      --parser-b-report EVID/B/report.json --certificate EVID/certificate.json \
-     --out EVID/payload --repair-id occto-all-fuels-YYYYMMDD
-   uv run python src/run_in_environment.py --environment staging --role owner -- \
-     uv run python src/rebuild_occto.py plan --payload EVID/payload --report EVID/plan.json
+     --out EVID/payload --repair-id occto-coal-plants-YYYYMMDD
+   uv run python src/run_in_environment.py --environment ENV --role owner -- \
+     uv run python src/rebuild_occto.py plan --environment ENV [--allow-production] \
+       --payload EVID/payload --report EVID/plan.json
    ```
+   The manifest records the cut: coal plants kept, rows and MWh left out per fuel, and the source's
+   coal (every coal row is kept, or the build refuses). Production refuses a manifest from before
+   the cut (no `"plants"`); staging still loads one, so the 2026-10 staging repair can be rolled back.
 7. **Apply** with the reviewed plan: `... rebuild_occto.py apply --payload EVID/payload
    --approved-plan EVID/plan.json --expect-plan-sha256 <plan_sha256> --report EVID/apply.json`.
    Refreshes the three OCCTO views; if that fails, rerun `src/refresh_views.py --source occto`
-   through the staging wrapper.
-8. **Verify**: `docs/validation/occto/verify_load.sh EVID/B EVID/payload EVID/verify` — database rows
-   equal parser B, views equal the raw table, the tracker's coal reads equal source coal.
+   through the same environment's wrapper.
+8. **Verify**: `docs/validation/occto/verify_load.sh ENV EVID/B EVID/payload EVID/verify
+   [--allow-production]` (read-only): no rows after the certified end, database rows equal parser B's
+   coal-plant lines, every source coal row is stored, views equal the raw table, the tracker's coal
+   reads equal source coal.
 9. **Rollback** (only on request): same as apply with `rollback`; refused per window if anything
    wrote to it after apply.
+
+**Production.** Keep the weekly workflow disabled from the archive cut until verification is
+signed off: a weekly OCCTO run writes rows after the certified end (step 8 refuses) and revises rows
+in the last windows (rollback then refuses them), so rollback is possible only until the first
+weekly run after apply. Certify the archive through production's newest stored OCCTO day. The first
+weekly `check-totals-drift` after the rebuild is expected to be red (the history's monthly totals
+change); it re-baselines the week after.
 
 Ledger: `ingestion.occto_rebuilds`, `ingestion.occto_rebuild_windows`; original rows in
 `ingestion.occto_rebuild_backup` (by `repair_id`, `window_start`).
@@ -63,8 +81,8 @@ stored as the next day's 00:00, so resuming from `latest + 1` skipped every Sund
 - **Production before its rebuild.** Production's weekly runs load all fuels at coal plants, while
   production history stays coal/thermal-only with the Berlin-keyed bulk rows until the production
   rebuild (separate sign-off). Coal reads are unaffected (they filter `fuel_type = 'coal'`); other
-  fuels and `mv_occto_row_counts` only cover the weeks loaded since the switch. The rebuild payload
-  (`rebuild_occto.py`) does not apply the coal-plant cut yet; add it before the production rebuild.
+  fuels and `mv_occto_row_counts` only cover the weeks loaded since the switch. The rebuild applies
+  the same cut to the whole history (steps 6–8).
 - **Revisions** update values, fuel, codes and area labels in place. The key is
   `(timestamp_ms, plant, unit)`, so a plant or unit renamed retroactively inside the lookback
   adds rows under the new name next to the old ones. A value the source later blanks is not
