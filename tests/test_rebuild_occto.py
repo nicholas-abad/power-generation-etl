@@ -75,7 +75,22 @@ def canonical_line(
     )
 
 
-def make_inputs(tmp_path, lines, *, b_digest=None, rejected=(), several_fuels=()):
+def coal_plant_lines(lines):
+    """The lines of plants with a coal line, computed here independently of the tool."""
+    coal = {line.split("\t")[1] for line in lines if line.split("\t")[5] == "coal"}
+    return [line for line in lines if line.split("\t")[1] in coal]
+
+
+def make_inputs(
+    tmp_path,
+    lines,
+    *,
+    b_digest=None,
+    b_coal_digest=None,
+    rejected=(),
+    several_fuels=(),
+    cut_report=True,
+):
     canonical = tmp_path / "A.tsv.gz"
     with gzip.open(canonical, "wt", encoding="utf-8", newline="") as out:
         out.writelines(lines)
@@ -92,6 +107,11 @@ def make_inputs(tmp_path, lines, *, b_digest=None, rejected=(), several_fuels=()
         "excluded_days": [],
         "gaps": 0,
     }
+    if cut_report:
+        kept = "".join(coal_plant_lines(lines))
+        report["coal_plants_digest"] = (
+            b_coal_digest or hashlib.sha256(kept.encode()).hexdigest()
+        )
     (tmp_path / "B.json").write_text(json.dumps(report))
     return canonical, tmp_path / "B.json", tmp_path / "cert.json"
 
@@ -168,6 +188,57 @@ def test_payload_refuses_without_independent_agreement(tmp_path, kw, message):
         build(tmp_path, SOURCE, **kw)
 
 
+GAS = ("04", "gas")
+# Two coal plants and one gas-only plant: 碧南 burns coal and gas, 新潟 has gas in
+# January and coal only in February, 横浜 never burns coal.
+MIXED = sorted(
+    [
+        canonical_line(JAN + HALF, "碧南火力発電所", "１号機", 500),
+        canonical_line(JAN + HALF, "碧南火力発電所", "Ｇ１", 40, GAS),
+        canonical_line(JAN + HALF, "横浜火力発電所", "７号機", 70, GAS),
+        canonical_line(JAN + HALF, "新潟火力発電所", "Ｇ１", 30, GAS),
+        canonical_line(FEB + HALF, "碧南火力発電所", "１号機", 510),
+        canonical_line(FEB + HALF, "横浜火力発電所", "７号機", 71, GAS),
+        canonical_line(FEB + HALF, "新潟火力発電所", "１号機", 300),
+    ],
+    key=lambda line: (
+        int(line.split("\t")[0]),
+        line.split("\t")[1],
+        line.split("\t")[2],
+    ),
+)
+
+
+def test_payload_keeps_every_row_of_coal_plants_and_leaves_out_the_rest(tmp_path):
+    manifest, _, windows = build(tmp_path, MIXED)
+    kept = coal_plant_lines(MIXED)
+    assert manifest["plants"] == "coal" and manifest["coal_plants"] == 2
+    assert sum(m["rows"] for m in manifest["months"]) == len(kept) == 5
+    assert (
+        manifest["kept_canonical_sha256"]
+        == hashlib.sha256("".join(kept).encode()).hexdigest()
+    )
+    # the gas-only plant is left out; the coal plants' gas units stay
+    assert manifest["left_out"] == {"gas": {"rows": 2, "mwh": "0.141"}}
+    assert manifest["source_coal"] == {"rows": 3, "mwh": "1.31"}
+    payload_plants = set()
+    for w in windows:
+        with gzip.open(w["file"], "rt", encoding="utf-8") as f:
+            next(f)
+            payload_plants |= {line.split("\t")[1] for line in f}
+    assert payload_plants == {"碧南火力発電所", "新潟火力発電所"}
+
+
+def test_payload_refuses_without_agreement_on_the_cut(tmp_path):
+    with pytest.raises(ValueError, match="coal-plant cut"):
+        build(tmp_path, MIXED, b_coal_digest="0" * 64)
+
+
+def test_payload_refuses_a_parser_b_report_without_the_cut(tmp_path):
+    with pytest.raises(ValueError, match="predates the coal-plant cut"):
+        build(tmp_path, MIXED, cut_report=False)
+
+
 # --- plan / apply / rollback --------------------------------------------
 
 
@@ -198,6 +269,28 @@ def test_apply_replaces_windows_and_rollback_restores_exactly(pg, tmp_path):
 
     rebuild.rollback(pg, manifest, sha, windows, approved, TARGET)
     assert table(pg) == before  # same ids and values
+
+
+def test_a_coal_plant_payload_loads_exactly_and_rolls_back(pg, tmp_path):
+    seed(pg, STORED)
+    before = table(pg)
+    manifest, sha, windows = build(tmp_path, MIXED)
+    approved = planned(pg, manifest, sha, windows)
+    rebuild.apply(pg, manifest, sha, windows, approved, TARGET)
+    # what verify_load.sh exports must equal parser B's coal-plant lines
+    with pg, pg.cursor() as cur:
+        cur.execute(
+            "SELECT timestamp_ms, plant, unit, plant_code, fuel_code, fuel_type, area_code,"
+            " area_name, resolution_minutes, round(generation_mwh::numeric * 1000)::bigint"
+            f" FROM {rebuild.TABLE} ORDER BY {rebuild.ORDER}"
+        )
+        exported = "".join("\t".join(map(str, r)) + "\n" for r in cur.fetchall())
+        cur.execute(f"SELECT count(*) FROM {rebuild.TABLE} WHERE fuel_type = 'coal'")
+        coal_rows = cur.fetchone()[0]
+    assert exported == "".join(coal_plant_lines(MIXED))
+    assert coal_rows == manifest["source_coal"]["rows"]
+    rebuild.rollback(pg, manifest, sha, windows, approved, TARGET)
+    assert table(pg) == before
 
 
 def test_apply_refuses_when_stored_rows_changed_after_plan(pg, tmp_path):
@@ -322,45 +415,95 @@ def staging_env(**overrides):
     return env, config
 
 
-def test_guard_accepts_only_the_pinned_staging_owner():
-    env, _ = staging_env()
-    with patch.dict(os.environ, env, clear=True):
-        assert rebuild.checked_dsn()[1].startswith("staging/")
+def production_env(**overrides):
+    _, config = staging_env()
+    prod = config["environments"]["production"]
+    return staging_env(
+        ETL_ENVIRONMENT="production",
+        NEON_ENDPOINT_ID=prod["endpoint_id"],
+        NEON_BRANCH_ID=prod["branch_id"],
+        DIRECT_DATABASE_URL=f"postgresql://{config['roles']['owner']}:x@{prod['endpoint_id']}."
+        f"{config['proxy_host']}:5432/{config['database']}?sslmode=require",
+        **overrides,
+    )[0]
+
+
+def guard(environment, allow_production=False):
+    return rebuild.checked_dsn(environment, allow_production, "DIRECT_DATABASE_URL")
+
+
+def test_guard_takes_the_pinned_owner_and_production_only_when_allowed():
+    with patch.dict(os.environ, staging_env()[0], clear=True):
+        assert guard("staging")[1].startswith("staging/")
+    with patch.dict(os.environ, production_env(), clear=True):
+        assert guard("production", True)[1].startswith("production/")
+        with pytest.raises(ValueError, match="allow-production"):
+            guard("production")
+    # the wrapper pinned one environment; the command names the other
+    with patch.dict(os.environ, staging_env()[0], clear=True):
+        with pytest.raises(ValueError, match="pinned environment owner wrapper"):
+            guard("production", True)
+    with patch.dict(os.environ, production_env(), clear=True):
+        with pytest.raises(ValueError, match="pinned environment owner wrapper"):
+            guard("staging")
+
+
+def run_plan(tmp_path, payload, *flags):
+    return rebuild.main(
+        [
+            "plan",
+            "--payload",
+            str(payload),
+            "--report",
+            str(tmp_path / "r.json"),
+            *flags,
+        ]
+    )
 
 
 def test_main_refuses_production_before_connecting(tmp_path):
     manifest, _, _ = build(tmp_path, SOURCE)
     payload = tmp_path / f"payload-{manifest['repair_id']}"
-    _, config = staging_env()
-    prod = config["environments"]["production"]
-    url = (
-        f"postgresql://{config['roles']['owner']}:x@{prod['endpoint_id']}.{config['proxy_host']}"
-        f":5432/{config['database']}?sslmode=require"
-    )
-    for env in (
-        staging_env(DIRECT_DATABASE_URL=url)[0],
-        staging_env(
-            ETL_ENVIRONMENT="production",
-            NEON_ENDPOINT_ID=prod["endpoint_id"],
-            NEON_BRANCH_ID=prod["branch_id"],
-            DIRECT_DATABASE_URL=url,
-        )[0],
+    for env, flags in (
+        (production_env(), ("--environment", "production")),
+        (staging_env()[0], ("--environment", "production", "--allow-production")),
+        (production_env(), ("--environment", "staging")),
     ):
         with (
             patch.dict(os.environ, env, clear=True),
             patch.object(rebuild.psycopg2, "connect") as connect,
         ):
-            code = rebuild.main(
-                [
-                    "plan",
-                    "--payload",
-                    str(payload),
-                    "--report",
-                    str(tmp_path / "r.json"),
-                ]
-            )
-            assert code == 1
+            assert run_plan(tmp_path, payload, *flags) == 1
             connect.assert_not_called()
+
+
+def test_an_all_plants_payload_is_refused_on_production_only(tmp_path, capsys):
+    manifest, _, _ = build(tmp_path, SOURCE)
+    payload = tmp_path / f"payload-{manifest['repair_id']}"
+    old = json.loads((payload / "manifest.json").read_text())
+    del old["plants"]  # a manifest written before the cut (the 2026-10 staging repair)
+    (payload / "manifest.json").write_text(json.dumps(old, indent=1) + "\n")
+    with (
+        patch.dict(os.environ, production_env(), clear=True),
+        patch.object(rebuild.psycopg2, "connect") as connect,
+    ):
+        assert (
+            run_plan(
+                tmp_path, payload, "--environment", "production", "--allow-production"
+            )
+            == 1
+        )
+        connect.assert_not_called()
+    assert "coal-plant payload" in capsys.readouterr().out
+    # on staging it still loads (its rollback must keep working): it reaches the guard
+    with (
+        patch.dict(os.environ, staging_env()[0], clear=True),
+        patch.object(
+            rebuild, "checked_dsn", side_effect=ValueError("reached the guard")
+        ),
+    ):
+        assert run_plan(tmp_path, payload, "--environment", "staging") == 1
+    assert "reached the guard" in capsys.readouterr().out
 
 
 def test_guard_refuses_pooler_and_non_owner():
@@ -375,5 +518,5 @@ def test_guard_refuses_pooler_and_non_owner():
         ),
     ):
         with patch.dict(os.environ, dict(env, DIRECT_DATABASE_URL=url), clear=True):
-            with pytest.raises(ValueError, match="pinned direct staging owner"):
-                rebuild.checked_dsn()
+            with pytest.raises(ValueError, match="pinned direct owner"):
+                guard("staging")

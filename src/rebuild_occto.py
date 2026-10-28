@@ -2,15 +2,21 @@
 
 Replaces every stored OCCTO row with rows parsed from the certified source
 archive (energy_extractors.occto.archive / .parse), one month per transaction,
-with a backup and an exact rollback. STAGING ONLY: there is no production
-option; every mode checks the pinned staging owner connection before it
-connects. Protocol adapted from src/rebuild_entsoe_coal.py at commit 120b096
-(branch feat/entsoe-coal-rebuild), minus its ENTSO-E scope and tail logic.
+with a backup and an exact rollback. Coal plants only (decision 2026-10-13):
+the payload keeps every row of each plant that reports coal anywhere in the
+certified range (its gas and oil units included) and leaves out plants with no
+coal, the rule the weekly loader applies (incremental_extract.keep_coal_plants).
+plan/apply/rollback take --environment; production also needs
+--allow-production, and both check the pinned direct owner connection before
+connecting (run_in_environment.checked_dsn). Protocol adapted from
+src/rebuild_entsoe_coal.py, minus its ENTSO-E scope and tail logic.
 
-  build-payload  parser A's canonical rows -> monthly payload files + manifest.
-                 Refuses unless parser B (docs/validation/occto/independent_parse.py)
-                 produced the same digest and reported nothing rejected, no
-                 duplicate keys and no unit-month with two fuels.
+  build-payload  parser A's canonical rows -> monthly payload files + manifest,
+                 cut to coal plants. Refuses unless parser B
+                 (docs/validation/occto/independent_parse.py) produced the same
+                 digest for the whole source and for the coal-plant cut,
+                 reported nothing rejected, no duplicate keys and no unit-month
+                 with two fuels, and unless every source coal row is kept.
   plan           per window: stored rows' count, MWh and hash, the payload's;
                  writes nothing. Its plan_sha256 is required by apply/rollback.
   apply          every pending window must still match the plan; then per
@@ -21,11 +27,14 @@ connects. Protocol adapted from src/rebuild_entsoe_coal.py at commit 120b096
                  restores the original rows and ids, then refreshes the views.
 
 If the view refresh fails, rerun:
-  src/run_in_environment.py --environment staging -- uv run python src/refresh_views.py --source occto
+  src/run_in_environment.py --environment <env> -- uv run python src/refresh_views.py --source occto
 
 Run every mode through the owner wrapper, with the direct endpoint:
-  uv run python src/run_in_environment.py --environment staging --role owner -- \
-      uv run python src/rebuild_occto.py <mode> ...
+  uv run python src/run_in_environment.py --environment <env> --role owner -- \
+      uv run python src/rebuild_occto.py <mode> --environment <env> ...
+(production: --environment production --allow-production). A manifest from
+before the cut (no "plants" key, the 2026-10 staging repair) still loads on
+staging, so that repair can be rolled back; production refuses it.
 """
 
 import argparse
@@ -34,7 +43,6 @@ from decimal import Decimal as D
 import gzip
 import hashlib
 import json
-import os
 from pathlib import Path
 import re
 import tempfile
@@ -42,9 +50,9 @@ import time
 import uuid
 
 import psycopg2
-from psycopg2.extensions import parse_dsn
 
 from refresh_views import DAILY_WORK_MEM, installed_migration_views
+from run_in_environment import checked_dsn
 
 ROOT = Path(__file__).resolve().parents[1]
 TABLE = "ingestion.occto_generation_data"
@@ -68,6 +76,9 @@ COLUMNS = (
 )
 # Parser output order (energy_extractors.occto.parse.ROW_COLUMNS).
 CANONICAL = COLUMNS[:9] + ("generation_kwh",)
+PLANT_INDEX = CANONICAL.index("plant")
+FUEL_INDEX = CANONICAL.index("fuel_type")
+OCCTO_COAL = "coal"  # fuel_type of coal rows, as incremental_extract.OCCTO_COAL
 MWH_INDEX = COLUMNS.index("generation_mwh")
 COLS = ", ".join(COLUMNS)
 ORDER = 'timestamp_ms, plant COLLATE "C", unit COLLATE "C"'
@@ -117,48 +128,24 @@ def month_of(ms):
     return f"{t.year:04d}-{t.month:02d}"
 
 
-# --- target guard ---------------------------------------------------------
-
-
-def checked_dsn():
-    """The pinned direct staging owner connection, checked before connecting."""
-    config = json.loads((ROOT / "config/environments.json").read_text())
-    staging = config["environments"]["staging"]
-    production = config["environments"]["production"]
-    dsn = os.environ.get("DIRECT_DATABASE_URL", "")
-    require(
-        os.environ.get("ETL_ENVIRONMENT") == "staging"
-        and os.environ.get("NEON_ENDPOINT_ID") == staging["endpoint_id"]
-        and os.environ.get("NEON_BRANCH_ID") == staging["branch_id"],
-        "Run through src/run_in_environment.py --environment staging --role owner",
-    )
-    require(
-        production["endpoint_id"] not in dsn and production["branch_id"] not in dsn,
-        "Refusing a production connection",
-    )
-    parts = parse_dsn(dsn)
-    require(
-        parts.get("host") == f"{staging['endpoint_id']}.{config['proxy_host']}"
-        and parts.get("user") == config["roles"]["owner"]
-        and parts.get("dbname") == config["database"]
-        and parts.get("port") == "5432"
-        and parts.get("sslmode") in {"require", "verify-full"}
-        and not any(k in parts for k in ("hostaddr", "service"))
-        and not any(
-            os.environ.get(k) for k in ("PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE")
-        ),
-        "Expected the pinned direct staging owner connection",
-    )
-    return dsn, f"staging/{staging['branch_id']}/{config['database']}"
-
-
 # --- payload ------------------------------------------------------------
+
+
+def coal_plants_of(canonical_path):
+    """Plants with at least one coal row anywhere in parser A's canonical rows."""
+    plants = set()
+    with gzip.open(canonical_path, "rt", encoding="utf-8", newline="") as source:
+        for line in source:
+            fields = line.rstrip("\n").split("\t")
+            if fields[FUEL_INDEX] == OCCTO_COAL:
+                plants.add(fields[PLANT_INDEX])
+    return plants
 
 
 def build_payload(
     canonical_path, parser_b_report, certificate_path, out_dir, repair_id, load_start
 ):
-    """Split parser A's canonical rows into monthly payload files."""
+    """Split parser A's canonical rows, cut to coal plants, into monthly payload files."""
     require(
         re.fullmatch(r"[a-z0-9][a-z0-9-]{2,62}", repair_id),
         "repair id: lowercase, digits, dashes",
@@ -173,13 +160,19 @@ def build_payload(
     require(report_b["load_start"] == load_start, "Parser B used another load start")
     for key in ("rejected", "duplicate_keys", "unit_months_with_several_fuels"):
         require(not report_b[key], f"Parser B reported {key}; resolve before building")
+    require(
+        "coal_plants_digest" in report_b,
+        "Parser B predates the coal-plant cut; rerun it",
+    )
+    coal_plants = coal_plants_of(canonical_path)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=False)
     run_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"occto-rebuild:{repair_id}"))
     created_at_ms = int(time.time() * 1000)
 
-    canonical_digest = hashlib.sha256()
+    canonical_digest, kept_digest = hashlib.sha256(), hashlib.sha256()
     months, handle, current, previous_key = [], None, None, None
+    left_out, kept_coal, source_coal = {}, [0, D(0)], [0, D(0)]
 
     def close():
         if handle:
@@ -203,6 +196,19 @@ def build_payload(
                 "Canonical rows not strictly sorted",
             )
             previous_key = key
+            mwh = D(fields[9]) / 1000
+            if fields[FUEL_INDEX] == OCCTO_COAL:
+                source_coal[0] += 1
+                source_coal[1] += mwh
+            if fields[PLANT_INDEX] not in coal_plants:
+                out = left_out.setdefault(fields[FUEL_INDEX], [0, D(0)])
+                out[0] += 1
+                out[1] += mwh
+                continue
+            kept_digest.update(line.encode("utf-8"))
+            if fields[FUEL_INDEX] == OCCTO_COAL:
+                kept_coal[0] += 1
+                kept_coal[1] += mwh
             month = month_of(key[0])
             if current is None or current["month"] != month:
                 close()
@@ -216,7 +222,6 @@ def build_payload(
                     out_dir / current["file"], "wt", encoding="utf-8", newline=""
                 )
                 handle.write("\t".join(COLUMNS) + "\n")
-            mwh = D(fields[9]) / 1000
             row = fields[:9] + [
                 format(mwh.normalize(), "f"),
                 run_id,
@@ -230,6 +235,14 @@ def build_payload(
         canonical_digest.hexdigest() == report_b["digest"],
         "Parser A and parser B disagree",
     )
+    require(
+        kept_digest.hexdigest() == report_b["coal_plants_digest"],
+        "Parser A and parser B disagree on the coal-plant cut",
+    )
+    # Holds by construction (coal plants are the plants of coal rows): a
+    # consistency check on this code. The independent check is verify_load.sh
+    # step 1b, database coal against parser B's whole-source count.
+    require(kept_coal == source_coal, "The coal-plant cut lost source coal rows")
     require(months, "Empty payload")
     names = [m["month"] for m in months]
     for a, b in zip(names, names[1:]):
@@ -250,6 +263,19 @@ def build_payload(
         "created_at_ms": created_at_ms,
         "excluded_days": report_b["excluded_days"],
         "gaps": report_b["gaps"],
+        # The coal-plant cut: plants reporting coal anywhere in the range, every
+        # row of theirs; what it left out, per fuel; the source's coal, all kept.
+        "plants": "coal",
+        "coal_plants": len(coal_plants),
+        "kept_canonical_sha256": kept_digest.hexdigest(),
+        "source_coal": {
+            "rows": source_coal[0],
+            "mwh": format(source_coal[1].normalize(), "f"),
+        },
+        "left_out": {
+            fuel: {"rows": n, "mwh": format(m.normalize(), "f")}
+            for fuel, (n, m) in sorted(left_out.items())
+        },
         "months": months,
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
@@ -727,6 +753,10 @@ def main(argv=None):
         cmd = sub.add_parser(name)
         cmd.add_argument("--payload", type=Path, required=True)
         cmd.add_argument("--report", type=Path, required=True)
+        cmd.add_argument(
+            "--environment", choices=("staging", "production"), required=True
+        )
+        cmd.add_argument("--allow-production", action="store_true")
         if name != "plan":
             cmd.add_argument("--approved-plan", type=Path, required=True)
             cmd.add_argument("--expect-plan-sha256", required=True)
@@ -756,6 +786,10 @@ def main(argv=None):
     results = []
     try:
         manifest, manifest_sha, windows = load_payload(args.payload)
+        require(
+            args.environment != "production" or manifest.get("plants") == "coal",
+            "Production takes only a coal-plant payload; rebuild it with this tool",
+        )
         approved = None
         if args.mode != "plan":
             approved = json.loads(args.approved_plan.read_text())
@@ -763,7 +797,9 @@ def main(argv=None):
                 approved["plan_sha256"] == args.expect_plan_sha256,
                 "The approved plan does not match --expect-plan-sha256",
             )
-        dsn, target = checked_dsn()
+        dsn, target = checked_dsn(
+            args.environment, args.allow_production, "DIRECT_DATABASE_URL"
+        )
         if approved:
             check_approval(manifest, manifest_sha, windows, approved, target)
         connection = psycopg2.connect(dsn, connect_timeout=15)

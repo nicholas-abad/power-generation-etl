@@ -399,7 +399,7 @@ def rollback(cursor, fingerprint):
 def pinned_dsn(environment, allow_production):
     """Fail before connecting unless the owner wrapper pinned this target.
 
-    Same rules as repair_entsoe_coal.checked_dsn.
+    Same rules as run_in_environment.checked_dsn.
     """
     if environment not in {"staging", "production"}:
         raise ValueError("Run through run_in_environment.py")

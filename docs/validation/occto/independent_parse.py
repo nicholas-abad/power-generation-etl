@@ -7,6 +7,10 @@ code), derives every stored observation, and writes:
 
   canonical.tsv.gz   one line per observation, in the load's column order and
                      sort order; its sha256 must equal parser A's digest
+  canonical_coal_plants.tsv.gz
+                     the same lines for plants with a coal observation anywhere
+                     (the rebuild's coal-plant cut, decided 2026-10-13); its
+                     sha256 must equal the payload's kept_canonical_sha256
   unit_month.csv     per stored month x unit: kWh, slots, gaps
   report.json        digest, counts, every exclusion, and the structural checks
                      the rebuild depends on
@@ -107,6 +111,20 @@ def select_leaves(archive_dir, certificate):
     return leaves
 
 
+def coal_plant_cut(canonical, out_path, plants):
+    """Copy the lines of ``plants`` (column 2) from ``canonical`` to ``out_path``;
+    returns their sha256 and count."""
+    digest, rows = hashlib.sha256(), 0
+    with gzip.open(canonical, "rt", encoding="utf-8", newline="") as src, \
+            gzip.open(out_path, "wt", encoding="utf-8", newline="") as out:
+        for line in src:
+            if line.split("\t", 2)[1] in plants:
+                digest.update(line.encode("utf-8"))
+                out.write(line)
+                rows += 1
+    return digest.hexdigest(), rows
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("archive_dir", type=Path)
@@ -131,6 +149,7 @@ def main():
     gaps_total = 0
     rejected, mismatches, excluded_days, duplicate_keys = [], [], [], []
     fuel_kwh = defaultdict(Decimal)
+    coal_plants, coal_rows, coal_kwh = set(), 0, Decimal(0)
 
     with gzip.open(a.out_dir / "canonical.tsv.gz", "wt", encoding="utf-8", newline="") as out:
         for day in sorted(by_day):
@@ -180,6 +199,10 @@ def main():
                         unit_month[um][1] += 1
                         fuels_per_unit_month[(month_of(ms), plant, unit)].add(ftype)
                         fuel_kwh[ftype] += value
+                        if ftype == "coal":
+                            coal_plants.add(plant)
+                            coal_rows += 1
+                            coal_kwh += value
                     day_total = str(it.get("dayElr") or "").replace(",", "").strip()
                     if day_total and not (day_total.isascii() and day_total.isdigit()):
                         rejected.append({"reason": "unreadable day total", "date": it["tgtDate"],
@@ -202,6 +225,9 @@ def main():
                 out.write(line)
             rows += len(obs)
 
+    coal_digest, coal_plant_rows = coal_plant_cut(
+        a.out_dir / "canonical.tsv.gz", a.out_dir / "canonical_coal_plants.tsv.gz", coal_plants)
+
     with open(a.out_dir / "unit_month.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["month", "plant_code", "plant", "unit", "fuel_type", "kwh", "slots", "gaps"])
@@ -223,9 +249,15 @@ def main():
         "unit_months_with_several_fuels": [[list(k), sorted(v)] for k, v in fuels_per_unit_month.items() if len(v) > 1],
         "kwh_by_fuel": {k: str(v) for k, v in sorted(fuel_kwh.items())},
         "certificate_digest": cert["digest"],
+        "coal_plants": len(coal_plants),
+        "coal_plants_digest": coal_digest,
+        "coal_plants_rows": coal_plant_rows,
+        "coal_rows": coal_rows,
+        "coal_kwh": str(coal_kwh),
     }
     (a.out_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(json.dumps({k: report[k] for k in ("rows", "digest", "gaps", "duplicate_key_count")}
+    print(json.dumps({k: report[k] for k in ("rows", "digest", "gaps", "duplicate_key_count",
+                                             "coal_plants", "coal_plants_rows", "coal_plants_digest")}
                      | {"rejected": len(rejected), "day_total_mismatches": len(mismatches),
                         "names_with_several_codes": len(report["names_with_several_codes"]),
                         "codes_with_several_names": len(report["codes_with_several_names"]),
