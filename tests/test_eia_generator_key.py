@@ -204,6 +204,30 @@ def test_loads_after_the_migration_store_the_key_and_revise_in_place(
     assert stored(conn) == [("6166", AUG_2025, "1", "MB1", "6166|1", 580.0)]
 
 
+def test_two_spellings_in_one_load_keep_the_later_row_and_the_rest_of_the_file(
+    database, tmp_path
+):
+    conn, db, dsn = database
+    assert migrate(dsn).returncode == 0
+    batch = tmp_path / "batch.jsonl"
+    batch.write_text(
+        "\n".join(
+            json.dumps(r)
+            for r in [
+                record("6166", "MB1", AUG_2025, 500.0),
+                record("50392", "TG 3", AUG_2025, 90.0),
+                record("6166", "1", AUG_2025, 580.0),
+            ]
+        )
+        + "\n"
+    )
+    assert db.insert_eia_jsonl_data(str(batch))[0]
+    assert stored(conn) == [
+        ("50392", AUG_2025, "TG3", "TG 3", "50392|TG3", 90.0),
+        ("6166", AUG_2025, "1", "1", "6166|1", 580.0),
+    ]
+
+
 def test_rollback_restores_eia_spelling(database):
     conn, _, dsn = database
     insert(conn, [record("6166", "MB1", AUG_2025), record("50392", "TG 3", JUL_2025)])
