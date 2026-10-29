@@ -8,9 +8,9 @@
 -- Apply before loading identified-unit files. Existing name-only loads remain
 -- compatible and must not overwrite known EICs. Stage before production.
 --
--- Rollback: remove the new view from the refresher, drop that view and the
--- new index/constraints/columns, and remove ledger 018. Observation values
--- and the legacy name key are unchanged by this migration itself.
+-- Rollback: schema/migrations/rollback/018_entsoe_unit_identifiers.sql (roll
+-- back ENTSO-E coal rebuilds first). Observation values and the legacy name
+-- key are unchanged by this migration itself.
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL lock_timeout = '5s';
