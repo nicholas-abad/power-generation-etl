@@ -514,3 +514,96 @@ def test_unnamed_units_never_merge_and_replays_keep_their_time_name(
     with connection.cursor() as cursor:
         cursor.execute("SELECT count(*) FROM ingestion.entsoe_generation_data")
         assert cursor.fetchone()[0] == 4
+
+
+def rollback(dsn):
+    return subprocess.run(
+        [
+            "psql",
+            "-X",
+            dsn,
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-f",
+            str(ROOT / "schema/migrations/rollback/018_entsoe_unit_identifiers.sql"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+
+def table_shape(connection):
+    """Columns, indexes, constraints, materialized views and ledger versions."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT array_agg(attname::text ORDER BY attname) FROM pg_attribute"
+            " WHERE attrelid='ingestion.entsoe_generation_data'::regclass AND attnum>0 AND NOT attisdropped"
+        )
+        columns = cursor.fetchone()[0]
+        cursor.execute(
+            "SELECT array_agg(indexname::text ORDER BY indexname) FROM pg_indexes"
+            " WHERE schemaname='ingestion' AND tablename='entsoe_generation_data'"
+        )
+        indexes = cursor.fetchone()[0]
+        cursor.execute(
+            "SELECT array_agg(conname::text ORDER BY conname) FROM pg_constraint"
+            " WHERE conrelid='ingestion.entsoe_generation_data'::regclass"
+        )
+        constraints = cursor.fetchone()[0]
+        cursor.execute("SELECT array_agg(matviewname::text ORDER BY matviewname) FROM pg_matviews")
+        views = cursor.fetchone()[0]
+        cursor.execute("SELECT array_agg(version ORDER BY version) FROM ingestion.schema_migrations")
+        versions = cursor.fetchone()[0]
+    return columns, indexes, constraints, views, versions
+
+
+def insert_row(connection, row):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"INSERT INTO ingestion.entsoe_generation_data ({','.join(row)}) VALUES ({','.join(['%s'] * len(row))})",
+            tuple(row.values()),
+        )
+
+
+def legacy_record(**changes):
+    row = record(**changes)
+    row.pop("unit_eic")
+    row.pop("production_unit_eic")
+    return row
+
+
+def test_rollback_returns_the_table_to_its_pre_018_shape_and_keeps_observations(entsoe_db):
+    connection, _, dsn = entsoe_db
+    insert_row(connection, legacy_record())
+    before = table_shape(connection)
+    migrate(dsn)
+    insert_row(connection, record(timestamp_ms=1551402000000))
+    result = rollback(dsn)
+    assert result.returncode == 0, result.stderr
+    assert "dropping the unit EICs of 1 rows" in result.stderr
+    assert table_shape(connection) == before
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT count(*), sum(generation_mw) FROM ingestion.entsoe_generation_data")
+        assert cursor.fetchone() == (2, 200.0)
+
+
+def test_rollback_refuses_while_a_rebuild_window_is_applied(entsoe_db):
+    connection, _, dsn = entsoe_db
+    migrate(dsn)
+    applied = table_shape(connection)
+    with connection.cursor() as cursor:
+        cursor.execute("CREATE TABLE ingestion.entsoe_coal_rebuild_months (state text NOT NULL)")
+        cursor.execute("INSERT INTO ingestion.entsoe_coal_rebuild_months VALUES ('applied'), ('rolled_back')")
+    result = rollback(dsn)
+    assert result.returncode != 0
+    assert "1 ENTSO-E rebuild windows are still applied" in result.stderr
+    assert table_shape(connection) == applied
+
+
+def test_018_applies_again_after_rollback(entsoe_db):
+    connection, _, dsn = entsoe_db
+    migrate(dsn)
+    applied = table_shape(connection)
+    assert rollback(dsn).returncode == 0
+    migrate(dsn)
+    assert table_shape(connection) == applied
