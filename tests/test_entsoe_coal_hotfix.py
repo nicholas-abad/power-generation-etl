@@ -185,11 +185,11 @@ def test_conflicting_aliases_in_one_batch_fail(pg):
 
 def test_other_country_and_fuel_are_unaffected(pg):
     conn, db = pg
-    insert(conn, record(country_code="PL"), record(psr_type="B04"))
+    insert(conn, record(country_code="ES"), record(psr_type="B04"))
     assert (
         upsert(
             db,
-            record(country_code="PL", minutes=15),
+            record(country_code="ES", minutes=15),
             record(psr_type="B04", minutes=15),
         )
         == 2
@@ -426,26 +426,35 @@ def test_repair_rejects_extra_alias_copy(pg):
 
 @pytest.fixture
 def pl_scope(monkeypatch):
+    # PL in scope but not yet rebuilt: the step before a rebuild cutover.
     monkeypatch.setattr(entsoe_coal, "COUNTRIES", frozenset({"CZ", "PL"}))
+    monkeypatch.setattr(entsoe_coal, "REBUILT", frozenset())
 
 
 def pl(name="Belchatow 1", minutes=60, mw=100, **kw):
     return record(name, minutes, mw, country_code="PL", **kw)
 
 
-def test_configured_scope_is_czech_only_until_surveyed():
-    assert entsoe_coal.COUNTRIES == {"CZ"}
-    # Reviewed identities may exist for countries not yet in scope (e.g. PL
+def es(name="As Pontes 1", minutes=60, mw=100, **kw):
+    """A country that stays outside the configured scopes."""
+    return record(name, minutes, mw, country_code="ES", **kw)
+
+
+def test_configured_scope_is_czech_and_the_nine_rebuilt_areas():
+    nine = {"BA", "BG", "DE_AMPRION", "GR", "HU", "IT", "PL", "RO", "XK"}
+    assert entsoe_coal.COUNTRIES == {"CZ"} | nine
+    assert entsoe_coal.REBUILT == nine
+    # Reviewed identities may exist for countries not yet in scope (e.g. ES
     # renames); they take effect only once the country is scoped.
-    assert {"CZ", "PL"} <= {a["country_code"] for a in entsoe_coal.ALIASES}
+    assert {"ES", "DE_TENNET"} <= {a["country_code"] for a in entsoe_coal.ALIASES}
 
 
 def test_source_period_coal_outside_scope_is_rejected():
     with pytest.raises(ValueError, match="outside the configured scopes"):
         check_coal_records(
-            [pl(resolution_source="xml_period", unit_eic="19W-PL-UNIT-0001")]
+            [es(resolution_source="xml_period", unit_eic="18W-ES-UNIT-0001")]
         )
-    check_coal_records([pl()])  # legacy files outside scope stay loadable
+    check_coal_records([es()])  # legacy files outside scope stay loadable
 
 
 def test_scoped_country_source_fixes_duration_and_old_files_cannot_revert(pg, pl_scope):
@@ -461,8 +470,8 @@ def test_scoped_country_source_fixes_duration_and_old_files_cannot_revert(pg, pl
 
 def test_unscoped_country_keeps_legacy_upsert(pg):
     conn, db = pg
-    insert(conn, pl(minutes=60))
-    assert upsert(db, pl(minutes=15)) == 1
+    insert(conn, es(minutes=60))
+    assert upsert(db, es(minutes=15)) == 1
     assert rows(conn)[0]["resolution_minutes"] == 15
 
 
@@ -523,11 +532,11 @@ def test_real_loader_rejects_out_of_scope_source_before_name_cleanup(
     monkeypatch.setattr(db, "_get_date_range_for_run", lambda *a: (None, None))
     monkeypatch.setattr(db, "insert_extraction_metadata", lambda **k: meta.append(k))
     path = tmp_path / "input.jsonl"
-    source = pl(
+    source = es(
         "Plant_Actual Consumption",
         psr_type="B05",
         resolution_source="xml_period",
-        unit_eic="19W-PL-UNIT-0001",
+        unit_eic="18W-ES-UNIT-0001",
     )
     path.write_text(json.dumps(source) + "\n")
     assert db.insert_entsoe_jsonl_data(str(path))[0] is False

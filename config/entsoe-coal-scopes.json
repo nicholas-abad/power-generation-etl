@@ -6,7 +6,26 @@
     "B05"
   ],
   "countries": [
-    "CZ"
+    "BA",
+    "BG",
+    "CZ",
+    "DE_AMPRION",
+    "GR",
+    "HU",
+    "IT",
+    "PL",
+    "RO",
+    "XK"
   ],
-  "rebuilt_countries": []
+  "rebuilt_countries": [
+    "BA",
+    "BG",
+    "DE_AMPRION",
+    "GR",
+    "HU",
+    "IT",
+    "PL",
+    "RO",
+    "XK"
+  ]
 }
