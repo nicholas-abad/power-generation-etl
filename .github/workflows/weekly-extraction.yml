@@ -249,7 +249,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: nicholas-abad/energy-extractors
-          ref: 09429001916488afd8522fd15af894e665db2fcd # audited Czech coal period parser
+          ref: 202e78e634f796685bd986a89f6b330a5ec82b17 # per-Period coal: CZ + nine rebuilt areas (energy-extractors #26)
           path: extractors
           token: ${{ secrets.EXTRACTORS_REPO_TOKEN }}
 
