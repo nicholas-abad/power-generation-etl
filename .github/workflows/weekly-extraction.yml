@@ -37,7 +37,7 @@ on:
           - 'Climate TRACE (global)'
           - 'GEM + crosswalk only'
       start_override:
-        description: 'Re-run window start (YYYY-MM-DD; ENTSO-E takes it to the day). Leave blank for default (latest in DB). An ENTSO-E repair that ends BEHIND continues with the reported first unfinished day here.'
+        description: 'Re-run window start (YYYY-MM-DD; ENTSO-E takes it to the day). Leave blank for default (latest in DB). An ENTSO-E repair that ends BEHIND continues with the reported first unfinished day here. Chile all fuels: one calendar year per dispatch (about 40 min), newest year first; a source=all dispatch with an older start runs it over the whole window.'
         required: false
         default: ''
       end_override:
@@ -677,8 +677,12 @@ jobs:
             psql -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
                  -v ON_ERROR_STOP=1 -tA -c "$1"
           }
-          applied=$(q "SELECT to_regclass('ingestion.schema_migrations') IS NOT NULL
-                       AND EXISTS (SELECT 1 FROM ingestion.schema_migrations WHERE version = '019')")
+          # Two queries: PostgreSQL resolves every table a query names before
+          # running it, so the ledger's existence is asked first, on its own.
+          applied=$(q "SELECT to_regclass('ingestion.schema_migrations') IS NOT NULL")
+          if [ "$applied" = "t" ]; then
+            applied=$(q "SELECT EXISTS (SELECT 1 FROM ingestion.schema_migrations WHERE version = '019')")
+          fi
           if [ "$applied" != "t" ]; then
             echo "migration 019 not applied: skipped"
             echo "applied=false" >> "$GITHUB_OUTPUT"

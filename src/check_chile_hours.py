@@ -37,6 +37,7 @@ Usage: uv run python src/check_chile_hours.py --start-date YYYY-MM-DD
 import argparse
 import sys
 from datetime import date, datetime, time, timedelta, timezone
+from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
 from loguru import logger
@@ -47,10 +48,19 @@ from get_latest_date import get_connection_url
 CHILE = ZoneInfo("America/Santiago")
 HOUR_MS = 3_600_000
 
-# Per --table: the stored table and the SQL expression naming a series in it.
+
+class CheckedTable(NamedTuple):
+    """A table the check reads (--table) and how it names a series."""
+
+    table_name: str
+    series_expression: (
+        str  # SQL naming one series: a plant, or a plant's unit technology
+    )
+
+
 TABLES = {
-    "coal": ("chile_generation_data", "plant"),
-    "all_fuels": (
+    "coal": CheckedTable("chile_generation_data", "plant"),
+    "all_fuels": CheckedTable(
         "chile_generation_all_fuels",
         "plant_key || ' ' || tipo_tecnologia || '/' || subtipo_tecnologia",
     ),
@@ -145,7 +155,7 @@ def main() -> int:
         if args.end_date
         else sys.maxsize
     )
-    table, series = TABLES[args.table]
+    table, series = TABLES[args.table].table_name, TABLES[args.table].series_expression
     try:
         with create_engine(get_connection_url()).connect() as conn:
             conn.execute(text("SET TRANSACTION READ ONLY"))
