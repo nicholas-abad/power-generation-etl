@@ -85,6 +85,19 @@ A failed plant-year is replayed by rerunning steps 1-2. Reconciliation fails on 
 plant-year that is missing, failed or covers too few days, on any mismatched day, and on any view
 group that differs from the table, so a partial year cannot pass.
 
+## Weekly job and backfill
+
+`extract-chile-all-fuels` in `weekly-extraction.yml` runs the procedure above every Sunday after the
+coal job (same API token, same concurrency group `coordinador-api`): extract with a 14-day lookback,
+load, refresh the pilot view, reconcile, then the mature-hour check per series
+(`check_chile_hours.py --table all_fuels`). It skips while migration 019 is not applied, and fails
+on an applied but empty table until the backfill has run.
+
+Backfill: one dispatch per calendar year, source `Chile all fuels (Coordinador)`,
+`start_override=YYYY-01-01`, `end_override=YYYY-12-31` (about 40 requests, 40 minutes), **newest year
+first** (2026, 2025 … 2019), so the newest stored day is current after the first dispatch and a
+Sunday run in between fetches only its usual window.
+
 ## Open methodology questions (Christine)
 
 - Do the newly found coal units (Tarapacá, Mejillones CTM1/CTM2, Bocamina I) count as coal?

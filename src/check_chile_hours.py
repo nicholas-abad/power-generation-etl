@@ -1,4 +1,5 @@
-"""Chile coal: every plant-hour of an extraction window is stored. Read-only.
+"""Chile: every plant-hour (coal table) or series-hour (all-fuel table) of an
+extraction window is stored. Read-only.
 
 The weekly run can store a Chile-local day before the Coordinador has published
 all of it (2026-10 audit: 623 Saturday plant-hours lost Jun-Aug 2026). The
@@ -15,17 +16,28 @@ mature window is still caught when later hours exist. The second occurrence of
 the hour repeated when Chile's clocks go back is allowed: the extractor
 localizes ambiguous hours to the first occurrence and drops the duplicate.
 
+--table all_fuels checks ingestion.chile_generation_all_fuels (migration 019)
+per series, (plant_key, tipo_tecnologia, subtipo_tecnologia): one plant-hour
+there is one row per unit technology, so an hour where the source has published
+the coal unit but not yet the gas unit is a missing hour. Each series spans its
+own first to last stored hour. That extractor keeps both copies of the repeated
+fall-back hour, so the second copy is required there. A series the source
+omits in idle hours (2019: TER TARAPACA's diesel unit, 72 stored hours in a
+span missing 5,687) fails the check by design; such a unit is decided case by
+case.
+
 A manual re-run (start_override) passes --report-only: history before 2022 has
 whole plant-days the source never had, which no re-run can fill.
 
 Exit codes: 0 ok (or --report-only), 1 mature hours missing, 2 configuration/connection error.
 Usage: uv run python src/check_chile_hours.py --start-date YYYY-MM-DD
-           [--end-date YYYY-MM-DD] [--now ISO] [--report-only]
+           [--end-date YYYY-MM-DD] [--table coal|all_fuels] [--now ISO] [--report-only]
 """
 
 import argparse
 import sys
 from datetime import date, datetime, time, timedelta, timezone
+from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
 from loguru import logger
@@ -35,6 +47,24 @@ from get_latest_date import get_connection_url
 
 CHILE = ZoneInfo("America/Santiago")
 HOUR_MS = 3_600_000
+
+
+class CheckedTable(NamedTuple):
+    """A table the check reads (--table) and how it names a series."""
+
+    table_name: str
+    series_expression: (
+        str  # SQL naming one series: a plant, or a plant's unit technology
+    )
+
+
+TABLES = {
+    "coal": CheckedTable("chile_generation_data", "plant"),
+    "all_fuels": CheckedTable(
+        "chile_generation_all_fuels",
+        "plant_key || ' ' || tipo_tecnologia || '/' || subtipo_tecnologia",
+    ),
+}
 
 
 def local_midnight_ms(day: date) -> int:
@@ -57,11 +87,13 @@ def find_gaps(
     start_ms: int,
     end_ms: int,
     mature_end: int,
+    allow_fall_back_repeat: bool = True,
 ) -> tuple[dict[str, list[int]], dict[str, list[int]]]:
-    """Missing hours per plant in [start_ms, end_ms): (mature, pending).
+    """Missing hours per series in [start_ms, end_ms): (mature, pending).
 
-    ``spans``: each plant's first and last stored hour in the whole table;
-    ``stored``: its stored hours in the window.
+    ``spans``: each series' first and last stored hour in the whole table;
+    ``stored``: its stored hours in the window. ``allow_fall_back_repeat``:
+    the second copy of the repeated fall-back hour may be absent (coal table).
     """
     mature: dict[str, list[int]] = {}
     pending: dict[str, list[int]] = {}
@@ -70,7 +102,9 @@ def find_gaps(
         hour = max(first, start_ms)
         hour += -hour % HOUR_MS
         while hour <= last and hour < end_ms:
-            if hour not in have and not is_fall_back_repeat(hour):
+            if hour not in have and not (
+                allow_fall_back_repeat and is_fall_back_repeat(hour)
+            ):
                 (mature if hour < mature_end else pending).setdefault(plant, []).append(
                     hour
                 )
@@ -99,6 +133,12 @@ def main() -> int:
         help="last day of the window (default: open)",
     )
     parser.add_argument(
+        "--table",
+        choices=sorted(TABLES),
+        default="coal",
+        help="coal: chile_generation_data per plant; all_fuels: chile_generation_all_fuels per series",
+    )
+    parser.add_argument(
         "--report-only", action="store_true", help="log missing hours, exit 0"
     )
     parser.add_argument(
@@ -115,6 +155,7 @@ def main() -> int:
         if args.end_date
         else sys.maxsize
     )
+    table, series = TABLES[args.table].table_name, TABLES[args.table].series_expression
     try:
         with create_engine(get_connection_url()).connect() as conn:
             conn.execute(text("SET TRANSACTION READ ONLY"))
@@ -122,15 +163,15 @@ def main() -> int:
                 plant: (first, last)
                 for plant, first, last in conn.execute(
                     text(
-                        "SELECT plant, MIN(timestamp_ms), MAX(timestamp_ms) "
-                        "FROM chile_generation_data GROUP BY plant"
+                        f"SELECT {series}, MIN(timestamp_ms), MAX(timestamp_ms) "
+                        f"FROM {table} GROUP BY 1"
                     )
                 )
             }
             stored: dict[str, set[int]] = {}
             for plant, ts in conn.execute(
                 text(
-                    "SELECT DISTINCT plant, timestamp_ms FROM chile_generation_data "
+                    f"SELECT DISTINCT {series}, timestamp_ms FROM {table} "
                     "WHERE timestamp_ms >= :s AND timestamp_ms < :e"
                 ),
                 {"s": start_ms, "e": end_ms},
@@ -140,18 +181,27 @@ def main() -> int:
         logger.error(f"Chile hour check could not run: {e}")
         return 2
 
-    mature, pending = find_gaps(spans, stored, start_ms, end_ms, mature_end_ms(now))
+    mature, pending = find_gaps(
+        spans,
+        stored,
+        start_ms,
+        end_ms,
+        mature_end_ms(now),
+        allow_fall_back_repeat=args.table == "coal",
+    )
     if pending:
         logger.info(f"pending (re-fetched by the next run): {describe(pending)}")
     if mature:
-        message = f"CHILE HOURS MISSING since {args.start_date}: {describe(mature)}"
+        message = (
+            f"CHILE HOURS MISSING ({table}) since {args.start_date}: {describe(mature)}"
+        )
         if args.report_only:
             logger.warning(message)
             return 0
         logger.error(message)
         return 1
     logger.info(
-        f"Chile hour check OK: every plant-hour from {args.start_date} to the mature cutoff is stored"
+        f"Chile hour check OK ({table}): every hour from {args.start_date} to the mature cutoff is stored"
     )
     return 0
 

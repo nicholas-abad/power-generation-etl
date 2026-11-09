@@ -33,10 +33,11 @@ on:
           - 'OE (Australia)'
           - 'OCCTO (Japan)'
           - 'Chile (Coordinador)'
+          - 'Chile all fuels (Coordinador)'
           - 'Climate TRACE (global)'
           - 'GEM + crosswalk only'
       start_override:
-        description: 'Re-run window start (YYYY-MM-DD; ENTSO-E takes it to the day). Leave blank for default (latest in DB). An ENTSO-E repair that ends BEHIND continues with the reported first unfinished day here.'
+        description: 'Re-run window start (YYYY-MM-DD; ENTSO-E takes it to the day). Leave blank for default (latest in DB). An ENTSO-E repair that ends BEHIND continues with the reported first unfinished day here. Chile all fuels: one calendar year per dispatch (about 40 min), newest year first; a source=all dispatch with an older start runs it over the whole window.'
         required: false
         default: ''
       end_override:
@@ -542,8 +543,13 @@ jobs:
     if: ${{ github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'Chile (Coordinador)' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    # Shared with extract-chile-all-fuels: both use CL_API_KEY (60 requests/hour
+    # per token) and each process throttles itself to 60/h, so two at once
+    # would exhaust the 429 retries of both. One group serializes them across
+    # runs too; GitHub keeps one job pending per group, and a third queued job
+    # cancels the pending one.
     concurrency:
-      group: extract-chile
+      group: coordinador-api
       cancel-in-progress: false
     steps:
       - name: Checkout ETL repo
@@ -632,6 +638,180 @@ jobs:
             extracted_data/*.jsonl
             extracted_data/logs/
             extracted_data/extraction_metadata_*.json
+          retention-days: 14
+
+  # ─────────────────────────────────────────────
+  # Chile (Coordinador) all fuels — every unit of the 19 plants that have had
+  # a coal unit, each with its own fuel label, into chile_generation_all_fuels
+  # (migration 019; grouped for the tracker by 026). Skipped until 019 is
+  # applied. Backfill: one calendar year per dispatch (start/end overrides),
+  # newest year first: about 40 requests a year at 60/h, and a timed-out
+  # extract loads nothing.
+  # ─────────────────────────────────────────────
+  extract-chile-all-fuels:
+    # After the coal job (same token); !cancelled(), not always(): a cancelled
+    # workflow must not start a three-hour extraction and database writes.
+    needs: [extract-chile]
+    if: ${{ !cancelled() && (github.event.inputs.source == '' || github.event.inputs.source == 'all' || github.event.inputs.source == 'Chile all fuels (Coordinador)') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    concurrency:
+      group: coordinador-api
+      cancel-in-progress: false
+    outputs:
+      loaded: ${{ steps.load.outputs.loaded }}
+    steps:
+      - name: Checkout ETL repo
+        uses: actions/checkout@v4
+
+      - name: Is migration 019 applied, and does the table hold rows?
+        id: guard
+        env:
+          PGPASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          PGSSLMODE: require
+          START_OVERRIDE: ${{ inputs.start_override }}
+        # A query error fails the step: it must never pass as "not applied".
+        run: |
+          set -euo pipefail
+          q() {
+            psql -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+                 -v ON_ERROR_STOP=1 -tA -c "$1"
+          }
+          # Two queries: PostgreSQL resolves every table a query names before
+          # running it, so the ledger's existence is asked first, on its own.
+          applied=$(q "SELECT to_regclass('ingestion.schema_migrations') IS NOT NULL")
+          if [ "$applied" = "t" ]; then
+            applied=$(q "SELECT EXISTS (SELECT 1 FROM ingestion.schema_migrations WHERE version = '019')")
+          fi
+          if [ "$applied" != "t" ]; then
+            echo "migration 019 not applied: skipped"
+            echo "applied=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "applied=true" >> "$GITHUB_OUTPUT"
+          rows=$(q "SELECT EXISTS (SELECT 1 FROM ingestion.chile_generation_all_fuels)")
+          if [ "$rows" != "t" ] && [ -z "$START_OVERRIDE" ]; then
+            # The latest stored date would be the 1970 fallback: 58 years.
+            echo "::error::chile_generation_all_fuels is empty: run the backfill (one year per dispatch, newest first)"
+            exit 1
+          fi
+
+      - name: Set up Python
+        if: steps.guard.outputs.applied == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        if: steps.guard.outputs.applied == 'true'
+        uses: astral-sh/setup-uv@v4
+
+      - name: Checkout extractors repo
+        if: steps.guard.outputs.applied == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: nicholas-abad/energy-extractors
+          path: extractors
+          token: ${{ secrets.EXTRACTORS_REPO_TOKEN }}
+
+      - name: Install dependencies
+        if: steps.guard.outputs.applied == 'true'
+        run: |
+          uv sync
+          cd extractors && uv sync --extra chile
+
+      - name: Resolve extraction window
+        if: steps.guard.outputs.applied == 'true'
+        id: latest
+        uses: ./.github/actions/resolve-window
+        with:
+          source: chile_all_fuels
+          start_override: ${{ inputs.start_override }}
+          end_override: ${{ inputs.end_override }}
+          lookback_days: '14'
+
+      - name: Extract Chile all-fuel data
+        if: steps.guard.outputs.applied == 'true'
+        env:
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: |
+          cd extractors
+          uv run energy-extract chile --all-fuels --plants coal-units \
+            --start-date "${{ steps.latest.outputs.start_date }}" \
+            --end-date "${{ steps.latest.outputs.end_date }}" \
+            --output ../extracted_data \
+            --log-level INFO || { rc=$?; [ "$rc" -eq 2 ] || exit "$rc"; }
+
+      - name: Load Chile all-fuel data into Neon
+        if: steps.guard.outputs.applied == 'true'
+        id: load
+        # Atomic per plant-year file. Every file is tried; `loaded` is set as
+        # soon as one non-empty file is stored, so refresh-views runs even when
+        # a later step fails this job.
+        run: |
+          set -uo pipefail
+          failed=0
+          for f in extracted_data/chile_all_fuels/parts/*.jsonl; do
+            [ -e "$f" ] || continue
+            echo "Loading $f..."
+            if uv run python src/database_management.py load-data chile_all_fuels "$f"; then
+              [ -s "$f" ] && echo "loaded=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "::error::load failed: $f"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - name: Refresh the all-fuel pilot view
+        if: steps.guard.outputs.applied == 'true'
+        # reconcile compares mv_chile_all_fuels_plant_monthly with the whole
+        # table; the all-views refresh in refresh-views skips this view.
+        run: uv run python src/refresh_views.py --source chile_all_fuels
+
+      - name: Reconcile the run's manifest with the stored rows
+        if: steps.guard.outputs.applied == 'true'
+        run: |
+          set -euo pipefail
+          plant_ids=$(jq -r '.plant_ids | join(",")' extracted_data/extraction_metadata_*.json)
+          uv run python src/check_chile_all_fuels.py reconcile \
+            extracted_data/chile_all_fuels/manifest.jsonl \
+            "${{ steps.latest.outputs.start_date }}" \
+            "${{ steps.latest.outputs.end_date }}" \
+            "$plant_ids"
+
+      - name: Fail on partial extraction
+        # Also after a failed reconcile, so the failed plant-years are printed.
+        if: ${{ !cancelled() && steps.guard.outputs.applied == 'true' }}
+        run: |
+          if [ -s extracted_data/failures.json ]; then
+            echo "::error::partial extraction — failed plant-years:"
+            cat extracted_data/failures.json
+            exit 1
+          fi
+
+      - name: Check every mature Chile series-hour is stored
+        if: steps.guard.outputs.applied == 'true'
+        # Per (plant, technology) series, the repeated fall-back hour included.
+        # A backfill (start_override) only reports: history before 2022 has
+        # plant-days the source never had.
+        run: |
+          uv run python src/check_chile_hours.py --table all_fuels \
+            --start-date "${{ steps.latest.outputs.start_date }}" \
+            --end-date "${{ steps.latest.outputs.end_date }}" \
+            ${{ inputs.start_override != '' && '--report-only' || '' }}
+
+      - name: Upload artifacts (on failure only)
+        if: failure() && steps.guard.outputs.applied == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: chile-all-fuels-extraction-${{ github.run_id }}
+          path: |
+            extracted_data/chile_all_fuels/parts/
+            extracted_data/chile_all_fuels/manifest.jsonl
+            extracted_data/logs/
+            extracted_data/extraction_metadata_*.json
+            extracted_data/failures.json
           retention-days: 14
 
   # ─────────────────────────────────────────────
@@ -913,8 +1093,8 @@ jobs:
     # revises history with ON CONFLICT DO UPDATE, so that is exactly what would
     # be missed). Side effect: a manual run for Climate TRACE alone now
     # refreshes ALL views (seconds to low minutes; well inside the timeout).
-    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-climatetrace]
-    if: ${{ always() && (needs.extract-eia.result == 'success' || needs.extract-ons.result == 'success' || needs.extract-entsoe.result == 'success' || needs.extract-npp.result == 'success' || needs.extract-oe.result == 'success' || needs.extract-occto.result == 'success' || needs.extract-chile.result == 'success' || needs.extract-climatetrace.result == 'success' || needs.extract-entsoe.outputs.loaded == 'true') }}
+    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-chile-all-fuels, extract-climatetrace]
+    if: ${{ always() && (needs.extract-eia.result == 'success' || needs.extract-ons.result == 'success' || needs.extract-entsoe.result == 'success' || needs.extract-npp.result == 'success' || needs.extract-oe.result == 'success' || needs.extract-occto.result == 'success' || needs.extract-chile.result == 'success' || needs.extract-chile-all-fuels.result == 'success' || needs.extract-climatetrace.result == 'success' || needs.extract-entsoe.outputs.loaded == 'true' || needs.extract-chile-all-fuels.outputs.loaded == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -1120,7 +1300,7 @@ jobs:
   # Notify on failure — create GitHub Issue
   # ─────────────────────────────────────────────
   notify-failure:
-    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-climatetrace, fetch-gem, rebuild-crosswalk, refresh-views, check-crosswalk-drift, check-dashboard-ro-surface, check-source-freshness, check-totals-drift]
+    needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-chile-all-fuels, extract-climatetrace, fetch-gem, rebuild-crosswalk, refresh-views, check-crosswalk-drift, check-dashboard-ro-surface, check-source-freshness, check-totals-drift]
     if: ${{ always() && contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     steps:
@@ -1136,6 +1316,7 @@ jobs:
               'extract-oe': '${{ needs.extract-oe.result }}',
               'extract-occto': '${{ needs.extract-occto.result }}',
               'extract-chile': '${{ needs.extract-chile.result }}',
+              'extract-chile-all-fuels': '${{ needs.extract-chile-all-fuels.result }}',
               'extract-climatetrace': '${{ needs.extract-climatetrace.result }}',
               'refresh-views': '${{ needs.refresh-views.result }}',
               'check-crosswalk-drift': '${{ needs.check-crosswalk-drift.result }}',

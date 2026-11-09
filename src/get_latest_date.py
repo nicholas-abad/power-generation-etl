@@ -40,6 +40,12 @@ SOURCE_CONFIG = {
     ),
     "occto": ("occto_generation_data", "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date"),
     "chile": ("chile_generation_data", "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date"),
+    # Empty until its backfill: the weekly job's guard fails on an empty table
+    # rather than extracting from FALLBACK_DATE.
+    "chile_all_fuels": (
+        "chile_generation_all_fuels",
+        "MAX(TO_TIMESTAMP(timestamp_ms / 1000))::date",
+    ),
 }
 
 FALLBACK_DATE = "1970-01-01"
