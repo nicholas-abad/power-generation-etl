@@ -1185,9 +1185,9 @@ class PowerGenerationDatabase:
                 "entsoe_generation_data",
                 ["timestamp_ms", "country_code", "psr_type", "plant_name"],
                 # TSOs re-submit corrected actuals with no fixed schedule; the
-                # weekly run re-fetches the last 7 stored days (the lookback in
-                # incremental_extract.py), so DO NOTHING silently froze every
-                # correction (2026-09 audit).
+                # weekly run re-fetches recent stored days (the last 2 always,
+                # 7 more when its time budget allows; incremental_extract.py),
+                # so DO NOTHING silently froze every correction (2026-09 audit).
                 update_columns=[
                     "generation_mw",
                     "fuel_type",

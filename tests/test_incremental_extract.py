@@ -230,17 +230,18 @@ class TestEntsoeLoop:
         self, ie, monkeypatch, tmp_path
     ):
         # 100 min per day: one 3-day chunk fits. Lookback first would redo the
-        # same stored days every week; new days first moves the latest day.
+        # same stored days every week; new days first moves the latest day
+        # (by one day here: the chunk also re-fetches the 2 unsettled days).
         latest = "2026-10-29"
-        for _ in range(2):
+        for expected in ("2026-10-30", "2026-10-31"):
             fake = _FakeEntsoe(ie, tmp_path, minutes_per_day=100)
             fake.install(monkeypatch, None, "2026-11-09", latest=latest)
             with pytest.raises(RuntimeError, match="BEHIND"):
                 ie.extract_entsoe()
             loaded = [e for e in fake.events if e.startswith("load")]
-            assert len(loaded) == 1 and "2026-10-30" <= loaded[0][12:22]
+            assert len(loaded) == 1
             latest = loaded[0][24:34]
-        assert latest == "2026-11-04"
+            assert latest == expected
 
     def test_a_first_chunk_over_budget_by_estimate_does_not_start(
         self, ie, monkeypatch, tmp_path
@@ -266,11 +267,47 @@ class TestEntsoeLoop:
     def test_lookback_skipped_for_time_only_warns(
         self, ie, monkeypatch, tmp_path, loguru_messages
     ):
-        # 3 new days at 90 min/day = 270 min; no lookback chunk fits after it.
+        # 2 unsettled + 1 new day at 90 min/day = 270 min; no lookback fits.
         fake = _FakeEntsoe(ie, tmp_path, minutes_per_day=90)
-        fake.install(monkeypatch, None, "2026-11-09", latest="2026-11-06")
+        fake.install(monkeypatch, None, "2026-11-09", latest="2026-11-08")
         assert ie.extract_entsoe() == 1
-        assert any("lookback chunks skipped" in m for m in loguru_messages)
+        assert any(
+            "lookback skipped for time: ['2026-10-31..2026-11-02'" in m
+            for m in loguru_messages
+        )
+
+    def test_the_newest_stored_days_are_refetched_before_the_lookback(
+        self, ie, monkeypatch, tmp_path
+    ):
+        # PR #146 review: the last stored days may be incomplete; as part of
+        # the lookback they ran last and a slow run could drop them for good.
+        fake = _FakeEntsoe(ie, tmp_path, minutes_per_day=1)
+        fake.install(monkeypatch, None, "2026-11-09", latest="2026-11-05")
+        ie.extract_entsoe()
+        assert [e for e in fake.events if e.startswith("extract")][:2] == [
+            "extract 2026-11-04..2026-11-06",
+            "extract 2026-11-07..2026-11-09",
+        ]
+
+    def test_an_error_mid_run_still_names_earlier_partial_chunks(
+        self, ie, monkeypatch, tmp_path, loguru_messages
+    ):
+        fake = _FakeEntsoe(
+            ie, tmp_path, minutes_per_day=1, exit_codes={"2026-10-01..2026-10-03": 2}
+        )
+        fake.install(monkeypatch, "2026-10-01", "2026-10-06")
+        loads = []
+
+        def failing_load(source, f):
+            loads.append(f.name)
+            f.unlink()
+            if len(loads) == 2:
+                raise RuntimeError("load failed")
+
+        monkeypatch.setattr(ie, "load_and_remove", failing_load)
+        with pytest.raises(RuntimeError, match="load failed"):
+            ie.extract_entsoe()
+        assert any("2026-10-01..2026-10-03" in m for m in loguru_messages)
 
     def test_partial_chunks_are_all_reported(self, ie, monkeypatch, tmp_path):
         fake = _FakeEntsoe(

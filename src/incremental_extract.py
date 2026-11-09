@@ -9,10 +9,10 @@ per-source MIN_START_DATE), then for each chunk: invokes the extractor
 binary directly, loads the produced JSONL into Neon, and removes it, so a
 run that stops early keeps every chunk it finished.
 
-ENTSO-E example: latest stored day 2026-11-05, run on 2026-11-09 → new days
-first (11-06..11-08, 11-09), then the 7-day lookback (10-30..11-01,
-11-02..11-04, 11-05), each loaded before the next starts, until the time
-budget runs out.
+ENTSO-E example: latest stored day 2026-11-05, run on 2026-11-09 → the 2
+newest stored days (may be incomplete) and the new days first (11-04..11-06,
+11-07..11-09), then the 7-day lookback (10-28..10-30, 10-31..11-02, 11-03),
+each loaded before the next starts, until the time budget runs out.
 
 Design: see /Users/nicholasabad/.claude/plans/effervescent-hatching-horizon.md
 """
@@ -199,7 +199,10 @@ ENTSOE_LOOKBACK_DAYS = 7
 ENTSOE_TIME_BUDGET_MINUTES = 320
 # Per-day estimate before the first chunk has been timed (Nov 2026: ~14).
 ENTSOE_INITIAL_MINUTES_PER_DAY = 15
-# A chunk that ended longer ago than this must produce rows.
+# The newest stored days may still be incomplete (TSOs publish late), and a
+# chunk that ended longer ago than this must produce rows. Without an
+# override these days are re-fetched with the new days, not in the lookback,
+# so a slow run cannot drop them (PR #146 review).
 ENTSOE_PUBLICATION_LAG_DAYS = 2
 
 
@@ -234,9 +237,9 @@ def _split_days(
 def entsoe_chunks(
     new_start: date, end: date, lookback_days: int, chunk_days: int
 ) -> list[DateChunk]:
-    """Chunks for one run: new days (new_start..end) oldest first, then the
-    ``lookback_days`` before new_start, oldest first. Nothing before
-    MIN_START_DATE."""
+    """Chunks for one run: days new_start..end oldest first (they must fit the
+    budget), then the ``lookback_days`` before new_start, oldest first (only if
+    time is left). Nothing before MIN_START_DATE."""
     floor = SOURCES["entsoe"].min_start_date
     new_start = max(new_start, floor)
     lookback_start = max(new_start - timedelta(days=lookback_days), floor)
@@ -254,7 +257,10 @@ def job_started_at() -> float:
     """Job start (epoch seconds) from JOB_STARTED_AT, set by the workflow's
     first step so setup time counts against the budget; now when unset."""
     value = os.environ.get("JOB_STARTED_AT")
-    return float(value) if value else _now()
+    if value:
+        return float(value)
+    logger.warning("JOB_STARTED_AT unset: the ENTSO-E budget counts from now")
+    return _now()
 
 
 def mark_entsoe_loaded() -> None:
@@ -269,8 +275,11 @@ def mark_entsoe_loaded() -> None:
 def extract_entsoe() -> int:
     today = date.today()
     override = bool(os.environ.get("START_OVERRIDE"))
+    new_start = window_start("entsoe")
+    if not override:
+        new_start -= timedelta(days=ENTSOE_PUBLICATION_LAG_DAYS)
     chunks = entsoe_chunks(
-        window_start("entsoe"),
+        new_start,
         window_end(today),
         lookback_days=0 if override else ENTSOE_LOOKBACK_DAYS,
         chunk_days=ENTSOE_CHUNK_DAYS,
@@ -285,76 +294,82 @@ def extract_entsoe() -> int:
     observed_minutes_per_day: list[float] = []
     partial: list[str] = []
     first_unfinished: date | None = None
-    lookback_skipped = 0
+    lookback_skipped: list[str] = []
     last_new_day: date | None = None
     n = 0
-    for chunk in chunks:
-        elapsed = (_now() - started) / 60
-        minutes_per_day = max(
-            observed_minutes_per_day, default=ENTSOE_INITIAL_MINUTES_PER_DAY
-        )
-        if elapsed + chunk.days * minutes_per_day > ENTSOE_TIME_BUDGET_MINUTES:
-            if chunk.is_lookback:
-                lookback_skipped += 1
-                continue
-            first_unfinished = chunk.start_date
-            break
+    try:
+        for chunk in chunks:
+            elapsed = (_now() - started) / 60
+            minutes_per_day = max(
+                observed_minutes_per_day, default=ENTSOE_INITIAL_MINUTES_PER_DAY
+            )
+            if elapsed + chunk.days * minutes_per_day > ENTSOE_TIME_BUDGET_MINUTES:
+                if chunk.is_lookback:
+                    lookback_skipped.append(chunk.label)
+                    continue
+                first_unfinished = chunk.start_date
+                break
 
-        gh_group(f"Extract ENTSOE {chunk.label}")
-        chunk_started = _now()
-        rc = run_extract(
-            [
-                str(EXTRACT_BIN),
-                "entsoe",
-                "--output",
-                str(EXTRACTED_DATA),
-                "--yes",
-                "--log-level",
-                "INFO",
-            ],
-            env={
-                **os.environ,
-                "ENTSOE_START_DATE": chunk.start_date.isoformat(),
-                "ENTSOE_END_DATE": chunk.end_date.isoformat(),
-            },
-        )
-        if rc == 2:
-            partial.append(chunk.label)
-        entsoe_files = sorted(EXTRACTED_DATA.glob("entsoe_*_etl.jsonl"))
-        for f in entsoe_files:
-            load_and_remove("entsoe", f)
-        if entsoe_files:
-            mark_entsoe_loaded()
-        elif rc == 0 and chunk.end_date < today - timedelta(
-            days=ENTSOE_PUBLICATION_LAG_DAYS
-        ):
-            # Zero rows from all areas for days long published means the
-            # extractor's output changed, not the source. Loaded chunks stay.
-            raise RuntimeError(
-                f"ENTSOE extraction for {chunk.label} succeeded but produced no "
-                f"entsoe_*_etl.jsonl in {EXTRACTED_DATA} — output naming may "
-                f"have changed"
+            gh_group(f"Extract ENTSOE {chunk.label}")
+            chunk_started = _now()
+            rc = run_extract(
+                [
+                    str(EXTRACT_BIN),
+                    "entsoe",
+                    "--output",
+                    str(EXTRACTED_DATA),
+                    "--yes",
+                    "--log-level",
+                    "INFO",
+                ],
+                env={
+                    **os.environ,
+                    "ENTSOE_START_DATE": chunk.start_date.isoformat(),
+                    "ENTSOE_END_DATE": chunk.end_date.isoformat(),
+                },
             )
-        elif rc == 0:
-            logger.warning(
-                f"No ENTSOE output for {chunk.label} (recent days — likely "
-                f"publication lag)"
-            )
-        gh_endgroup()
-        n += 1
-        if not chunk.is_lookback:
-            last_new_day = chunk.end_date
-        observed_minutes_per_day.append((_now() - chunk_started) / 60 / chunk.days)
+            if rc == 2:
+                partial.append(chunk.label)
+            entsoe_files = sorted(EXTRACTED_DATA.glob("entsoe_*_etl.jsonl"))
+            for f in entsoe_files:
+                load_and_remove("entsoe", f)
+            if entsoe_files:
+                mark_entsoe_loaded()
+            elif rc == 0 and chunk.end_date < today - timedelta(
+                days=ENTSOE_PUBLICATION_LAG_DAYS
+            ):
+                # Zero rows from all areas for days long published means the
+                # extractor's output changed, not the source. Loaded chunks stay.
+                raise RuntimeError(
+                    f"ENTSOE extraction for {chunk.label} succeeded but produced no "
+                    f"entsoe_*_etl.jsonl in {EXTRACTED_DATA} — output naming may "
+                    f"have changed"
+                )
+            elif rc == 0:
+                logger.warning(
+                    f"No ENTSOE output for {chunk.label} (recent days — likely "
+                    f"publication lag)"
+                )
+            gh_endgroup()
+            n += 1
+            if not chunk.is_lookback:
+                last_new_day = chunk.end_date
+            observed_minutes_per_day.append((_now() - chunk_started) / 60 / chunk.days)
+    except Exception:
+        if partial:
+            logger.error(f"ENTSOE PARTIAL chunks before the error: {partial}")
+        raise
 
     logger.info(
         f"ENTSOE STATUS: {n} chunks done; new days done through "
         f"{last_new_day or 'none'}; first unfinished day "
-        f"{first_unfinished or 'none'}; lookback chunks skipped {lookback_skipped}"
+        f"{first_unfinished or 'none'}; lookback chunks skipped {len(lookback_skipped)}"
     )
     if lookback_skipped:
         logger.warning(
-            f"ENTSOE: {lookback_skipped} lookback chunks skipped for time; late "
-            f"corrections in those days are picked up by a later run"
+            f"ENTSOE: lookback skipped for time: {lookback_skipped}. Late "
+            f"corrections in those days are not re-fetched automatically; "
+            f"backfill them with start_override/end_override if needed"
         )
     problems = []
     if first_unfinished:
