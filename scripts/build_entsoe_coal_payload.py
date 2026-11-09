@@ -9,6 +9,11 @@ to a source observation is its database name:
 - an unnamed series takes the name its EIC has in the reviewed identity table,
   else the stored name the country's identity map links to that EIC
   (an exact name match); otherwise it is excluded and listed in the manifest.
+Fuel exceptions (config/entsoe-fuel-exceptions.json) are applied first, keyed
+on (unit EIC, PSR, observation month), before any name rule: an `exclude`
+record moves the unit-day to `excluded` with its exception id; a
+`count_as_coal` record's listed non-coal series is written as its counted PSR
+and fuel, and listed under `relabelled`. Digests keep the source PSR.
 Each month's per-unit observation digests must equal the certified ones
 (`certify_entsoe_coal_source.observation_line`), and both unique keys must hold
 within the payload. Output is byte-identical for the same inputs.
@@ -35,8 +40,14 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "src"))
-from audit_entsoe_coal_history import FUEL, require  # noqa: E402
+from audit_entsoe_coal_history import (  # noqa: E402
+    COAL,
+    FUEL,
+    coal_and_listed_series,
+    require,
+)
 from certify_entsoe_coal_source import observation_line  # noqa: E402
+import entsoe_fuel_exceptions  # noqa: E402
 import entsoe_names  # noqa: E402
 
 COLUMNS = (
@@ -82,11 +93,15 @@ def build_month(args):
         run_id,
         created_at_ms,
         out_dir,
+        records,
     ) = args
     from energy_extractors.entsoe.periods import parse_coal_periods
 
-    rows, lines = [], defaultdict(list)
+    rows, lines, written = [], defaultdict(list), set()
     excluded = defaultdict(lambda: {"observations": 0, "mwh": D(0)})
+    relabelled = defaultdict(lambda: {"observations": 0, "mwh": D(0)})
+    matched = set()
+    pairs = entsoe_fuel_exceptions.count_as_coal_pairs(country, month, records)
     for entry in entries:
         body = gzip.decompress(
             (
@@ -98,17 +113,27 @@ def build_month(args):
             f"Source hash mismatch {entry['day']} {entry['psr']}",
         )
         parsed, _ = parse_coal_periods(
-            body,
+            coal_and_listed_series(body, pairs) if pairs else body,
             country,
             domain,
             entry["start"],
             entry["end"],
-            {entry["psr"]},
+            {entry["psr"]} | {psr for psr, _ in pairs},
             include_unnamed=True,
         )
         for r in parsed:
+            if (
+                r["psr_type"] not in COAL
+                and (r["psr_type"], r["unit_eic"]) not in pairs
+            ):
+                continue
             source_name = r["plant_name"]
             eic = r["unit_eic"]
+            key = (r["timestamp_ms"], eic)
+            # A listed non-coal series arrives in every request PSR's response.
+            if r["psr_type"] not in COAL and key in written:
+                continue
+            written.add(key)
             lines[eic].append(
                 observation_line(
                     r["timestamp_ms"],
@@ -120,11 +145,29 @@ def build_month(args):
                     source_name,
                 )
             )
+            mwh = D(mw_text(r["generation_mw"])) * r["resolution_minutes"] / 60
+            psr, fuel = r["psr_type"], r["fuel_type"]
+            exception = entsoe_fuel_exceptions.matching(
+                country,
+                psr,
+                entsoe_fuel_exceptions.utc_month(r["timestamp_ms"]),
+                eic,
+                records=records,
+            )
+            if exception:
+                matched.add(exception.id)
+            if exception and exception.treatment == "exclude":
+                gap = excluded[(eic, psr, entry["day"], exception.id)]
+                gap["observations"] += 1
+                gap["mwh"] += mwh
+                continue
+            if exception:
+                psr, fuel = exception.counted_psr, FUEL[exception.counted_psr]
             reviewed = units.get(eic)
             if reviewed:
                 require(
-                    reviewed["psr_type"] == r["psr_type"],
-                    f"{eic} arrives as {r['psr_type']}, reviewed as {reviewed['psr_type']}",
+                    reviewed["psr_type"] == psr,
+                    f"{eic} arrives as {psr}, reviewed as {reviewed['psr_type']}",
                 )
                 require(
                     source_name is None or source_name in reviewed["source_names"],
@@ -136,20 +179,24 @@ def build_month(args):
             elif eic in identity_names:
                 name = identity_names[eic]
             else:
-                gap = excluded[(eic, r["psr_type"], entry["day"])]
+                gap = excluded[(eic, psr, entry["day"], None)]
                 gap["observations"] += 1
-                gap["mwh"] += (
-                    D(mw_text(r["generation_mw"])) * r["resolution_minutes"] / 60
-                )
+                gap["mwh"] += mwh
                 continue
-            require(r["fuel_type"] == FUEL[r["psr_type"]], "Unexpected fuel label")
+            require(fuel == FUEL[psr], "Unexpected fuel label")
+            if exception:
+                # Only rows actually written: an unnamed series left out above
+                # is listed under excluded, not here.
+                tally = relabelled[(exception.id, eic)]
+                tally["observations"] += 1
+                tally["mwh"] += mwh
             rows.append(
                 (
                     r["timestamp_ms"],
                     country,
-                    r["psr_type"],
+                    psr,
                     name,
-                    r["fuel_type"],
+                    fuel,
                     "Actual Aggregated",
                     mw_text(r["generation_mw"]),
                     r["resolution_minutes"],
@@ -193,8 +240,21 @@ def build_month(args):
                 "day": d,
                 "observations": g["observations"],
                 "mwh": str(g["mwh"]),
+                **({"exception_id": x} if x else {}),
             }
-            for (e, p, d), g in sorted(excluded.items())
+            for (e, p, d, x), g in sorted(
+                excluded.items(), key=lambda i: tuple(str(v) for v in i[0])
+            )
+        ],
+        "fuel_exceptions_matched": sorted(matched),
+        "relabelled": [
+            {
+                "exception_id": x,
+                "unit_eic": e,
+                "observations": g["observations"],
+                "mwh": str(g["mwh"]),
+            }
+            for (x, e), g in sorted(relabelled.items())
         ],
     }
 
@@ -204,6 +264,12 @@ def build(
 ):
     certified = json.loads(certified_path.read_text())
     country = certified["country"]
+    records = entsoe_fuel_exceptions.exceptions()
+    if any(r.area == country for r in records):
+        require(
+            certified.get("fuel_exceptions_sha256") == entsoe_fuel_exceptions.sha256(),
+            "The fuel exceptions changed since certification: re-certify",
+        )
     require(
         archive.name == country, "Archive and certification are for different countries"
     )
@@ -259,6 +325,7 @@ def build(
             run_id,
             created_at_ms,
             str(out_dir),
+            records,
         )
         for month, month_entries in sorted(by_month.items())
     ]
@@ -267,6 +334,20 @@ def build(
     else:
         with ProcessPoolExecutor(workers) as pool:
             months = list(pool.map(build_month, jobs))
+    # A record in the window that matched nothing is a mistyped area, EIC or
+    # month range: the rebuild would silently keep or lose that unit.
+    applied = {i for m in months for i in m["fuel_exceptions_matched"]}
+    last_month = (date.fromisoformat(certified["end"]) - timedelta(days=1)).isoformat()[
+        :7
+    ]
+    for record in entsoe_fuel_exceptions.overlapping(
+        country, certified["start"][:7], last_month, records
+    ):
+        require(
+            record.id in applied,
+            f"Fuel exception {record.id} matched no row in the payload window: "
+            "check its area, unit EIC and months",
+        )
     for month in months:
         cert = sum(
             (
@@ -301,6 +382,7 @@ def build(
             "identity_map_sha256": hashlib.sha256(
                 identity_path.read_bytes()
             ).hexdigest(),
+            "fuel_exceptions_sha256": entsoe_fuel_exceptions.sha256(),
             "extractor_commit": certified["extractor_commit"],
         },
         "months": months,

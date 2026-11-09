@@ -21,7 +21,22 @@ SPEC = importlib.util.spec_from_file_location(
 )
 CERTIFY = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CERTIFY)
-from audit_entsoe_coal_history import FUEL, independent_day, ms  # noqa: E402
+from audit_entsoe_coal_history import COAL, FUEL, independent_day, ms  # noqa: E402
+
+# The stand-in extractor's fuel labels: coal plus gas, for listed series.
+EXTRACTOR_FUEL = {**FUEL, "B04": "Fossil Gas"}
+
+
+class _NonCoalOf:
+    """Accepts every non-coal series of the requested PSRs, as the real
+    parser does; the certifier then keeps the listed EICs only."""
+
+    def __init__(self, psrs):
+        self.psrs = set(psrs) - COAL
+
+    def __contains__(self, pair):
+        return pair[0] in self.psrs
+
 
 DOMAIN = "10YPL-AREA-----S"
 UNIT = "19W000000000095U"
@@ -87,7 +102,12 @@ def extractor(monkeypatch):
         xml, country, domain, start, end, psrs, include_unnamed=False
     ):
         observations, _, _ = independent_day(
-            xml, ms(start), ms(end), domain, include_unnamed=include_unnamed
+            xml,
+            ms(start),
+            ms(end),
+            domain,
+            include_unnamed=include_unnamed,
+            listed_series=_NonCoalOf(psrs),
         )
         rows = [
             {
@@ -100,7 +120,7 @@ def extractor(monkeypatch):
                 "production_unit_eic": parent,
                 "data_type": "Actual Aggregated",
                 "resolution_source": "xml_period",
-                "fuel_type": FUEL[psr],
+                "fuel_type": EXTRACTOR_FUEL[psr],
                 "country_code": country,
             }
             for (ts, eic), (psr, name, power, minutes, parent) in observations.items()
@@ -111,10 +131,13 @@ def extractor(monkeypatch):
 
     periods = types.ModuleType("energy_extractors.entsoe.periods")
     periods.parse_coal_periods = parse_coal_periods
+    constants = types.ModuleType("energy_extractors.entsoe.constants")
+    constants.PSR_TO_FUEL_TYPE = EXTRACTOR_FUEL
     for name, module in [
         ("energy_extractors", types.ModuleType("energy_extractors")),
         ("energy_extractors.entsoe", types.ModuleType("energy_extractors.entsoe")),
         ("energy_extractors.entsoe.periods", periods),
+        ("energy_extractors.entsoe.constants", constants),
     ]:
         monkeypatch.setitem(sys.modules, name, module)
     return state
@@ -128,8 +151,8 @@ def entries(root):
 
 def test_matching_parsers_certify_with_decimal_energy(tmp_path, extractor):
     root = archive(tmp_path)
-    day, psr, observations, _ = CERTIFY.certify_request(
-        (str(root), entries(root)[0], "PL", DOMAIN)
+    day, psr, observations, _, _ = CERTIFY.certify_request(
+        (str(root), entries(root)[0], "PL", DOMAIN, ())
     )
     assert len(observations) == 2
     assert sum(v[2] * v[3] / 60 for v in observations.values()) == Decimal("300")
@@ -149,7 +172,7 @@ def test_parser_disagreement_fails_certification(tmp_path, extractor, mutate):
     root = archive(tmp_path)
     extractor["mutate"] = mutate
     with pytest.raises(ValueError, match="disagrees with extractor"):
-        CERTIFY.certify_request((str(root), entries(root)[0], "PL", DOMAIN))
+        CERTIFY.certify_request((str(root), entries(root)[0], "PL", DOMAIN, ()))
 
 
 def test_tampered_archive_body_fails(tmp_path, extractor):
@@ -158,7 +181,7 @@ def test_tampered_archive_body_fails(tmp_path, extractor):
         gzip.compress(document(((1, "100"), (2, "999"))))
     )
     with pytest.raises(ValueError, match="hash mismatch"):
-        CERTIFY.certify_request((str(root), entries(root)[0], "PL", DOMAIN))
+        CERTIFY.certify_request((str(root), entries(root)[0], "PL", DOMAIN, ()))
 
 
 def test_incomplete_or_failed_inventory_fails(tmp_path):
@@ -212,7 +235,7 @@ def test_tampered_no_data_answer_fails(tmp_path):
 
 
 def certified(observations, day="2024-03-01"):
-    return CERTIFY.summarize([(day, "B02", observations, {})])
+    return CERTIFY.summarize([(day, "B02", observations, {}, {})])
 
 
 def test_swapped_readings_keep_totals_but_change_the_digest():
@@ -225,8 +248,8 @@ def test_swapped_readings_keep_totals_but_change_the_digest():
         (one, UNIT): ("B02", "Belchatow 2", Decimal("20"), 60, None),
         (two, UNIT): ("B02", "Belchatow 2", Decimal("10"), 60, None),
     }
-    (ra,), _, _, _ = certified(a)
-    (rb,), _, _, _ = certified(b)
+    (ra,), _, _, _, _ = certified(a)
+    (rb,), _, _, _, _ = certified(b)
     assert (
         (ra["observations"], ra["mwh"]) == (rb["observations"], rb["mwh"]) == (2, "30")
     )
@@ -241,9 +264,9 @@ def test_observation_line_is_a_fixed_serialization():
 
 def test_unnamed_series_is_certified_and_listed(tmp_path, extractor):
     root = archive(tmp_path, body=document(name=""))
-    result = CERTIFY.certify_request((str(root), entries(root)[0], "PL", DOMAIN))
+    result = CERTIFY.certify_request((str(root), entries(root)[0], "PL", DOMAIN, ()))
     assert {v[1] for v in result[2].values()} == {None}
-    rows, unnamed, counters, count = CERTIFY.summarize([result])
+    rows, unnamed, counters, count, _ = CERTIFY.summarize([result])
     assert count == 2 and rows[0]["names"] == []
     assert dict(unnamed) == {
         (UNIT, "B02", "2024-03-01"): {"observations": 2, "mwh": Decimal("300")}

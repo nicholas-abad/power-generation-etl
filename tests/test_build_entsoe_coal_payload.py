@@ -34,11 +34,11 @@ SPEC.loader.exec_module(PAYLOAD)
 
 def certify(root, path):
     results = [
-        CERTIFY.certify_request((str(root), e, "PL", DOMAIN))
+        CERTIFY.certify_request((str(root), e, "PL", DOMAIN, ()))
         for e in entries(root)
         if e["status"] == "ok"
     ]
-    rows, unnamed, counters, count = CERTIFY.summarize(results)
+    rows, unnamed, counters, count, _ = CERTIFY.summarize(results)
     report = {
         "country": "PL",
         "domain": DOMAIN,

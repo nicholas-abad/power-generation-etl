@@ -7,8 +7,9 @@ docs/ENTSOE_COAL_REBUILD.md.
 
 - plan (default, writes nothing persistent): per window, the stored rows'
   count, MWh and server-side hash; blocking findings (stored rows in coal PSRs
-  outside the manifest, unit/time key collisions with retained rows, a country
-  not configured as rebuilt). The report's plan_sha256 must be passed to apply
+  outside the manifest, unit/time key collisions with retained rows, retained
+  rows of a unit the payload relabels as coal, a country not configured as
+  rebuilt). The report's plan_sha256 must be passed to apply
   and rollback.
 - apply: every pending month must match the approved plan before the first
   write; per window, under the table lock, move the stored rows to the backup,
@@ -42,6 +43,7 @@ import subprocess
 import psycopg2
 
 import entsoe_coal
+import entsoe_fuel_exceptions
 from refresh_views import DAILY_WORK_MEM, installed_migration_views
 from run_in_environment import checked_dsn
 
@@ -278,6 +280,60 @@ def collisions(cursor, psrs):
     return cursor.fetchone()[0]
 
 
+def relabelled_units(manifest):
+    """(unit EICs, reviewed names) of the fuel exceptions the payload relabels.
+
+    Also binds the payload to today's exception list, whether it relabels,
+    excludes or neither: a payload records the list's sha256 and must match it;
+    an older payload without it is accepted only while the list has no record
+    for its country.
+    """
+    current = entsoe_fuel_exceptions.exceptions()
+    recorded = manifest["inputs"].get("fuel_exceptions_sha256")
+    if recorded is None:
+        require(
+            not any(r.area == manifest["country"] for r in current),
+            "The payload predates config/entsoe-fuel-exceptions.json, which now "
+            f"has records for {manifest['country']}: rebuild the payload",
+        )
+    else:
+        require(
+            recorded == entsoe_fuel_exceptions.sha256(),
+            "config/entsoe-fuel-exceptions.json changed since the payload was built",
+        )
+    ids = {
+        item["exception_id"]
+        for month in manifest["months"]
+        for item in month.get("relabelled", [])
+    }
+    records = {r.id: r for r in current}
+    require(
+        ids <= set(records), f"Unknown fuel exceptions {sorted(ids - set(records))}"
+    )
+    return (
+        sorted({records[i].unit_eic for i in ids}),
+        sorted({name for i in ids for name in records[i].reviewed_names}),
+    )
+
+
+def relabel_conflicts(cursor, psrs, eics, names):
+    """Retained rows (outside the deletion PSRs) at the times of a relabelled
+    unit's payload rows: the same EIC, or no EIC under one of its reviewed
+    names. Weekly legacy rows (e.g. B04 "Nord 2 T20") carry no EIC, so an EIC
+    check alone would let them double-count the unit."""
+    if not eics:
+        return 0
+    cursor.execute(
+        f"SELECT count(*) FROM _rebuild_payload p JOIN {TABLE} t"
+        " ON t.country_code=p.country_code AND t.timestamp_ms=p.timestamp_ms"
+        " WHERE p.unit_eic = ANY(%s) AND NOT (t.psr_type = ANY(%s))"
+        " AND (t.unit_eic = p.unit_eic"
+        " OR (t.unit_eic IS NULL AND t.plant_name = ANY(%s)))",
+        (eics, psrs, names),
+    )
+    return cursor.fetchone()[0]
+
+
 def etl_commit(root=Path(__file__).resolve().parents[1]):
     """The ETL checkout's commit, or None if unknown or it has local changes."""
     here = str(root)
@@ -309,13 +365,17 @@ def plan(connection, manifest, manifest_sha, windows, target):
                 (country, psrs),
             )
             other_psrs = dict(cursor.fetchall())
-            report_windows, clashes = [], []
+            eics, names = relabelled_units(manifest)
+            report_windows, clashes, relabel = [], [], []
             for window in windows:
                 stage(cursor, window)
                 state = window_state(cursor, manifest, window)
                 clash = collisions(cursor, psrs)
                 if clash:
                     clashes.append({"month": window["month"], "rows": clash})
+                conflict = relabel_conflicts(cursor, psrs, eics, names)
+                if conflict:
+                    relabel.append({"month": window["month"], "rows": conflict})
                 report_windows.append(
                     {
                         "month": window["month"],
@@ -350,6 +410,10 @@ def plan(connection, manifest, manifest_sha, windows, target):
         "blocking": {
             "stored_rows_in_other_coal_psrs": other_psrs,
             "unit_time_collisions": clashes,
+            # A unit counted as coal must not keep its source-PSR rows beside
+            # the relabelled payload; they are removed in their own reviewed
+            # step, never by widening this rebuild's delete scope.
+            "retained_rows_conflicting_with_relabel": relabel,
             # The weekly path must already write source-period rows with
             # canonical names and reject legacy rows for this country.
             "country_not_configured_as_rebuilt": [country] if not_rebuilt else [],
@@ -608,6 +672,10 @@ def apply_window(cursor, manifest, window, expected):
     require(
         collisions(cursor, manifest["psrs"]) == 0,
         f"{window['month']}: unit/time key held by a retained row",
+    )
+    require(
+        relabel_conflicts(cursor, manifest["psrs"], *relabelled_units(manifest)) == 0,
+        f"{window['month']}: a retained row of a relabelled unit appeared since the plan",
     )
     cursor.execute(
         f"WITH moved AS (DELETE FROM {TABLE} WHERE {WHERE} RETURNING id, {COLS})"

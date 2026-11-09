@@ -35,6 +35,7 @@ from entsoe_coal import (
     source_coal,
 )
 from entsoe_identity import prepare_record as prepare_entsoe_record
+from entsoe_fuel_exceptions import filtered_on_load as fuel_exception_on_load
 
 # ONS natural key since migration 020 (uq_ons_plant_hour).
 ONS_PLANT_HOUR = "timestamp_ms, COALESCE(NULLIF(ons_plant_id, ''), 'name:' || plant)"
@@ -850,6 +851,7 @@ class PowerGenerationDatabase:
             with open(jsonl_file_path, "r") as f:
                 line_num = 0
                 consumption_skipped = 0
+                fuel_exception_drops: dict[str, int] = {}
                 for line_num, line in enumerate(f, 1):
                     if not line.strip():
                         continue
@@ -871,9 +873,7 @@ class PowerGenerationDatabase:
                             f"Line {line_num}: ENTSO-E row carries unit identity "
                             "data but no unit EIC"
                         )
-                    if has_eic:
-                        record = prepare_entsoe_record(record)
-                    else:
+                    if not has_eic:
                         for key in identity_columns:
                             record.pop(key, None)
 
@@ -944,6 +944,16 @@ class PowerGenerationDatabase:
 
                     # Identified XML names are exact source text, never flattened labels.
                     if has_eic:
+                        # Before the identity check: a listed source-PSR row of
+                        # a unit reviewed under its counted coal PSR would fail
+                        # it, though the row is meant to be dropped.
+                        exception = fuel_exception_on_load(record)
+                        if exception:
+                            fuel_exception_drops[exception.id] = (
+                                fuel_exception_drops.get(exception.id, 0) + 1
+                            )
+                            continue
+                        record = prepare_entsoe_record(record)
                         batches[True].append(record)
                         if len(batches[True]) >= batch_size:
                             flush(True, line_num)
@@ -975,6 +985,13 @@ class PowerGenerationDatabase:
                                 break
                     record["plant_name"] = plant_name
 
+                    # After name cleanup: legacy rows match a reviewed name.
+                    exception = fuel_exception_on_load(record)
+                    if exception:
+                        fuel_exception_drops[exception.id] = (
+                            fuel_exception_drops.get(exception.id, 0) + 1
+                        )
+                        continue
                     batches[False].append(record)
                     if len(batches[False]) >= batch_size:
                         flush(False, line_num)
@@ -987,6 +1004,11 @@ class PowerGenerationDatabase:
                 logger.info(
                     f"Dropped {consumption_skipped:,} 'Actual Consumption' "
                     f"records (generation table stores 'Actual Aggregated' only)"
+                )
+            for exception_id, dropped in sorted(fuel_exception_drops.items()):
+                logger.info(
+                    f"Dropped {dropped:,} rows under fuel exception {exception_id} "
+                    "(config/entsoe-fuel-exceptions.json)"
                 )
 
             # Create aggregate validation report
