@@ -16,6 +16,7 @@ refresh treats as an error rather than letting a join drop the energy.
 from functools import lru_cache
 import json
 from pathlib import Path
+from typing import NamedTuple
 
 from sqlalchemy import text
 
@@ -26,12 +27,24 @@ TABLE = "ingestion.fuel_groups"
 LABEL_COLUMNS = {"CHILE": ("ingestion.chile_generation_all_fuels", "fuel_type")}
 
 
-def parse(document: dict) -> list[tuple[str, str, str | None, str | None]]:
-    """(source, label, group or None, exclusion reason or None) rows; raises on
-    an unknown group, a label both grouped and excluded, or an empty reason."""
+class FuelMapping(NamedTuple):
+    """One source label: its reporting group, or its exclusion and why."""
+
+    source_system: str
+    source_label: str
+    fuel_group: str | None
+    excluded_reason: str | None
+
+
+def parse(document: dict) -> list[FuelMapping]:
+    """The list's mappings; raises on an unknown key, an unknown group, a label
+    both grouped and excluded, or an empty reason."""
     groups = document["groups"]
     rows = []
     for source, entry in document["sources"].items():
+        unknown = set(entry) - {"grouped", "excluded"}
+        if unknown:
+            raise ValueError(f"{source}: unknown keys {sorted(unknown)}")
         grouped, excluded = entry.get("grouped", {}), entry.get("excluded", {})
         both = set(grouped) & set(excluded)
         if both:
@@ -41,23 +54,25 @@ def parse(document: dict) -> list[tuple[str, str, str | None, str | None]]:
         for label, group in grouped.items():
             if group not in groups:
                 raise ValueError(f"{source} {label!r}: unknown group {group!r}")
-            rows.append((source, label, group, None))
+            rows.append(FuelMapping(source, label, group, None))
         for label, reason in excluded.items():
             if not reason:
                 raise ValueError(f"{source} {label!r}: an exclusion needs a reason")
-            rows.append((source, label, None, reason))
+            rows.append(FuelMapping(source, label, None, reason))
     return rows
 
 
 @lru_cache(maxsize=1)
-def rows() -> tuple[tuple[str, str, str | None, str | None], ...]:
+def rows() -> tuple[FuelMapping, ...]:
     """The validated list, read once per process."""
     return tuple(parse(json.loads(PATH.read_text())))
 
 
 def sync(conn) -> int:
     """Rewrite ingestion.fuel_groups from the file in the caller's transaction
-    (a SQLAlchemy connection)."""
+    (a SQLAlchemy connection). The lock makes a second, overlapping refresh
+    wait instead of failing on the primary key."""
+    conn.execute(text(f"LOCK TABLE {TABLE} IN EXCLUSIVE MODE"))
     conn.execute(text(f"DELETE FROM {TABLE}"))
     conn.execute(
         text(
@@ -65,8 +80,13 @@ def sync(conn) -> int:
             " VALUES (:source, :label, :fuel_group, :reason)"
         ),
         [
-            {"source": s, "label": label, "fuel_group": group, "reason": reason}
-            for s, label, group, reason in rows()
+            {
+                "source": m.source_system,
+                "label": m.source_label,
+                "fuel_group": m.fuel_group,
+                "reason": m.excluded_reason,
+            }
+            for m in rows()
         ],
     )
     return len(rows())
@@ -74,8 +94,11 @@ def sync(conn) -> int:
 
 def unmapped(conn, source: str) -> list[str]:
     """Labels of ``source`` in its all-fuel table that the list neither groups
-    nor excludes."""
+    nor excludes. Locks the table against writes (SHARE) until the caller's
+    transaction ends, so the view refreshed next in that transaction sees the
+    same rows: a label loaded after this check cannot be dropped silently."""
     table, column = LABEL_COLUMNS[source]
-    known = {label for s, label, _, _ in rows() if s == source}
+    conn.execute(text(f"LOCK TABLE {table} IN SHARE MODE"))
+    known = {m.source_label for m in rows() if m.source_system == source}
     found = conn.execute(text(f"SELECT DISTINCT {column} FROM {table}")).scalars()
     return sorted(label for label in found if label not in known)

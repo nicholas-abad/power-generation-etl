@@ -265,7 +265,7 @@ Two roles, two jobs:
 | Role | Used by | Can |
 |---|---|---|
 | `neondb_owner` | This ETL (`.env`), the weekly GitHub Actions cron, `refresh_views.py`, plant-data's crosswalk loader | Everything — owns every table |
-| `dashboard_ro` | The Next.js dashboard (Cloudflare `DATABASE_URL`) | `SELECT` only on the relations `schema/checks/dashboard_ro_surface.sql` lists: 4 reference tables (`plant_crosswalk`, `eia_generator_info`, `gcpt_coal_metadata`, `ct_gem_crosswalk`), plant-data's GEM unit maps (`unit_gem_map`, `gem_unit_monthly`, and India's `npp_unit_gem_map`, `npp_gem_unit_monthly`), the materialized views (plus the daily/weekly ones once 024/025 are applied), 4 GEM reference tables (`gem_*`). Raw generation tables live in the `ingestion` schema, which the role has no USAGE on — it cannot list them, let alone read them |
+| `dashboard_ro` | The Next.js dashboard (Cloudflare `DATABASE_URL`) | `SELECT` only on the relations `schema/checks/dashboard_ro_surface.sql` lists: 4 reference tables (`plant_crosswalk`, `eia_generator_info`, `gcpt_coal_metadata`, `ct_gem_crosswalk`), plant-data's GEM unit maps (`unit_gem_map`, `gem_unit_monthly`, and India's `npp_unit_gem_map`, `npp_gem_unit_monthly`), the materialized views (plus the daily/weekly ones once 024/025 are applied, and `mv_chile_fuel_group_monthly` once 026 is), 4 GEM reference tables (`gem_*`). Raw generation tables live in the `ingestion` schema, which the role has no USAGE on — it cannot list them, let alone read them |
 
 The dashboard never writes, so its connection string should never be able to. Migration `004` creates the role. **First apply** — generate the password and keep it, you need it for Cloudflare in the next step:
 

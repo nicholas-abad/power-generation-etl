@@ -38,7 +38,9 @@ def document(**sources):
 
 
 def test_the_committed_list_holds_the_decided_groups():
-    groups = {(s, label): g for s, label, g, _ in fuel_groups.rows()}
+    groups = {
+        (m.source_system, m.source_label): m.fuel_group for m in fuel_groups.rows()
+    }
     assert groups[("CHILE", "PetCoke")] == "other_fossil"
     assert groups[("CHILE", "Diésel")] == "oil"
     assert groups[("OE", "distillate")] == "oil"
@@ -49,7 +51,7 @@ def test_the_committed_list_holds_the_decided_groups():
 def test_every_chile_label_seen_on_staging_is_decided():
     # Distinct fuel_type of ingestion.chile_generation_all_fuels on staging,
     # 2026-11-09 (the 19 plants that have had a coal unit).
-    known = {label for s, label, _, _ in fuel_groups.rows() if s == "CHILE"}
+    known = {m.source_label for m in fuel_groups.rows() if m.source_system == "CHILE"}
     assert {"Carbón", "Gas Natural", "PetCoke", "Diésel"} <= known
 
 
@@ -62,6 +64,7 @@ def test_every_chile_label_seen_on_staging_is_decided():
             "both grouped and excluded",
         ),
         ({"excluded": {"BESS": ""}}, "needs a reason"),
+        ({"exluded": {"BESS": "typo in the key"}}, "unknown keys"),
     ],
 )
 def test_an_invalid_list_fails_loudly(source, message):
@@ -195,6 +198,34 @@ def test_an_unknown_label_fails_the_refresh_and_keeps_the_view(db):
     insert(conn, "386", "TER MEJILLONES", "Biomasa", "Biomasa", MARCH, 5.0)
     assert not refresh_views.refresh_views(["mv_chile_fuel_group_monthly"])
     assert view(conn) == before
+
+
+def test_a_load_waits_while_labels_are_checked_and_the_view_refreshed(db):
+    # Codex (PR #149): a label loaded between the check and the refresh would
+    # have been dropped by the join. The check now holds a SHARE lock until the
+    # refresh commits, so a concurrent load waits.
+    conn, migrate = db
+    migrate("019")
+    migrate("026")
+    engine = refresh_views.create_engine("")
+    with engine.connect() as check:
+        fuel_groups.sync(check)
+        assert fuel_groups.unmapped(check, "CHILE") == []
+        writer = psycopg2.connect(conn.dsn)
+        try:
+            with writer.cursor() as cur:
+                cur.execute("SET lock_timeout = '200ms'")
+                with pytest.raises(psycopg2.errors.LockNotAvailable):
+                    cur.execute(
+                        "INSERT INTO ingestion.chile_generation_all_fuels (extraction_run_id,"
+                        " created_at_ms, plant_key, plant, tipo_tecnologia, subtipo_tecnologia,"
+                        " fuel_type, timestamp_ms, generation_mwh)"
+                        " VALUES (%s, 1, '386', 'TER MEJILLONES', 'Térmica', 'Biomasa', 'Biomasa', %s, 5)",
+                        (RUN, MARCH),
+                    )
+        finally:
+            writer.close()
+        check.rollback()
 
 
 def test_the_view_is_skipped_until_026_and_the_rollback_returns_to_it(db):
