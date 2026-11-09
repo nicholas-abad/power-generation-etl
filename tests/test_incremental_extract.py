@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from incremental_extract import (
     LONG_WINDOW_MONTHS,
+    entsoe_chunks,
     keep_coal_plants,
     warn_if_long_window,
     window_end,
@@ -80,22 +81,6 @@ class TestWindowEnd:
 
 
 class TestWarnIfLongWindow:
-    def test_short_window_does_not_warn(self, loguru_messages):
-        warn_if_long_window("entsoe", date(2025, 1, 1), date(2025, 3, 31))
-        assert not any("may exceed" in m for m in loguru_messages)
-
-    def test_entsoe_at_threshold_does_not_warn(self, loguru_messages):
-        # 3 months exactly — the ENTSO-E ceiling since one-day requests
-        warn_if_long_window("entsoe", date(2025, 1, 1), date(2025, 3, 31))
-        assert not any("may exceed" in m for m in loguru_messages)
-
-    def test_entsoe_just_over_threshold_warns(self, loguru_messages):
-        warn_if_long_window("entsoe", date(2025, 1, 1), date(2025, 4, 30))
-        joined = "\n".join(loguru_messages)
-        assert "may exceed" in joined
-        assert "4 months" in joined
-        assert "entsoe" in joined
-
     def test_occto_keeps_twelve_month_ceiling(self, loguru_messages):
         warn_if_long_window("occto", date(2025, 1, 1), date(2025, 12, 31))
         assert not any("may exceed" in m for m in loguru_messages)
@@ -103,38 +88,250 @@ class TestWarnIfLongWindow:
         assert any("13 months" in m for m in loguru_messages)
 
     def test_thresholds(self):
-        # ENTSO-E: ~95 min per month of one-day requests; OCCTO ~6 min
-        assert LONG_WINDOW_MONTHS == {"entsoe": 3, "occto": 12}
+        # OCCTO ~6 min per month; ENTSO-E uses a time budget instead
+        assert LONG_WINDOW_MONTHS == {"occto": 12}
 
 
 class TestEntsoeEmptyOutputGuard:
-    """A fully-past ENTSOE month that produces no JSONL must raise, mirroring
-    the OCCTO guard — otherwise the job goes green, latest_date never advances,
-    and the same month re-extracts forever loading nothing."""
+    """A long-published ENTSOE chunk that produces no JSONL must raise —
+    otherwise the job goes green, latest_date never advances, and the same
+    days re-extract forever loading nothing."""
 
     def _run_entsoe(self, monkeypatch, tmp_path, start, end):
         import incremental_extract as ie
 
         monkeypatch.setenv("START_OVERRIDE", start)
         monkeypatch.setenv("END_OVERRIDE", end)
+        monkeypatch.delenv("JOB_STARTED_AT", raising=False)
         monkeypatch.setattr(ie, "EXTRACTED_DATA", tmp_path)
         # subprocess is a no-op: simulates extraction that writes nothing
         monkeypatch.setattr(ie, "run_extract", lambda *a, **k: 0)
         return ie.extract_entsoe()
 
-    def test_past_month_with_no_output_raises(self, monkeypatch, tmp_path):
+    def test_past_chunk_with_no_output_raises(self, monkeypatch, tmp_path):
         with pytest.raises(RuntimeError, match="produced no entsoe_"):
             self._run_entsoe(monkeypatch, tmp_path, "2025-01-01", "2025-01-01")
 
-    def test_current_month_with_no_output_only_warns(
+    def test_recent_chunk_with_no_output_only_warns(
         self, monkeypatch, tmp_path, loguru_messages
     ):
-        today = date.today()
-        first = today.replace(day=1).isoformat()
-        # current month, empty output → warn, no raise, returns 1 iteration
-        n = self._run_entsoe(monkeypatch, tmp_path, first, first)
+        today = date.today().isoformat()
+        n = self._run_entsoe(monkeypatch, tmp_path, today, today)
         assert n == 1
         assert any("publication lag" in m for m in loguru_messages)
+
+
+class TestEntsoeChunks:
+    def _labels(self, chunks):
+        return [(c.label, c.is_lookback) for c in chunks]
+
+    def test_new_days_come_before_the_lookback(self):
+        chunks = entsoe_chunks(date(2026, 11, 6), date(2026, 11, 9), 7, 3)
+        assert self._labels(chunks) == [
+            ("2026-11-06..2026-11-08", False),
+            ("2026-11-09..2026-11-09", False),
+            ("2026-10-30..2026-11-01", True),
+            ("2026-11-02..2026-11-04", True),
+            ("2026-11-05..2026-11-05", True),
+        ]
+
+    def test_a_month_boundary_does_not_split_a_chunk(self):
+        chunks = entsoe_chunks(date(2026, 10, 30), date(2026, 11, 1), 0, 3)
+        assert self._labels(chunks) == [("2026-10-30..2026-11-01", False)]
+
+    def test_up_to_date_run_only_refetches_the_lookback(self):
+        chunks = entsoe_chunks(date(2026, 11, 10), date(2026, 11, 9), 3, 3)
+        assert self._labels(chunks) == [("2026-11-07..2026-11-09", True)]
+
+    def test_empty_table_starts_at_2019(self):
+        chunks = entsoe_chunks(date(2018, 12, 1), date(2019, 1, 2), 7, 3)
+        assert self._labels(chunks) == [("2019-01-01..2019-01-02", False)]
+
+
+class _FakeEntsoe:
+    """Extractor + loader + clock: each chunk takes ``minutes_per_day`` per day
+    and writes one JSONL; loads are recorded in order."""
+
+    def __init__(self, ie, tmp_path, minutes_per_day, exit_codes=None):
+        self.ie, self.tmp_path = ie, tmp_path
+        self.minutes_per_day = minutes_per_day
+        self.exit_codes = exit_codes or {}
+        self.clock = 0.0
+        self.events: list[str] = []
+
+    def now(self):
+        return self.clock
+
+    def run_extract(self, cmd, env):
+        label = f"{env['ENTSOE_START_DATE']}..{env['ENTSOE_END_DATE']}"
+        days = (
+            date.fromisoformat(env["ENTSOE_END_DATE"])
+            - date.fromisoformat(env["ENTSOE_START_DATE"])
+        ).days + 1
+        self.events.append(f"extract {label}")
+        self.clock += days * self.minutes_per_day * 60
+        (self.tmp_path / f"entsoe_{label}_etl.jsonl").write_text("{}\n")
+        return self.exit_codes.get(label, 0)
+
+    def load(self, source, f):
+        self.events.append(f"load {f.name}")
+        f.unlink()
+
+    def install(self, monkeypatch, start, end, latest=None):
+        ie = self.ie
+        monkeypatch.setattr(ie, "EXTRACTED_DATA", self.tmp_path)
+        monkeypatch.setattr(ie, "run_extract", self.run_extract)
+        monkeypatch.setattr(ie, "load_and_remove", self.load)
+        monkeypatch.setattr(ie, "_now", self.now)
+        monkeypatch.delenv("JOB_STARTED_AT", raising=False)
+        monkeypatch.setenv("END_OVERRIDE", end)
+        if start:
+            monkeypatch.setenv("START_OVERRIDE", start)
+        else:
+            monkeypatch.delenv("START_OVERRIDE", raising=False)
+            monkeypatch.setattr(ie, "get_latest_date", lambda source: latest)
+
+
+@pytest.fixture
+def ie():
+    import incremental_extract
+
+    return incremental_extract
+
+
+class TestEntsoeLoop:
+    def test_each_chunk_is_loaded_before_the_next_is_extracted(
+        self, ie, monkeypatch, tmp_path
+    ):
+        fake = _FakeEntsoe(ie, tmp_path, minutes_per_day=1)
+        fake.install(monkeypatch, "2026-10-01", "2026-10-06")
+        assert ie.extract_entsoe() == 2
+        assert fake.events == [
+            "extract 2026-10-01..2026-10-03",
+            "load entsoe_2026-10-01..2026-10-03_etl.jsonl",
+            "extract 2026-10-04..2026-10-06",
+            "load entsoe_2026-10-04..2026-10-06_etl.jsonl",
+        ]
+
+    def test_a_slow_run_stops_before_the_budget_and_keeps_what_it_loaded(
+        self, ie, monkeypatch, tmp_path
+    ):
+        # 50 min per day: 150 min per chunk, so two chunks fit in 320 min.
+        fake = _FakeEntsoe(ie, tmp_path, minutes_per_day=50)
+        fake.install(monkeypatch, "2026-10-01", "2026-10-12")
+        with pytest.raises(RuntimeError, match="BEHIND: first unfinished day 2026-10-07"):
+            ie.extract_entsoe()
+        assert [e for e in fake.events if e.startswith("load")] == [
+            "load entsoe_2026-10-01..2026-10-03_etl.jsonl",
+            "load entsoe_2026-10-04..2026-10-06_etl.jsonl",
+        ]
+
+    def test_every_run_moves_forward_even_if_only_one_chunk_fits(
+        self, ie, monkeypatch, tmp_path
+    ):
+        # 100 min per day: one 3-day chunk fits. Lookback first would redo the
+        # same stored days every week; new days first moves the latest day
+        # (by one day here: the chunk also re-fetches the 2 unsettled days).
+        latest = "2026-10-29"
+        for expected in ("2026-10-30", "2026-10-31"):
+            fake = _FakeEntsoe(ie, tmp_path, minutes_per_day=100)
+            fake.install(monkeypatch, None, "2026-11-09", latest=latest)
+            with pytest.raises(RuntimeError, match="BEHIND"):
+                ie.extract_entsoe()
+            loaded = [e for e in fake.events if e.startswith("load")]
+            assert len(loaded) == 1
+            latest = loaded[0][24:34]
+            assert latest == expected
+
+    def test_a_first_chunk_over_budget_by_estimate_does_not_start(
+        self, ie, monkeypatch, tmp_path
+    ):
+        fake = _FakeEntsoe(ie, tmp_path, minutes_per_day=1)
+        fake.install(monkeypatch, "2026-10-01", "2026-10-03")
+        monkeypatch.setenv("JOB_STARTED_AT", str(-300 * 60))  # 300 min ago
+        with pytest.raises(RuntimeError, match="first unfinished day 2026-10-01"):
+            ie.extract_entsoe()
+        assert fake.events == []
+
+    def test_a_repair_reports_its_own_first_unfinished_day(
+        self, ie, monkeypatch, tmp_path
+    ):
+        # The table maximum (29 Oct) is later than anything the repair did:
+        # the follow-up must start from the repair's own first unfinished day.
+        fake = _FakeEntsoe(ie, tmp_path, minutes_per_day=50)
+        fake.install(monkeypatch, "2026-10-01", "2026-11-09")
+        monkeypatch.setattr(ie, "get_latest_date", lambda source: "2026-10-29")
+        with pytest.raises(RuntimeError, match="start_override must pass 2026-10-07"):
+            ie.extract_entsoe()
+
+    def test_lookback_skipped_for_time_only_warns(
+        self, ie, monkeypatch, tmp_path, loguru_messages
+    ):
+        # 2 unsettled + 1 new day at 90 min/day = 270 min; no lookback fits.
+        fake = _FakeEntsoe(ie, tmp_path, minutes_per_day=90)
+        fake.install(monkeypatch, None, "2026-11-09", latest="2026-11-08")
+        assert ie.extract_entsoe() == 1
+        assert any(
+            "lookback skipped for time: ['2026-10-31..2026-11-02'" in m
+            for m in loguru_messages
+        )
+
+    def test_the_newest_stored_days_are_refetched_before_the_lookback(
+        self, ie, monkeypatch, tmp_path
+    ):
+        # PR #146 review: the last stored days may be incomplete; as part of
+        # the lookback they ran last and a slow run could drop them for good.
+        fake = _FakeEntsoe(ie, tmp_path, minutes_per_day=1)
+        fake.install(monkeypatch, None, "2026-11-09", latest="2026-11-05")
+        ie.extract_entsoe()
+        assert [e for e in fake.events if e.startswith("extract")][:2] == [
+            "extract 2026-11-04..2026-11-06",
+            "extract 2026-11-07..2026-11-09",
+        ]
+
+    def test_an_error_mid_run_still_names_earlier_partial_chunks(
+        self, ie, monkeypatch, tmp_path, loguru_messages
+    ):
+        fake = _FakeEntsoe(
+            ie, tmp_path, minutes_per_day=1, exit_codes={"2026-10-01..2026-10-03": 2}
+        )
+        fake.install(monkeypatch, "2026-10-01", "2026-10-06")
+        loads = []
+
+        def failing_load(source, f):
+            loads.append(f.name)
+            f.unlink()
+            if len(loads) == 2:
+                raise RuntimeError("load failed")
+
+        monkeypatch.setattr(ie, "load_and_remove", failing_load)
+        with pytest.raises(RuntimeError, match="load failed"):
+            ie.extract_entsoe()
+        assert any("2026-10-01..2026-10-03" in m for m in loguru_messages)
+
+    def test_partial_chunks_are_all_reported(self, ie, monkeypatch, tmp_path):
+        fake = _FakeEntsoe(
+            ie,
+            tmp_path,
+            minutes_per_day=1,
+            exit_codes={"2026-10-01..2026-10-03": 2, "2026-10-04..2026-10-06": 2},
+        )
+        fake.install(monkeypatch, "2026-10-01", "2026-10-09")
+        with pytest.raises(RuntimeError) as err:
+            ie.extract_entsoe()
+        assert "2026-10-01..2026-10-03" in str(err.value)
+        assert "2026-10-04..2026-10-06" in str(err.value)
+        assert len([e for e in fake.events if e.startswith("load")]) == 3
+
+    def test_the_workflow_is_told_once_rows_are_stored(
+        self, ie, monkeypatch, tmp_path
+    ):
+        out = tmp_path / "github_output"
+        monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+        fake = _FakeEntsoe(ie, tmp_path, minutes_per_day=1)
+        fake.install(monkeypatch, "2026-10-01", "2026-10-03")
+        ie.extract_entsoe()
+        assert out.read_text() == "loaded=true\n"
 
 
 class TestOcctoWindow:

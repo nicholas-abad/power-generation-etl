@@ -506,7 +506,8 @@ Re-runs are inherently safe: every source upserts via `INSERT ... ON CONFLICT DO
 
 Notes:
 - EIA and ONS extractors only accept year precision, so a Jan–Mar window will pull all of that year (idempotent, just slower).
-- ENTSOE/OCCTO re-runs are paced month-by-month and warn if the window exceeds 12 months (350-min job timeout risk).
+- ENTSOE runs in 3-day chunks, each loaded before the next: the 2 newest stored days (they may still be incomplete) and the new days first, then a 7-day lookback for late corrections. The job stops starting chunks at 320 minutes (job limit 350) and fails `ENTSOE BEHIND: first unfinished day <date>`; everything before that day is stored and the views still refresh. Lookback chunks that do not fit are skipped with a warning naming their days; corrections in them need a manual backfill. Without an override the next run continues from the latest stored day. A repair with `start_override` (e.g. refilling a rebuilt area's tail month) does not continue on its own, because the table's latest day can be later than the repaired days: re-run with the reported first unfinished day as `start_override`.
+- OCCTO re-runs are paced month-by-month and warn if the window exceeds 12 months (350-min job timeout risk).
 - Per-source `concurrency:` blocks ensure two runs targeting the same source queue rather than racing.
 
 ---

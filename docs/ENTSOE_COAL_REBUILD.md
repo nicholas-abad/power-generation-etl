@@ -52,7 +52,11 @@ reviewed names come from `config/entsoe-unit-names.json`.
    `tail_state` (also `ingestion.entsoe_coal_rebuilds.tail_state`) must be
    `applied`; with `deferred` or `rolled_back`, the weekly job would write new
    rows beside the legacy tail rows. Then resume the weekly job, which refills
-   the tail.
+   the tail. The weekly job starts at the table's latest stored day (minus a
+   7-day lookback), which other areas may already have passed: if the tail
+   starts earlier, dispatch "ENTSOE (Europe)" with `start_override` set to the
+   tail's first day, and repeat with the reported first unfinished day while
+   it ends `ENTSOE BEHIND`.
 7. **Verify**: view refresh (UTC, `CONCURRENTLY`; `--refresh-views` retries a
    failure), totals per month equal the certified payload, other countries and
    fuels unchanged, crosswalk diff (no lost GEM links, site capacity conserved).
