@@ -68,6 +68,10 @@ BEGIN
     IF EXISTS (SELECT 1 FROM ingestion.schema_migrations WHERE version = '025') THEN
       expected := expected || ARRAY['public.mv_occto_unit_daily', 'public.occto_unit_weekly'];
     END IF;
+    -- Chile per fuel group (026): every fuel at the coal plants, grouped.
+    IF EXISTS (SELECT 1 FROM ingestion.schema_migrations WHERE version = '026') THEN
+      expected := expected || ARRAY['public.mv_chile_fuel_group_monthly'];
+    END IF;
   END IF;
 
   -- 006: the dashboard role must not see INTO the ingestion schema at all.
