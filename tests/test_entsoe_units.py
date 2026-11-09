@@ -550,9 +550,13 @@ def table_shape(connection):
             " WHERE conrelid='ingestion.entsoe_generation_data'::regclass"
         )
         constraints = cursor.fetchone()[0]
-        cursor.execute("SELECT array_agg(matviewname::text ORDER BY matviewname) FROM pg_matviews")
+        cursor.execute(
+            "SELECT array_agg(matviewname::text ORDER BY matviewname) FROM pg_matviews"
+        )
         views = cursor.fetchone()[0]
-        cursor.execute("SELECT array_agg(version ORDER BY version) FROM ingestion.schema_migrations")
+        cursor.execute(
+            "SELECT array_agg(version ORDER BY version) FROM ingestion.schema_migrations"
+        )
         versions = cursor.fetchone()[0]
     return columns, indexes, constraints, views, versions
 
@@ -572,7 +576,9 @@ def legacy_record(**changes):
     return row
 
 
-def test_rollback_returns_the_table_to_its_pre_018_shape_and_keeps_observations(entsoe_db):
+def test_rollback_returns_the_table_to_its_pre_018_shape_and_keeps_observations(
+    entsoe_db,
+):
     connection, _, dsn = entsoe_db
     insert_row(connection, legacy_record())
     before = table_shape(connection)
@@ -583,7 +589,9 @@ def test_rollback_returns_the_table_to_its_pre_018_shape_and_keeps_observations(
     assert "dropping the unit EICs of 1 rows" in result.stderr
     assert table_shape(connection) == before
     with connection.cursor() as cursor:
-        cursor.execute("SELECT count(*), sum(generation_mw) FROM ingestion.entsoe_generation_data")
+        cursor.execute(
+            "SELECT count(*), sum(generation_mw) FROM ingestion.entsoe_generation_data"
+        )
         assert cursor.fetchone() == (2, 200.0)
 
 
@@ -592,8 +600,12 @@ def test_rollback_refuses_while_a_rebuild_window_is_applied(entsoe_db):
     migrate(dsn)
     applied = table_shape(connection)
     with connection.cursor() as cursor:
-        cursor.execute("CREATE TABLE ingestion.entsoe_coal_rebuild_months (state text NOT NULL)")
-        cursor.execute("INSERT INTO ingestion.entsoe_coal_rebuild_months VALUES ('applied'), ('rolled_back')")
+        cursor.execute(
+            "CREATE TABLE ingestion.entsoe_coal_rebuild_months (state text NOT NULL)"
+        )
+        cursor.execute(
+            "INSERT INTO ingestion.entsoe_coal_rebuild_months VALUES ('applied'), ('rolled_back')"
+        )
     result = rollback(dsn)
     assert result.returncode != 0
     assert "1 ENTSO-E rebuild windows are still applied" in result.stderr
@@ -607,3 +619,37 @@ def test_018_applies_again_after_rollback(entsoe_db):
     assert rollback(dsn).returncode == 0
     migrate(dsn)
     assert table_shape(connection) == applied
+
+
+def test_a_reload_drops_gas_rows_whose_months_count_as_coal(
+    entsoe_db, tmp_path, monkeypatch
+):
+    # München Nord 2: its 2019-2024 months come only from the certified
+    # rebuild as coal; a weekly or START_OVERRIDE reload must not add them
+    # back as gas. Its gas after the conversion still loads.
+    import entsoe_fuel_exceptions as fx
+
+    connection, db, dsn = entsoe_db
+    migrate(dsn)
+    gas = record(
+        country_code="DE_TENNET",
+        plant_name="Nord 2 T20_Fossil Gas",
+        psr_type="B04",
+        timestamp_ms=1615334400000,  # 2021-03-10
+    )
+    for key in ("unit_eic", "production_unit_eic"):
+        gas.pop(key)
+    after = dict(gas, timestamp_ms=1736553600000)  # 2025-01-11
+    other = dict(gas, plant_name="Another gas unit")
+    ok, report = load_as_extracted(db, tmp_path, [gas, after, other], batch_size=1)
+    assert ok and report.written_count == 2
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT plant_name, timestamp_ms FROM ingestion.entsoe_generation_data"
+            " ORDER BY plant_name, timestamp_ms"
+        )
+        assert cursor.fetchall() == [
+            ("Another gas unit", 1615334400000),
+            ("Nord 2 T20", 1736553600000),
+        ]
+    assert fx.matching("DE_TENNET", "B04", "2021-03", None, "Nord 2 T20")

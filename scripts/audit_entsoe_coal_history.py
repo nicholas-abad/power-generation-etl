@@ -57,12 +57,19 @@ def field(element, path):
 
 
 def independent_day(
-    xml, lower, upper, domain="10YCZ-CEPS-----N", include_unnamed=False
+    xml,
+    lower,
+    upper,
+    domain="10YCZ-CEPS-----N",
+    include_unnamed=False,
+    listed_series=frozenset(),
 ):
     """Observations {(ts, eic): (psr, name, MW, minutes, parent)}, block MWh, counts.
 
     With include_unnamed, a series with a unit EIC but no name is kept with
     name None (counted as unnamed_series); otherwise it is skipped.
+    listed_series: (psr, unit EIC) pairs of non-coal series read beside coal,
+    the count_as_coal records of config/entsoe-fuel-exceptions.json.
     """
     root = ET.fromstring(xml)
     require(
@@ -74,7 +81,14 @@ def independent_day(
     block_mwh = D(0)
     for series in root.findall("{*}TimeSeries"):
         psr = field(series, "MktPSRType/psrType")
-        if psr not in COAL:
+        if (
+            psr not in COAL
+            and (
+                psr,
+                field(series, "MktPSRType/PowerSystemResources/mRID"),
+            )
+            not in listed_series
+        ):
             continue
         if series.find("{*}outBiddingZone_Domain.mRID") is not None:
             counters["consumption_series"] += 1
@@ -169,6 +183,25 @@ def independent_day(
                         block_mwh -= power * minutes / 60
                     observations[key] = value
     return observations, block_mwh, counters
+
+
+def skipped_series(xml, accepted):
+    """{(unit EIC, psr): series} of generation series the parsers do not read.
+
+    ``accepted(psr, eic)`` says which series a certification reads. Everything
+    else is reported, so a unit whose fuel label changed shows up instead of
+    disappearing (tracker #10). Consumption series are not generation and are
+    left out.
+    """
+    counts = Counter()
+    for series in ET.fromstring(xml).findall("{*}TimeSeries"):
+        if series.find("{*}outBiddingZone_Domain.mRID") is not None:
+            continue
+        psr = field(series, "MktPSRType/psrType")
+        eic = field(series, "MktPSRType/PowerSystemResources/mRID")
+        if not accepted(psr, eic):
+            counts[(eic, psr)] += 1
+    return counts
 
 
 def source_records(archive, extractor, compare_end=None):

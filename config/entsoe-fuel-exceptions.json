@@ -1,0 +1,21 @@
+{
+  "scope": "Reviewed corrections to ENTSO-E unit fuel labels (A73 psrType) for coal (B02, B03, B05). Each record applies to the rows of one unit whose UTC month lies in [from_month, to_month] (to_month null: open-ended) and whose psrType is source_psr. exclude: coal rows that are not coal (dropped from the rebuild payload and from every load). count_as_coal: a non-coal series that is coal for the tracker; the certified rebuild writes it as counted_psr, and every load drops its source_psr rows in the window, since those months come only from the rebuild. reviewed_names: the names its rows carry without a unit EIC (legacy rows), matched only for this record. Loaded and validated by src/entsoe_fuel_exceptions.py. Decisions: chienleng/global-coal-generation-tracker#48 and #10.",
+  "exceptions": [
+    {
+      "id": "DE_TENNET-nord2-t20-coal-2019-2024",
+      "area": "DE_TENNET",
+      "unit_eic": "11WD2NOR20001055",
+      "unit_name": "Nord 2 T20",
+      "reviewed_names": ["Nord 2 T20"],
+      "from_month": "2019-01",
+      "to_month": "2024-12",
+      "source_psr": "B04",
+      "treatment": "count_as_coal",
+      "counted_psr": "B05",
+      "reason": "München Nord 2. ENTSO-E now labels the unit's whole history as gas (B04); it was hard coal (B05) in the February 2026 download, GEM has the unit as coal until its 2024 conversion, and ENTSO-E's A75 country totals still count these years as coal.",
+      "decided_by": "C. Shearer",
+      "decided_on": "2026-10-29",
+      "ref": "chienleng/global-coal-generation-tracker#48"
+    }
+  ]
+}

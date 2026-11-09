@@ -575,7 +575,9 @@ def test_unknown_or_modified_checkout_blocks_the_plan(pg, tmp_path, monkeypatch)
 
 def test_etl_commit_sees_changes_in_src_and_config(tmp_path):
     def git(*args):
-        subprocess.run(["git", "-C", str(tmp_path), *args], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(tmp_path), *args], check=True, capture_output=True
+        )
 
     for name in ("src/tool.py", "config/scopes.json", "README.md"):
         (tmp_path / name).parent.mkdir(exist_ok=True)
@@ -595,3 +597,101 @@ def test_etl_commit_sees_changes_in_src_and_config(tmp_path):
     # By default it checks the repository root, where src/ and config/ live.
     root = REAL_ETL_COMMIT.__defaults__[0]
     assert (root / "src").is_dir() and (root / "config").is_dir()
+
+
+# --- fuel exceptions: a unit the payload relabels as coal --------------------
+
+
+@pytest.fixture
+def relabelled(tmp_path, monkeypatch):
+    """A payload whose March unit is relabelled from B04 under a listed record."""
+    import entsoe_fuel_exceptions as fx
+
+    listed = fx.parse(
+        {
+            "exceptions": [
+                {
+                    "id": "PL-test-relabel",
+                    "area": "PL",
+                    "unit_eic": "19W000000000095U",
+                    "unit_name": "Belchatow 2",
+                    "reviewed_names": ["Belchatow 2"],
+                    "from_month": "2024-03",
+                    "to_month": "2024-04",
+                    "source_psr": "B04",
+                    "treatment": "count_as_coal",
+                    "counted_psr": "B02",
+                    "reason": "test",
+                    "decided_by": "test",
+                    "decided_on": "2026-11-09",
+                    "ref": "test",
+                }
+            ]
+        }
+    )
+    monkeypatch.setattr(fx, "exceptions", lambda: listed)
+    monkeypatch.setattr(fx, "sha256", lambda: "test-list")
+
+    def prepare(conn, inputs_sha="test-list"):
+        root = payload(tmp_path, MONTHS)
+        path = root / "manifest.json"
+        manifest = json.loads(path.read_text())
+        manifest["inputs"]["fuel_exceptions_sha256"] = inputs_sha
+        manifest["months"][0]["relabelled"] = [
+            {
+                "exception_id": "PL-test-relabel",
+                "unit_eic": "19W000000000095U",
+                "observations": 2,
+                "mwh": "300",
+            }
+        ]
+        path.write_text(json.dumps(manifest))
+        manifest, sha, windows = rebuild.load_payload(root)
+        return (
+            manifest,
+            sha,
+            windows,
+            rebuild.plan(conn, manifest, sha, windows, "local"),
+        )
+
+    return prepare
+
+
+def test_retained_source_rows_of_a_relabelled_unit_block_with_or_without_eic(
+    pg, relabelled
+):
+    insert(
+        pg,
+        stored(MARCH, psr="B04", name="Belchatow 2"),  # legacy: no EIC
+        stored(MARCH + HOUR, psr="B04", name="Gas", eic="19W000000000095U"),
+        stored(MARCH, psr="B04", name="Another gas unit"),  # not this unit
+    )
+    manifest, sha, windows, report = relabelled(pg)
+    assert report["blocking"]["retained_rows_conflicting_with_relabel"] == [
+        {"month": "2024-03", "rows": 2}
+    ]
+    with pytest.raises(ValueError, match="blocking findings"):
+        rebuild.apply(pg, manifest, sha, windows, report)
+
+
+def test_a_relabelled_unit_without_retained_rows_applies(pg, relabelled):
+    insert(pg, stored(MARCH), stored(MARCH, psr="B04", name="Another gas unit"))
+    manifest, sha, windows, report = relabelled(pg)
+    assert not any(report["blocking"].values())
+    assert [r["action"] for r in rebuild.apply(pg, manifest, sha, windows, report)]
+
+
+def test_a_source_row_written_after_the_plan_is_caught_under_the_lock(pg, relabelled):
+    insert(pg, stored(MARCH))
+    manifest, sha, windows, report = relabelled(pg)
+    assert not any(report["blocking"].values())
+    insert(pg, stored(MARCH, psr="B04", name="Belchatow 2"))
+    before = table(pg)
+    with pytest.raises(ValueError, match="relabelled unit appeared since the plan"):
+        rebuild.apply(pg, manifest, sha, windows, report)
+    assert table(pg) == before
+
+
+def test_a_payload_built_with_another_list_is_refused(pg, relabelled):
+    with pytest.raises(ValueError, match="changed since the payload was built"):
+        relabelled(pg, inputs_sha="older-list")

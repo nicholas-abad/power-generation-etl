@@ -17,6 +17,17 @@ Series with a unit EIC but no unit name are included (name None) and listed
 per (EIC, PSR, day) under `unnamed`; the payload names them by EIC from the
 reviewed identity table or lists them as exclusions.
 
+Fuel exceptions (config/entsoe-fuel-exceptions.json): the non-coal series of a
+`count_as_coal` record are read from the same archived responses, by both
+parsers, in the record's months only. ENTSO-E returns other-PSR series inside a
+response, so the same series can arrive in several requests: identical copies
+are counted once, conflicting copies fail. Their unit-months carry the record's
+`exception_id`; they are kept out of the coal `yearly_mwh` and summed in
+`relabelled_yearly_mwh` (stored after the rebuild = coal - excluded +
+relabelled). Every generation series neither parser reads is listed under
+`out_of_scope_series` per (EIC, PSR) with its months, so a unit whose label
+changed is visible rather than silently dropped (tracker #10).
+
 Writes per unit-month observations, energy (Decimal strings) and an
 observation digest (sorted `observation_line`s, sha256) with the evidence
 hashes. Never opens a database connection.
@@ -42,7 +53,43 @@ import sys
 from xml.etree import ElementTree
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from audit_entsoe_coal_history import FUEL, independent_day, iso, ms, require  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from audit_entsoe_coal_history import (  # noqa: E402
+    COAL,
+    FUEL,
+    independent_day,
+    iso,
+    ms,
+    require,
+    skipped_series,
+)
+import entsoe_fuel_exceptions  # noqa: E402
+
+
+def listed_windows(country, records=None):
+    """{(source psr, unit EIC): (exception id, from month, to month)} of the
+    country's count_as_coal records, in a form worker processes can take."""
+    return {
+        (record.source_psr, record.unit_eic): (
+            record.id,
+            record.from_month,
+            record.to_month,
+        )
+        for record in (
+            entsoe_fuel_exceptions.exceptions() if records is None else records
+        )
+        if record.area == country and record.treatment == "count_as_coal"
+    }
+
+
+def in_window(listed, psr, eic, month):
+    """True for a listed non-coal series in one of its record's months."""
+    window = listed.get((psr, eic))
+    return (
+        window is not None
+        and window[1] <= month
+        and (window[2] is None or month <= window[2])
+    )
 
 
 def observation_line(timestamp_ms, unit_eic, psr, power, minutes, parent, name):
@@ -144,7 +191,8 @@ def check_no_data(archive, entry, domain):
 
 def certify_request(args):
     """Independent vs extractor observations for one archived (day, PSR)."""
-    archive, entry, country, domain = args
+    archive, entry, country, domain, listed = args
+    from energy_extractors.entsoe.constants import PSR_TO_FUEL_TYPE
     from energy_extractors.entsoe.periods import parse_coal_periods
 
     body = gzip.decompress(
@@ -155,8 +203,10 @@ def certify_request(args):
         f"Source hash mismatch {entry['day']} {entry['psr']}",
     )
     lower, upper = ms(entry["start"]), ms(entry["end"])
+    month = entry["day"][:7]
+    pairs = frozenset(pair for pair in listed if in_window(listed, *pair, month))
     independent, block_mwh, counters = independent_day(
-        body, lower, upper, domain, include_unnamed=True
+        body, lower, upper, domain, include_unnamed=True, listed_series=pairs
     )
     parsed, _ = parse_coal_periods(
         body,
@@ -164,17 +214,23 @@ def certify_request(args):
         domain,
         entry["start"],
         entry["end"],
-        {entry["psr"]},
+        {entry["psr"]} | {psr for psr, _ in pairs},
         include_unnamed=True,
     )
     replay = {}
     for row in parsed:
+        if (
+            row["psr_type"] not in COAL
+            and (row["psr_type"], row["unit_eic"]) not in pairs
+        ):
+            continue
         key = (row["timestamp_ms"], row["unit_eic"])
         require(key not in replay, "Duplicate extractor output")
+        fuel = FUEL.get(row["psr_type"]) or PSR_TO_FUEL_TYPE[row["psr_type"]]
         require(
             row["data_type"] == "Actual Aggregated"
             and row["resolution_source"] == "xml_period"
-            and row["fuel_type"] == FUEL[row["psr_type"]]
+            and row["fuel_type"] == fuel
             and row["country_code"] == country,
             "Wrong extractor record contract",
         )
@@ -193,12 +249,14 @@ def certify_request(args):
         block_mwh == sum((v[2] * v[3] / 60 for v in independent.values()), D(0)),
         f"Block integral disagrees on {entry['day']} {entry['psr']}",
     )
-    return entry["day"], entry["psr"], independent, dict(counters)
+    skipped = skipped_series(body, lambda psr, eic: psr in COAL or (psr, eic) in pairs)
+    return entry["day"], entry["psr"], independent, dict(counters), skipped
 
 
-def summarize(results):
-    """Per unit-month totals and digests, unnamed series and counts from
-    certified (day, psr, observations, stats) results."""
+def summarize(results, listed=None):
+    """Per unit-month totals and digests, unnamed series, skipped series and
+    counts from certified (day, psr, observations, stats, skipped) results."""
+    listed = listed or {}
     unit_months = defaultdict(
         lambda: {
             "observations": 0,
@@ -210,11 +268,21 @@ def summarize(results):
         }
     )
     unnamed = defaultdict(lambda: {"observations": 0, "mwh": D(0)})
-    seen, counters = set(), defaultdict(int)
-    for day, psr, observations, stats in results:
-        for key, (p, name, power, minutes, parent) in observations.items():
-            require(key not in seen, f"Observation repeated across requests {key}")
-            seen.add(key)
+    out_of_scope = defaultdict(lambda: {"months": set(), "series_days": 0})
+    seen, counters = {}, defaultdict(int)
+    for day, psr, observations, stats, skipped in results:
+        for key, value in observations.items():
+            p, name, power, minutes, parent = value
+            if key in seen:
+                # A listed non-coal series can arrive in every request PSR's
+                # response; coal observations must come from one request.
+                require(
+                    p not in COAL and seen[key] == value,
+                    f"Observation repeated across requests {key}",
+                )
+                counters["listed_identical_copies"] += 1
+                continue
+            seen[key] = value
             cell = unit_months[(key[1], iso(key[0])[:7])]
             cell["observations"] += 1
             cell["mwh"] += power * minutes / 60
@@ -231,8 +299,18 @@ def summarize(results):
                 gap["mwh"] += power * minutes / 60
         for name, value in stats.items():
             counters[name] += value
-    rows = [
-        {
+        for (eic, p), series in skipped.items():
+            cell = out_of_scope[(eic, p)]
+            cell["months"].add(day[:7])
+            cell["series_days"] += series
+    rows = []
+    for (eic, month), c in sorted(unit_months.items()):
+        non_coal = sorted(c["psr"] - COAL)
+        require(
+            not non_coal or len(c["psr"]) == 1,
+            f"{eic} {month} mixes a listed non-coal series with coal",
+        )
+        row = {
             "unit_eic": eic,
             "month": month,
             "psr": sorted(c["psr"]),
@@ -244,9 +322,21 @@ def summarize(results):
                 "\n".join(sorted(c["lines"])).encode()
             ).hexdigest(),
         }
-        for (eic, month), c in sorted(unit_months.items())
+        if non_coal:
+            row["exception_id"] = listed[(non_coal[0], eic)][0]
+        rows.append(row)
+    skipped_rows = [
+        {
+            "unit_eic": eic,
+            "psr": p,
+            "months": sorted(c["months"]),
+            "series_days": c["series_days"],
+        }
+        for (eic, p), c in sorted(
+            out_of_scope.items(), key=lambda i: (str(i[0][0]), i[0][1])
+        )
     ]
-    return rows, unnamed, dict(counters), len(seen)
+    return rows, unnamed, dict(counters), len(seen), skipped_rows
 
 
 def certify(archive, country, psrs, start, end, extractor, workers=8):
@@ -267,14 +357,16 @@ def certify(archive, country, psrs, start, end, extractor, workers=8):
     ).strip()
     entries, domain = load_inventory(archive, psrs, start, end)
     ok = [e for e in entries if e["status"] == "ok"]
+    listed = listed_windows(country)
     with ProcessPoolExecutor(workers) as pool:
-        jobs = [(str(archive), e, country, domain) for e in ok]
-        rows, unnamed, counters, observation_count = summarize(
-            pool.map(certify_request, jobs, chunksize=16)
+        jobs = [(str(archive), e, country, domain, listed) for e in ok]
+        rows, unnamed, counters, observation_count, skipped = summarize(
+            pool.map(certify_request, jobs, chunksize=16), listed
         )
-    yearly = defaultdict(lambda: D(0))
+    yearly, relabelled = defaultdict(lambda: D(0)), defaultdict(lambda: D(0))
     for row in rows:
-        yearly[row["month"][:4]] += D(row["mwh"])
+        ledger = relabelled if "exception_id" in row else yearly
+        ledger[row["month"][:4]] += D(row["mwh"])
     manifest = archive / "manifest.jsonl"
     return {
         "country": country,
@@ -287,6 +379,14 @@ def certify(archive, country, psrs, start, end, extractor, workers=8):
         "no_data": len(entries) - len(ok),
         "observations": observation_count,
         "yearly_mwh": {y: str(v) for y, v in sorted(yearly.items())},
+        # Listed non-coal series (count_as_coal), written as coal by the payload.
+        "relabelled_yearly_mwh": {y: str(v) for y, v in sorted(relabelled.items())},
+        "fuel_exceptions_sha256": entsoe_fuel_exceptions.sha256(),
+        "listed_series": [
+            {"psr": psr, "unit_eic": eic, "exception_id": window[0]}
+            for (psr, eic), window in sorted(listed.items())
+        ],
+        "out_of_scope_series": skipped,
         "parser_counts": counters,
         "independent_parser_mismatches": 0,
         "extractor_commit": commit,
@@ -325,8 +425,13 @@ def main(argv=None):
         args.workers,
     )
     args.output.write_text(json.dumps(report, indent=1, ensure_ascii=False))
-    summary = {k: v for k, v in report.items() if k not in {"unit_months", "unnamed"}}
+    summary = {
+        k: v
+        for k, v in report.items()
+        if k not in {"unit_months", "unnamed", "out_of_scope_series"}
+    }
     summary["unnamed_series_days"] = len(report["unnamed"])
+    summary["out_of_scope_series"] = len(report["out_of_scope_series"])
     print(json.dumps(summary, indent=1))
 
 
