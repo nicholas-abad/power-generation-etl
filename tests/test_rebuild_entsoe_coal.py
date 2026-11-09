@@ -695,3 +695,25 @@ def test_a_source_row_written_after_the_plan_is_caught_under_the_lock(pg, relabe
 def test_a_payload_built_with_another_list_is_refused(pg, relabelled):
     with pytest.raises(ValueError, match="changed since the payload was built"):
         relabelled(pg, inputs_sha="older-list")
+
+
+def test_an_exclusion_only_payload_is_bound_to_the_list_too(pg, tmp_path, relabelled):
+    # relabelled installs a list with a PL record; a payload with excluded rows
+    # only, built from an older list, must still be refused.
+    root = payload(tmp_path, MONTHS)
+    path = root / "manifest.json"
+    manifest = json.loads(path.read_text())
+    manifest["inputs"]["fuel_exceptions_sha256"] = "older-list"
+    path.write_text(json.dumps(manifest))
+    manifest, sha, windows = rebuild.load_payload(root)
+    with pytest.raises(ValueError, match="changed since the payload was built"):
+        rebuild.plan(pg, manifest, sha, windows, "local")
+
+
+def test_a_payload_older_than_the_list_is_refused_for_a_listed_country(
+    pg, tmp_path, relabelled
+):
+    manifest, sha, windows = rebuild.load_payload(payload(tmp_path, MONTHS))
+    assert "fuel_exceptions_sha256" not in manifest["inputs"]
+    with pytest.raises(ValueError, match="predates"):
+        rebuild.plan(pg, manifest, sha, windows, "local")

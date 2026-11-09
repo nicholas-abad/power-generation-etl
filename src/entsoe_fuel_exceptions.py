@@ -30,9 +30,14 @@ PATH = Path(__file__).resolve().parents[1] / "config/entsoe-fuel-exceptions.json
 COAL = frozenset({"B02", "B03", "B05"})
 TREATMENTS = frozenset({"exclude", "count_as_coal"})
 _MONTH = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
-_AREA = re.compile(r"^[A-Z]{2}(_[A-Z0-9]+)?$")
+# Bidding zones and control areas: DE_TENNET, DK_CA, IT_SACO_AC, DE_AT_LU.
+# A mistyped area or EIC matches nothing; certification and the payload then
+# fail on a record without observations (scripts/certify_entsoe_coal_source.py,
+# scripts/build_entsoe_coal_payload.py).
+_AREA = re.compile(r"^[A-Z]{2}(_[A-Z0-9]+)*$")
 _EIC = re.compile(r"^[A-Z0-9-]{16}$")
-_PSR = re.compile(r"^B\d{2}$")
+# ENTSO-E generation production types (B21-B24 are links and substations).
+GENERATION_PSRS = frozenset(f"B{n:02d}" for n in (*range(1, 21), 25))
 
 
 @dataclass(frozen=True)
@@ -96,7 +101,7 @@ def _check(entry: dict) -> FuelException:
     counted = entry.get("counted_psr")
     if treatment not in TREATMENTS:
         raise ValueError(f"Fuel exception {label}: unknown treatment {treatment!r}")
-    if not _PSR.fullmatch(source):
+    if source not in GENERATION_PSRS:
         raise ValueError(f"Fuel exception {label}: invalid source_psr {source!r}")
     if treatment == "exclude" and (source not in COAL or counted is not None):
         raise ValueError(
@@ -182,6 +187,30 @@ def matching(
         ):
             return record
     return None
+
+
+def count_as_coal_pairs(
+    country: str, month: str, records=None
+) -> frozenset[tuple[str, str]]:
+    """(source psr, unit EIC) of the country's count_as_coal records covering
+    ``month``: the non-coal series a certification and payload read beside
+    coal in that month."""
+    return frozenset(
+        (r.source_psr, r.unit_eic)
+        for r in (exceptions() if records is None else records)
+        if r.area == country and r.treatment == "count_as_coal" and r.covers(month)
+    )
+
+
+def overlapping(country: str, start: str, end: str, records=None):
+    """The country's records covering any month in [start, end] (YYYY-MM)."""
+    return [
+        r
+        for r in (exceptions() if records is None else records)
+        if r.area == country
+        and r.from_month <= end
+        and (r.to_month is None or start <= r.to_month)
+    ]
 
 
 def exclude_areas(records=None) -> set[str]:

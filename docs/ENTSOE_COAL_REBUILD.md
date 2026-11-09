@@ -93,9 +93,12 @@ UTC months:
   München Nord 2 ("Nord 2 T20", `11WD2NOR20001055`), labelled gas (B04) for
   2019-01..2024-12. Certification reads the listed series from the same
   archived responses with both parsers (identical copies in several requests
-  count once); the payload writes it as `counted_psr` and lists it under
-  `relabelled`. The certificate keeps it out of the coal `yearly_mwh` and sums
-  it in `relabelled_yearly_mwh`: stored after the rebuild = coal - excluded +
+  count once; only coal and listed series reach the strict parser); the
+  payload writes it as `counted_psr` and lists it under `relabelled`. A
+  unit-month with listed observations carries `relabelled_mwh` and
+  `exception_ids` (a unit can switch label within a month). The certificate
+  keeps that energy out of the coal `yearly_mwh` and sums it in
+  `relabelled_yearly_mwh`: stored after the rebuild = coal - excluded +
   relabelled.
 - `exclude`: coal rows that are not coal (e.g. a unit converted to biomass that
   is still labelled hard coal). The payload lists them under `excluded` with
@@ -110,9 +113,12 @@ under the apply lock) while rows outside the deletion PSRs sit at a relabelled
 unit's times with its EIC or, without an EIC, one of its `reviewed_names`;
 those rows are removed in their own reviewed step, never by widening the
 rebuild. The certificate's `out_of_scope_series` lists every generation series
-neither parser reads, so a unit whose label changes shows up. Payloads record
-the list's sha256; the builder refuses a list changed since certification and
-the rebuild tool one changed since the payload was built.
+neither parser reads, so a unit whose label changes shows up. A record covering
+the window that matches nothing (a mistyped area, EIC or month range) fails
+certification and the payload. Payloads record the list's sha256; the builder
+refuses a list changed since certification, and the rebuild tool one changed
+since the payload was built, or a payload older than the list when the list
+has a record for its country.
 
 ## Not yet covered
 

@@ -34,7 +34,7 @@ SPEC.loader.exec_module(PAYLOAD)
 
 def certify(root, path):
     results = [
-        CERTIFY.certify_request((str(root), e, "PL", DOMAIN, {}))
+        CERTIFY.certify_request((str(root), e, "PL", DOMAIN, ()))
         for e in entries(root)
         if e["status"] == "ok"
     ]

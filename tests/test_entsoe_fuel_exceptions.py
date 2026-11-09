@@ -31,6 +31,9 @@ from test_certify_entsoe_coal_source import (  # noqa: E402
     extractor,  # noqa: F401
 )
 import entsoe_fuel_exceptions as fx  # noqa: E402
+import audit_entsoe_coal_history as AUDIT  # noqa: E402
+from audit_entsoe_coal_history import field  # noqa: E402
+from xml.etree import ElementTree  # noqa: E402
 
 GAS_UNIT = "19W0000000000GAS"
 MARCH_1 = 1709251200000  # 2024-03-01T00:00Z
@@ -199,15 +202,11 @@ GAS_SERIES = series("B04", GAS_UNIT, "Gas Unit 1", ((1, "50"),))
 OTHER_GAS = series("B04", "19W000000000OTHR", "Other gas", ((1, "7"),))
 
 
-def listed_for(*entries):
-    return CERTIFY.listed_windows("PL", records(*entries))
-
-
 def test_a_listed_gas_series_is_certified_beside_coal_and_others_are_reported(
     tmp_path, extractor
 ):
     root = archive(tmp_path, body=doc(COAL_SERIES, GAS_SERIES, OTHER_GAS))
-    listed = listed_for(NORD2)
+    listed = records(NORD2)
     result = CERTIFY.certify_request(
         (str(root), entries(root)[0], "PL", DOMAIN, listed)
     )
@@ -215,10 +214,11 @@ def test_a_listed_gas_series_is_certified_beside_coal_and_others_are_reported(
         (UNIT, "B02"),
         (GAS_UNIT, "B04"),
     }
-    rows, _, _, _, skipped = CERTIFY.summarize([result], listed)
+    rows, _, _, _, skipped = CERTIFY.summarize([result], "PL", listed)
     gas = [r for r in rows if r["unit_eic"] == GAS_UNIT]
-    assert gas[0]["exception_id"] == "PL-gas-unit-coal" and gas[0]["mwh"] == "50"
-    assert "exception_id" not in [r for r in rows if r["unit_eic"] == UNIT][0]
+    assert gas[0]["exception_ids"] == ["PL-gas-unit-coal"]
+    assert (gas[0]["mwh"], gas[0]["relabelled_mwh"]) == ("50", "50")
+    assert "exception_ids" not in [r for r in rows if r["unit_eic"] == UNIT][0]
     assert skipped == [
         {
             "unit_eic": "19W000000000OTHR",
@@ -233,23 +233,24 @@ def test_a_listed_series_outside_its_months_is_reported_not_certified(
     tmp_path, extractor
 ):
     root = archive(tmp_path, body=doc(COAL_SERIES, GAS_SERIES))
-    listed = listed_for({**NORD2, "from_month": "2025-01", "to_month": None})
+    listed = records({**NORD2, "from_month": "2025-01", "to_month": None})
     result = CERTIFY.certify_request(
         (str(root), entries(root)[0], "PL", DOMAIN, listed)
     )
     assert {k[1] for k in result[2]} == {UNIT}
-    assert result[4] == {(GAS_UNIT, "B04"): 1}
+    assert result[4] == {(GAS_UNIT, "B04")}
 
 
 def test_identical_copies_of_a_listed_series_count_once_conflicting_ones_fail():
     gas = {(MARCH_1, GAS_UNIT): ("B04", "Gas Unit 1", Decimal("50"), 60, None)}
     coal = {(MARCH_1, UNIT): ("B02", "Belchatow 2", Decimal("100"), 60, None)}
-    listed = listed_for(NORD2)
+    listed = records(NORD2)
     rows, _, counters, count, _ = CERTIFY.summarize(
         [
-            ("2024-03-01", "B02", {**coal, **gas}, {}, {}),
-            ("2024-03-01", "B05", copy.deepcopy(gas), {}, {}),
+            ("2024-03-01", "B02", {**coal, **gas}, {}, set()),
+            ("2024-03-01", "B05", copy.deepcopy(gas), {}, set()),
         ],
+        "PL",
         listed,
     )
     assert count == 2 and counters["listed_identical_copies"] == 1
@@ -257,15 +258,19 @@ def test_identical_copies_of_a_listed_series_count_once_conflicting_ones_fail():
     with pytest.raises(ValueError, match="repeated across requests"):
         CERTIFY.summarize(
             [
-                ("2024-03-01", "B02", gas, {}, {}),
-                ("2024-03-01", "B05", changed, {}, {}),
+                ("2024-03-01", "B02", gas, {}, set()),
+                ("2024-03-01", "B05", changed, {}, set()),
             ],
+            "PL",
             listed,
         )
     # A coal observation in two requests still fails.
     with pytest.raises(ValueError, match="repeated across requests"):
         CERTIFY.summarize(
-            [("2024-03-01", "B02", coal, {}, {}), ("2024-03-01", "B05", coal, {}, {})]
+            [
+                ("2024-03-01", "B02", coal, {}, set()),
+                ("2024-03-01", "B05", coal, {}, set()),
+            ]
         )
 
 
@@ -280,7 +285,7 @@ def listed(monkeypatch):
         parsed = records(*entries)
         monkeypatch.setattr(fx, "exceptions", lambda: parsed)
         monkeypatch.setattr(fx, "sha256", lambda: "test-list")
-        return CERTIFY.listed_windows("PL", parsed)
+        return parsed
 
     return install
 
@@ -291,7 +296,7 @@ def certify_with(root, path, windows):
         for e in entries(root)
         if e["status"] == "ok"
     ]
-    rows, _, _, _, _ = CERTIFY.summarize(results, windows)
+    rows, _, _, _, _ = CERTIFY.summarize(results, "PL", windows)
     path.write_text(
         json.dumps(
             {
@@ -400,3 +405,87 @@ def test_payload_files_stay_byte_identical_with_exceptions(
     data = gzip.decompress((tmp_path / "payload" / "2024-03.tsv.gz").read_bytes())
     assert data.count(b"\n") == 4  # header + 2 coal + 1 relabelled
     assert build_with(tmp_path, root, windows)["months"][0]["sha256"] == first
+
+
+# --- review fixes (PR #147) -------------------------------------------------
+
+
+def test_only_coal_and_listed_series_reach_the_strict_parser():
+    # An unrelated gas unit with a shape the strict parser rejects must not stop
+    # a coal certification just because B04 is requested for one listed unit.
+    odd = OTHER_GAS.replace("<curveType>A01</curveType>", "<curveType>A02</curveType>")
+    narrowed = AUDIT.coal_and_listed_series(
+        doc(COAL_SERIES, GAS_SERIES, odd), {("B04", GAS_UNIT)}
+    )
+    kept = {
+        (
+            field(s, "MktPSRType/psrType"),
+            field(s, "MktPSRType/PowerSystemResources/mRID"),
+        )
+        for s in ElementTree.fromstring(narrowed).findall("{*}TimeSeries")
+    }
+    assert kept == {("B02", UNIT), ("B04", GAS_UNIT)}
+
+
+def test_a_unit_switching_label_within_a_month_keeps_both_ledgers():
+    b05 = {(MARCH_1, GAS_UNIT): ("B05", "Gas Unit 1", Decimal("80"), 60, None)}
+    b04 = {
+        (MARCH_1 + 3600000, GAS_UNIT): ("B04", "Gas Unit 1", Decimal("50"), 60, None)
+    }
+    (row,), _, _, _, _ = CERTIFY.summarize(
+        [("2024-03-01", "B05", {**b05, **b04}, {}, set())], "PL", records(NORD2)
+    )
+    assert (row["psr"], row["mwh"], row["relabelled_mwh"]) == (
+        ["B04", "B05"],
+        "130",
+        "50",
+    )
+
+
+def test_two_periods_of_one_unit_are_both_certified():
+    first = {**NORD2, "to_month": "2024-02"}
+    second = {**NORD2, "id": "second", "from_month": "2024-03", "to_month": None}
+    listed = records(first, second)
+    assert fx.count_as_coal_pairs("PL", "2024-01", listed) == {("B04", GAS_UNIT)}
+    assert fx.count_as_coal_pairs("PL", "2024-03", listed) == {("B04", GAS_UNIT)}
+    jan = {(1704067200000, GAS_UNIT): ("B04", "Gas Unit 1", Decimal("5"), 60, None)}
+    mar = {(MARCH_1, GAS_UNIT): ("B04", "Gas Unit 1", Decimal("7"), 60, None)}
+    rows, _, _, _, _ = CERTIFY.summarize(
+        [("2024-01-01", "B05", jan, {}, set()), ("2024-03-01", "B05", mar, {}, set())],
+        "PL",
+        listed,
+    )
+    assert [r["exception_ids"] for r in rows] == [["PL-gas-unit-coal"], ["second"]]
+
+
+def test_a_record_without_observations_fails_certification():
+    from datetime import date
+
+    listed = records({**NORD2, "unit_eic": "19W0000000TYPO00"})
+    with pytest.raises(ValueError, match="has no observations"):
+        CERTIFY.require_records_observed(
+            [], "PL", date(2024, 3, 1), date(2024, 4, 1), listed
+        )
+    # A record outside the certified window is not required.
+    CERTIFY.require_records_observed(
+        [], "PL", date(2025, 3, 1), date(2025, 4, 1), records(NORD2)
+    )
+
+
+def test_a_payload_record_that_matched_nothing_fails(
+    tmp_path, extractor, names, listed
+):
+    root = archive(tmp_path)
+    windows = listed({**EXCLUDE, "unit_eic": "19W0000000TYPO00"})
+    with pytest.raises(ValueError, match="matched no row"):
+        build_with(tmp_path, root, windows)
+
+
+def test_an_unnamed_listed_series_left_out_is_not_counted_as_relabelled(
+    tmp_path, extractor, names, listed
+):
+    unnamed = series("B04", GAS_UNIT, "", ((1, "50"),))
+    root = archive(tmp_path, body=doc(COAL_SERIES, unnamed))
+    month = build_with(tmp_path, root, listed(NORD2))["months"][0]
+    assert month["relabelled"] == []
+    assert [(x["unit_eic"], x["mwh"]) for x in month["excluded"]] == [(GAS_UNIT, "50")]

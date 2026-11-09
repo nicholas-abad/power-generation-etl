@@ -873,9 +873,7 @@ class PowerGenerationDatabase:
                             f"Line {line_num}: ENTSO-E row carries unit identity "
                             "data but no unit EIC"
                         )
-                    if has_eic:
-                        record = prepare_entsoe_record(record)
-                    else:
+                    if not has_eic:
                         for key in identity_columns:
                             record.pop(key, None)
 
@@ -946,12 +944,16 @@ class PowerGenerationDatabase:
 
                     # Identified XML names are exact source text, never flattened labels.
                     if has_eic:
+                        # Before the identity check: a listed source-PSR row of
+                        # a unit reviewed under its counted coal PSR would fail
+                        # it, though the row is meant to be dropped.
                         exception = fuel_exception_on_load(record)
                         if exception:
                             fuel_exception_drops[exception.id] = (
                                 fuel_exception_drops.get(exception.id, 0) + 1
                             )
                             continue
+                        record = prepare_entsoe_record(record)
                         batches[True].append(record)
                         if len(batches[True]) >= batch_size:
                             flush(True, line_num)

@@ -186,22 +186,38 @@ def independent_day(
 
 
 def skipped_series(xml, accepted):
-    """{(unit EIC, psr): series} of generation series the parsers do not read.
+    """{(unit EIC, psr)} of generation series the parsers do not read.
 
     ``accepted(psr, eic)`` says which series a certification reads. Everything
     else is reported, so a unit whose fuel label changed shows up instead of
     disappearing (tracker #10). Consumption series are not generation and are
     left out.
     """
-    counts = Counter()
+    skipped = set()
     for series in ET.fromstring(xml).findall("{*}TimeSeries"):
         if series.find("{*}outBiddingZone_Domain.mRID") is not None:
             continue
         psr = field(series, "MktPSRType/psrType")
         eic = field(series, "MktPSRType/PowerSystemResources/mRID")
         if not accepted(psr, eic):
-            counts[(eic, psr)] += 1
-    return counts
+            skipped.add((eic, psr))
+    return skipped
+
+
+def coal_and_listed_series(xml, pairs):
+    """The document with only its coal series and the listed (psr, EIC) ones.
+
+    The extractor's parser validates every series of a requested PSR strictly;
+    an unrelated gas unit with an unusual shape must not stop a coal
+    certification because B04 is requested for one listed unit.
+    """
+    root = ET.fromstring(xml)
+    for series in root.findall("{*}TimeSeries"):
+        psr = field(series, "MktPSRType/psrType")
+        eic = field(series, "MktPSRType/PowerSystemResources/mRID")
+        if psr not in COAL and (psr, eic) not in pairs:
+            root.remove(series)
+    return ET.tostring(root, encoding="utf-8")
 
 
 def source_records(archive, extractor, compare_end=None):

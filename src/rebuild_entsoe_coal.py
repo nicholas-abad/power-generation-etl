@@ -281,22 +281,35 @@ def collisions(cursor, psrs):
 
 
 def relabelled_units(manifest):
-    """(unit EICs, reviewed names) of the fuel exceptions the payload relabels."""
+    """(unit EICs, reviewed names) of the fuel exceptions the payload relabels.
+
+    Also binds the payload to today's exception list, whether it relabels,
+    excludes or neither: a payload records the list's sha256 and must match it;
+    an older payload without it is accepted only while the list has no record
+    for its country.
+    """
+    current = entsoe_fuel_exceptions.exceptions()
+    recorded = manifest["inputs"].get("fuel_exceptions_sha256")
+    if recorded is None:
+        require(
+            not any(r.area == manifest["country"] for r in current),
+            "The payload predates config/entsoe-fuel-exceptions.json, which now "
+            f"has records for {manifest['country']}: rebuild the payload",
+        )
+    else:
+        require(
+            recorded == entsoe_fuel_exceptions.sha256(),
+            "config/entsoe-fuel-exceptions.json changed since the payload was built",
+        )
     ids = {
         item["exception_id"]
         for month in manifest["months"]
         for item in month.get("relabelled", [])
     }
-    records = {r.id: r for r in entsoe_fuel_exceptions.exceptions()}
+    records = {r.id: r for r in current}
     require(
         ids <= set(records), f"Unknown fuel exceptions {sorted(ids - set(records))}"
     )
-    if ids:
-        require(
-            manifest["inputs"].get("fuel_exceptions_sha256")
-            == entsoe_fuel_exceptions.sha256(),
-            "config/entsoe-fuel-exceptions.json changed since the payload was built",
-        )
     return (
         sorted({records[i].unit_eic for i in ids}),
         sorted({name for i in ids for name in records[i].reviewed_names}),

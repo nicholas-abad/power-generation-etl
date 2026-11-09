@@ -40,12 +40,13 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "src"))
-from audit_entsoe_coal_history import COAL, FUEL, require  # noqa: E402
-from certify_entsoe_coal_source import (  # noqa: E402
-    in_window,
-    listed_windows,
-    observation_line,
+from audit_entsoe_coal_history import (  # noqa: E402
+    COAL,
+    FUEL,
+    coal_and_listed_series,
+    require,
 )
+from certify_entsoe_coal_source import observation_line  # noqa: E402
 import entsoe_fuel_exceptions  # noqa: E402
 import entsoe_names  # noqa: E402
 
@@ -99,8 +100,8 @@ def build_month(args):
     rows, lines, written = [], defaultdict(list), set()
     excluded = defaultdict(lambda: {"observations": 0, "mwh": D(0)})
     relabelled = defaultdict(lambda: {"observations": 0, "mwh": D(0)})
-    listed = listed_windows(country, records)
-    pairs = frozenset(pair for pair in listed if in_window(listed, *pair, month))
+    matched = set()
+    pairs = entsoe_fuel_exceptions.count_as_coal_pairs(country, month, records)
     for entry in entries:
         body = gzip.decompress(
             (
@@ -112,7 +113,7 @@ def build_month(args):
             f"Source hash mismatch {entry['day']} {entry['psr']}",
         )
         parsed, _ = parse_coal_periods(
-            body,
+            coal_and_listed_series(body, pairs) if pairs else body,
             country,
             domain,
             entry["start"],
@@ -153,6 +154,8 @@ def build_month(args):
                 eic,
                 records=records,
             )
+            if exception:
+                matched.add(exception.id)
             if exception and exception.treatment == "exclude":
                 gap = excluded[(eic, psr, entry["day"], exception.id)]
                 gap["observations"] += 1
@@ -160,9 +163,6 @@ def build_month(args):
                 continue
             if exception:
                 psr, fuel = exception.counted_psr, FUEL[exception.counted_psr]
-                tally = relabelled[(exception.id, eic)]
-                tally["observations"] += 1
-                tally["mwh"] += mwh
             reviewed = units.get(eic)
             if reviewed:
                 require(
@@ -184,6 +184,12 @@ def build_month(args):
                 gap["mwh"] += mwh
                 continue
             require(fuel == FUEL[psr], "Unexpected fuel label")
+            if exception:
+                # Only rows actually written: an unnamed series left out above
+                # is listed under excluded, not here.
+                tally = relabelled[(exception.id, eic)]
+                tally["observations"] += 1
+                tally["mwh"] += mwh
             rows.append(
                 (
                     r["timestamp_ms"],
@@ -240,6 +246,7 @@ def build_month(args):
                 excluded.items(), key=lambda i: tuple(str(v) for v in i[0])
             )
         ],
+        "fuel_exceptions_matched": sorted(matched),
         "relabelled": [
             {
                 "exception_id": x,
@@ -327,6 +334,20 @@ def build(
     else:
         with ProcessPoolExecutor(workers) as pool:
             months = list(pool.map(build_month, jobs))
+    # A record in the window that matched nothing is a mistyped area, EIC or
+    # month range: the rebuild would silently keep or lose that unit.
+    applied = {i for m in months for i in m["fuel_exceptions_matched"]}
+    last_month = (date.fromisoformat(certified["end"]) - timedelta(days=1)).isoformat()[
+        :7
+    ]
+    for record in entsoe_fuel_exceptions.overlapping(
+        country, certified["start"][:7], last_month, records
+    ):
+        require(
+            record.id in applied,
+            f"Fuel exception {record.id} matched no row in the payload window: "
+            "check its area, unit EIC and months",
+        )
     for month in months:
         cert = sum(
             (

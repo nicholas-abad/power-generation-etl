@@ -653,3 +653,49 @@ def test_a_reload_drops_gas_rows_whose_months_count_as_coal(
             ("Nord 2 T20", 1736553600000),
         ]
     assert fx.matching("DE_TENNET", "B04", "2021-03", None, "Nord 2 T20")
+
+
+def test_an_identified_source_row_of_a_relabelled_unit_is_dropped_not_rejected(
+    entsoe_db, tmp_path, monkeypatch
+):
+    # Review of PR #147: once Nord 2 is a reviewed B05 unit, an identified B04
+    # row of it must be dropped by the exception before the identity check
+    # (which would reject a B04 row of a B05 unit) can fail the load.
+    import entsoe_names
+
+    names = tmp_path / "names.json"
+    names.write_text(
+        json.dumps(
+            {
+                "units": [
+                    {
+                        "country_code": "DE_TENNET",
+                        "unit_eic": "11WD2NOR20001055",
+                        "psr_type": "B05",
+                        "plant_name": "Nord 2 T20",
+                        "source_names": ["Nord 2 T20"],
+                        "legacy_names": ["Nord 2 T20"],
+                    }
+                ]
+            }
+        )
+    )
+    monkeypatch.setattr(entsoe_names, "PATH", names)
+    entsoe_names.units.cache_clear()
+    try:
+        connection, db, dsn = entsoe_db
+        migrate(dsn)
+        gas = record(
+            country_code="DE_TENNET",
+            plant_name="Nord 2 T20",
+            psr_type="B04",
+            fuel_type="Fossil Gas",
+            unit_eic="11WD2NOR20001055",
+            production_unit_eic="11WD2NOR2000105X",
+            timestamp_ms=1615334400000,  # 2021-03-10
+            resolution_source="xml_period",
+        )
+        ok, report = load(db, tmp_path, [gas], batch_size=1)
+        assert ok and report.written_count == 0
+    finally:
+        entsoe_names.units.cache_clear()

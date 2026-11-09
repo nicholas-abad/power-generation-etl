@@ -152,7 +152,7 @@ def entries(root):
 def test_matching_parsers_certify_with_decimal_energy(tmp_path, extractor):
     root = archive(tmp_path)
     day, psr, observations, _, _ = CERTIFY.certify_request(
-        (str(root), entries(root)[0], "PL", DOMAIN, {})
+        (str(root), entries(root)[0], "PL", DOMAIN, ())
     )
     assert len(observations) == 2
     assert sum(v[2] * v[3] / 60 for v in observations.values()) == Decimal("300")
@@ -172,7 +172,7 @@ def test_parser_disagreement_fails_certification(tmp_path, extractor, mutate):
     root = archive(tmp_path)
     extractor["mutate"] = mutate
     with pytest.raises(ValueError, match="disagrees with extractor"):
-        CERTIFY.certify_request((str(root), entries(root)[0], "PL", DOMAIN, {}))
+        CERTIFY.certify_request((str(root), entries(root)[0], "PL", DOMAIN, ()))
 
 
 def test_tampered_archive_body_fails(tmp_path, extractor):
@@ -181,7 +181,7 @@ def test_tampered_archive_body_fails(tmp_path, extractor):
         gzip.compress(document(((1, "100"), (2, "999"))))
     )
     with pytest.raises(ValueError, match="hash mismatch"):
-        CERTIFY.certify_request((str(root), entries(root)[0], "PL", DOMAIN, {}))
+        CERTIFY.certify_request((str(root), entries(root)[0], "PL", DOMAIN, ()))
 
 
 def test_incomplete_or_failed_inventory_fails(tmp_path):
@@ -264,7 +264,7 @@ def test_observation_line_is_a_fixed_serialization():
 
 def test_unnamed_series_is_certified_and_listed(tmp_path, extractor):
     root = archive(tmp_path, body=document(name=""))
-    result = CERTIFY.certify_request((str(root), entries(root)[0], "PL", DOMAIN, {}))
+    result = CERTIFY.certify_request((str(root), entries(root)[0], "PL", DOMAIN, ()))
     assert {v[1] for v in result[2].values()} == {None}
     rows, unnamed, counters, count, _ = CERTIFY.summarize([result])
     assert count == 2 and rows[0]["names"] == []
