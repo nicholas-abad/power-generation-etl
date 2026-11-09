@@ -361,3 +361,27 @@ def test_coal_report_statuses_at_plant_level(pg, tmp_path):
 def test_cli_argument_errors_exit_2(monkeypatch):
     monkeypatch.setattr(checks, "engine", lambda: create_engine("sqlite://"))
     assert checks.main(["reconcile", "m.jsonl", "2024-01-01"]) == 2
+
+
+def test_weekly_reconcile_passes_only_after_the_pilot_view_refresh(pg, tmp_path, monkeypatch):
+    # The weekly job: a table already holding earlier hours (view current),
+    # a newly loaded hour, then refresh_views --source chile_all_fuels, then
+    # reconcile. Without the refresh the new hour leaves the view stale.
+    conn, db = pg
+    url = db._engine.url
+    for key, value in (("USER", url.username), ("PASSWORD", url.password or ""), ("HOST", url.host),
+                       ("PORT", str(url.port)), ("DB", url.database)):
+        monkeypatch.setenv(f"POSTGRES_{key}", value)
+    monkeypatch.delenv("POSTGRES_SSLMODE", raising=False)
+    db.insert_chile_all_fuels_jsonl_data(write(tmp_path, [rec()], "earlier.jsonl"))
+    refresh_views.refresh_views(refresh_views.STAGING_VIEWS["chile_all_fuels"])
+    db.insert_chile_all_fuels_jsonl_data(write(tmp_path, [rec(timestamp_ms=TS + 3_600_000)], "new.jsonl"))
+    manifest = tmp_path / "m.jsonl"
+    manifest.write_text(json.dumps({"part_key": "386_2024", "status": "ok", "start": "2024-06-01",
+                                    "end": "2024-06-01", "by_local_day": {"2024-06-01": [2, 200.0]}}) + "\n")
+    with db._engine.connect() as c:
+        stale = checks.reconcile(c, str(manifest), date(2024, 6, 1), date(2024, 6, 1), [386])
+    assert stale == ["view 2024-06 386 Térmica/Carbón: view and table differ (refresh the view?)"]
+    assert refresh_views.refresh_views(refresh_views.STAGING_VIEWS["chile_all_fuels"])
+    with db._engine.connect() as c:
+        assert checks.reconcile(c, str(manifest), date(2024, 6, 1), date(2024, 6, 1), [386]) == []
