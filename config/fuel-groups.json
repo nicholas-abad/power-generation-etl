@@ -1,0 +1,52 @@
+{
+  "scope": "Reporting groups for every fuel at the coal plants (tracker issues #32, #33 and #51 theme 4). Each source's own fuel label maps to one group, or is excluded from generation with a reason. The extractors keep the source labels; this list is the only place that turns them into groups, so a change of categories needs no re-extraction. A label that is neither grouped nor excluded fails the view refresh, so a new label is decided here, never guessed. Decided by N. Abad on 2026-11-09 after C. Shearer's comments of 2026-10-28 on #32 and #33 (petcoke is not coal; batteries out for now): Other fossil = petcoke; oil is its own group; a pumped-storage station's output counts as hydro.",
+  "groups": {
+    "coal": "Coal",
+    "gas": "Gas",
+    "oil": "Oil",
+    "other_fossil": "Other fossil",
+    "hydro": "Hydro",
+    "wind": "Wind",
+    "solar": "Solar",
+    "bioenergy": "Bioenergy"
+  },
+  "sources": {
+    "CHILE": {
+      "grouped": {
+        "Carbón": "coal",
+        "Gas Natural": "gas",
+        "Diésel": "oil",
+        "PetCoke": "other_fossil"
+      },
+      "excluded": {
+        "BESS": "batteries excluded for now (tracker #32, C. Shearer 2026-10-28)"
+      }
+    },
+    "OE": {
+      "grouped": {
+        "coal_black": "coal",
+        "coal_brown": "coal",
+        "gas_ccgt": "gas",
+        "gas_ocgt": "gas",
+        "gas_recip": "gas",
+        "gas_steam": "gas",
+        "gas_wcmg": "gas",
+        "distillate": "oil",
+        "hydro": "hydro",
+        "wind": "wind",
+        "wind_offshore": "wind",
+        "solar_utility": "solar",
+        "solar_thermal": "solar",
+        "bioenergy_biogas": "bioenergy",
+        "bioenergy_biomass": "bioenergy"
+      },
+      "excluded": {
+        "battery": "batteries excluded for now (tracker #32, C. Shearer 2026-10-28)",
+        "battery_charging": "batteries excluded for now (tracker #32, C. Shearer 2026-10-28)",
+        "battery_discharging": "batteries excluded for now (tracker #32, C. Shearer 2026-10-28)",
+        "pumps": "pumping is consumption, not generation; a pumped-storage station's output arrives as hydro",
+        "unmatched": "series OpenElectricity's facility master does not list; no fuel known"
+      }
+    }
+  }
+}

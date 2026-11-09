@@ -15,6 +15,8 @@ from dotenv import load_dotenv
 from loguru import logger
 from sqlalchemy import create_engine, text
 
+import fuel_groups
+
 
 # Source → list of materialized views to refresh.
 # `mv_<source>_row_counts` powers the dashboard's /data-quality coverage matrix.
@@ -57,8 +59,9 @@ SOURCE_VIEWS = {
     "chile": [
         "mv_chile_plant_monthly",
         "mv_chile_row_counts",
-        "mv_chile_plant_daily",
-    ],  # daily: 024
+        "mv_chile_fuel_group_monthly",  # migration 026
+        "mv_chile_plant_daily",  # migration 024
+    ],
     "climatetrace": ["mv_climatetrace_coal_monthly"],
 }
 
@@ -74,7 +77,11 @@ MIGRATION_VIEWS = {
     "mv_npp_unit_daily": "024",
     "mv_oe_plant_daily": "024",
     "mv_occto_unit_daily": "025",
+    "mv_chile_fuel_group_monthly": "026",
 }
+# Views grouped by config/fuel-groups.json: the groups are synced from the
+# file, and an unmapped source label fails, before the view is refreshed.
+FUEL_GROUP_VIEWS = {"mv_chile_fuel_group_monthly": "CHILE"}
 LEDGER = "ingestion.schema_migrations"
 DAILY_WORK_MEM = "256MB"
 
@@ -169,6 +176,14 @@ def refresh_views(views: list[str]) -> bool:
                 # Pin UTC so a refresh from any client bucket-matches the
                 # cluster default (GMT) the views were built under.
                 conn.execute(text("SET TIME ZONE 'UTC'"))
+                if view in FUEL_GROUP_VIEWS:
+                    fuel_groups.sync(conn)
+                    unknown = fuel_groups.unmapped(conn, FUEL_GROUP_VIEWS[view])
+                    if unknown:
+                        raise RuntimeError(
+                            f"{FUEL_GROUP_VIEWS[view]} fuel labels missing from "
+                            f"config/fuel-groups.json: {unknown}"
+                        )
                 if view.endswith("_daily"):
                     # Day-grain views aggregate the raw tables (ENTSO-E ~56M rows);
                     # production's default 4 MB work_mem spills them to disk.
