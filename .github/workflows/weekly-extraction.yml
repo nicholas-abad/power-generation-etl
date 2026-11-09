@@ -36,11 +36,11 @@ on:
           - 'Climate TRACE (global)'
           - 'GEM + crosswalk only'
       start_override:
-        description: 'Re-run window start (YYYY-MM-DD). Leave blank for default (latest in DB).'
+        description: 'Re-run window start (YYYY-MM-DD; ENTSO-E takes it to the day). Leave blank for default (latest in DB). An ENTSO-E repair that ends BEHIND continues with the reported first unfinished day here.'
         required: false
         default: ''
       end_override:
-        description: 'Re-run window end (YYYY-MM-DD). Leave blank for default (today).'
+        description: 'Re-run window end (YYYY-MM-DD; ENTSO-E takes it to the day). Leave blank for default (today).'
         required: false
         default: ''
 
@@ -241,7 +241,15 @@ jobs:
     concurrency:
       group: extract-entsoe
       cancel-in-progress: false
+    # loaded=true once any chunk is stored: refresh-views then runs even when
+    # this job ends BEHIND or PARTIAL (src/incremental_extract.py).
+    outputs:
+      loaded: ${{ steps.extract.outputs.loaded }}
     steps:
+      - name: Record job start
+        # The ENTSO-E time budget counts from here, so setup time is included.
+        run: echo "JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Checkout ETL repo
         uses: actions/checkout@v4
 
@@ -249,7 +257,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: nicholas-abad/energy-extractors
-          ref: 202e78e634f796685bd986a89f6b330a5ec82b17 # per-Period coal: CZ + nine rebuilt areas (energy-extractors #26)
+          ref: 50e0b8c3b9f8145e9fc2855eec858f9e7c1186f6 # day ranges for 3-day chunks (energy-extractors #27); per-Period coal: CZ + nine rebuilt areas (#26)
           path: extractors
           token: ${{ secrets.EXTRACTORS_REPO_TOKEN }}
 
@@ -269,7 +277,8 @@ jobs:
           cd extractors
           uv sync --extra entsoe
 
-      - name: Extract ENTSOE month-by-month
+      - name: Extract ENTSOE in 3-day chunks
+        id: extract
         env:
           ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
           START_OVERRIDE: ${{ inputs.start_override }}
@@ -285,6 +294,7 @@ jobs:
             extracted_data/*.jsonl
             extracted_data/logs/
             extracted_data/extraction_metadata_*.json
+            extracted_data/failures*.json
           retention-days: 14
 
   # ─────────────────────────────────────────────
@@ -904,7 +914,7 @@ jobs:
     # be missed). Side effect: a manual run for Climate TRACE alone now
     # refreshes ALL views (seconds to low minutes; well inside the timeout).
     needs: [extract-eia, extract-ons, extract-entsoe, extract-npp, extract-oe, extract-occto, extract-chile, extract-climatetrace]
-    if: ${{ always() && (needs.extract-eia.result == 'success' || needs.extract-ons.result == 'success' || needs.extract-entsoe.result == 'success' || needs.extract-npp.result == 'success' || needs.extract-oe.result == 'success' || needs.extract-occto.result == 'success' || needs.extract-chile.result == 'success' || needs.extract-climatetrace.result == 'success') }}
+    if: ${{ always() && (needs.extract-eia.result == 'success' || needs.extract-ons.result == 'success' || needs.extract-entsoe.result == 'success' || needs.extract-npp.result == 'success' || needs.extract-oe.result == 'success' || needs.extract-occto.result == 'success' || needs.extract-chile.result == 'success' || needs.extract-climatetrace.result == 'success' || needs.extract-entsoe.outputs.loaded == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

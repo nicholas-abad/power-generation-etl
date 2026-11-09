@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""Month-by-month incremental extraction for ENTSOE and OCCTO.
+"""Incremental extraction for ENTSOE (3-day chunks) and OCCTO (months).
 
 Usage:
     python src/incremental_extract.py {entsoe|occto}
 
 Reads latest_date from Neon, computes the chunks needed (clamped to a
 per-source MIN_START_DATE), then for each chunk: invokes the extractor
-binary directly, loads the produced JSONL into Neon, and removes it.
-Fail-fast on any subprocess error.
+binary directly, loads the produced JSONL into Neon, and removes it, so a
+run that stops early keeps every chunk it finished.
+
+ENTSO-E example: latest stored day 2026-11-05, run on 2026-11-09 → new days
+first (11-06..11-08, 11-09), then the 7-day lookback (10-30..11-01,
+11-02..11-04, 11-05), each loaded before the next starts, until the time
+budget runs out.
 
 Design: see /Users/nicholasabad/.claude/plans/effervescent-hatching-horizon.md
 """
@@ -16,10 +21,12 @@ import json
 import os
 import subprocess
 import sys
+import time
 from calendar import monthrange
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import NamedTuple
 
 from loguru import logger
 from sqlalchemy import create_engine, text
@@ -85,11 +92,9 @@ def window_end(today: date) -> date:
     return date.fromisoformat(override) if override else today
 
 
-# 350-min job timeout. ENTSO-E since 2026-08: one request per country per
-# day (data item 16.1.A allows at most one day), measured 188 s per day for
-# all 101 domains -> ~95 min per month -> ~3-month soft ceiling. OCCTO:
-# ~6 min per month -> ~12 months.
-LONG_WINDOW_MONTHS = {"entsoe": 3, "occto": 12}
+# 350-min job timeout. OCCTO: ~6 min per month -> ~12 months. ENTSO-E is
+# chunked by days and stopped by ENTSOE_TIME_BUDGET_MINUTES instead.
+LONG_WINDOW_MONTHS = {"occto": 12}
 
 
 def warn_if_long_window(source: str, start: date, end: date) -> None:
@@ -97,7 +102,7 @@ def warn_if_long_window(source: str, start: date, end: date) -> None:
     hitting the 350-minute job timeout. The user can still proceed — this
     is a heads-up, not a guardrail."""
     months = (end.year - start.year) * 12 + (end.month - start.month) + 1
-    if months > LONG_WINDOW_MONTHS.get(source, 12):
+    if months > LONG_WINDOW_MONTHS[source]:
         logger.warning(
             f"{source}: extracting {months} months ({start} → {end}) "
             f"may exceed the 350-min job timeout — consider splitting into "
@@ -178,26 +183,125 @@ def load_and_remove(source: str, jsonl: Path) -> None:
     jsonl.unlink()
 
 
-def extract_entsoe() -> int:
-    today = date.today()
-    start = window_start("entsoe").replace(day=1)
-    end = window_end(today).replace(day=1)
-    if start > end:
-        logger.info("ENTSOE up to date — 0 iterations")
-        return 0
-    warn_if_long_window("entsoe", start, end)
+# ENTSO-E data item 16.1.A allows one day per request, so a run makes one
+# request per area per day (101 areas). Measured ~3.3 min per day per 50 areas
+# in Oct 2026 and 6-7 in Nov 2026 (slower API): a whole month no longer fits
+# the 350-min job, and the old month-at-a-time loop loaded nothing when it was
+# cancelled (weekly runs of 1 and 8 Nov 2026). Chunks of a few days are loaded
+# one by one, new days before the lookback, so any run that loads one chunk
+# moves the latest stored day forward.
+ENTSOE_CHUNK_DAYS = 3
+# Days already stored, re-fetched to pick up late TSO corrections (the loader
+# upserts, so overlap is harmless). They run after the new days, and only if
+# the budget allows.
+ENTSOE_LOOKBACK_DAYS = 7
+# Job limit 350 min, minus a margin for the last load and the job's teardown.
+ENTSOE_TIME_BUDGET_MINUTES = 320
+# Per-day estimate before the first chunk has been timed (Nov 2026: ~14).
+ENTSOE_INITIAL_MINUTES_PER_DAY = 15
+# A chunk that ended longer ago than this must produce rows.
+ENTSOE_PUBLICATION_LAG_DAYS = 2
 
-    n = 0
-    partial_months: list[str] = []
+
+class DateChunk(NamedTuple):
+    """Days to extract in one extractor call, both ends inclusive."""
+
+    start_date: date
+    end_date: date
+    is_lookback: bool
+
+    @property
+    def days(self) -> int:
+        return (self.end_date - self.start_date).days + 1
+
+    @property
+    def label(self) -> str:
+        return f"{self.start_date}..{self.end_date}"
+
+
+def _split_days(
+    start: date, end: date, chunk_days: int, is_lookback: bool
+) -> list[DateChunk]:
+    chunks = []
     current = start
     while current <= end:
-        gh_group(f"Extract ENTSOE {current.year}-{current.month:02d}")
-        env = {
-            **os.environ,
-            "START_YEAR": str(current.year),
-            "END_YEAR": str(current.year),
-            "MONTHS": str(current.month),
-        }
+        chunk_end = min(current + timedelta(days=chunk_days - 1), end)
+        chunks.append(DateChunk(current, chunk_end, is_lookback))
+        current = chunk_end + timedelta(days=1)
+    return chunks
+
+
+def entsoe_chunks(
+    new_start: date, end: date, lookback_days: int, chunk_days: int
+) -> list[DateChunk]:
+    """Chunks for one run: new days (new_start..end) oldest first, then the
+    ``lookback_days`` before new_start, oldest first. Nothing before
+    MIN_START_DATE."""
+    floor = SOURCES["entsoe"].min_start_date
+    new_start = max(new_start, floor)
+    lookback_start = max(new_start - timedelta(days=lookback_days), floor)
+    lookback_end = min(new_start - timedelta(days=1), end)
+    return _split_days(new_start, end, chunk_days, False) + _split_days(
+        lookback_start, lookback_end, chunk_days, True
+    )
+
+
+def _now() -> float:
+    return time.time()
+
+
+def job_started_at() -> float:
+    """Job start (epoch seconds) from JOB_STARTED_AT, set by the workflow's
+    first step so setup time counts against the budget; now when unset."""
+    value = os.environ.get("JOB_STARTED_AT")
+    return float(value) if value else _now()
+
+
+def mark_entsoe_loaded() -> None:
+    """Tell the workflow that rows were stored, so the views refresh even if
+    this job ends BEHIND or PARTIAL."""
+    path = os.environ.get("GITHUB_OUTPUT")
+    if path:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write("loaded=true\n")
+
+
+def extract_entsoe() -> int:
+    today = date.today()
+    override = bool(os.environ.get("START_OVERRIDE"))
+    chunks = entsoe_chunks(
+        window_start("entsoe"),
+        window_end(today),
+        lookback_days=0 if override else ENTSOE_LOOKBACK_DAYS,
+        chunk_days=ENTSOE_CHUNK_DAYS,
+    )
+    if not chunks:
+        logger.info("ENTSOE up to date — 0 chunks")
+        return 0
+
+    started = job_started_at()
+    # Slowest observed minutes per day so far, so the next chunk is sized
+    # against the worst case of this run.
+    observed_minutes_per_day: list[float] = []
+    partial: list[str] = []
+    first_unfinished: date | None = None
+    lookback_skipped = 0
+    last_new_day: date | None = None
+    n = 0
+    for chunk in chunks:
+        elapsed = (_now() - started) / 60
+        minutes_per_day = max(
+            observed_minutes_per_day, default=ENTSOE_INITIAL_MINUTES_PER_DAY
+        )
+        if elapsed + chunk.days * minutes_per_day > ENTSOE_TIME_BUDGET_MINUTES:
+            if chunk.is_lookback:
+                lookback_skipped += 1
+                continue
+            first_unfinished = chunk.start_date
+            break
+
+        gh_group(f"Extract ENTSOE {chunk.label}")
+        chunk_started = _now()
         rc = run_extract(
             [
                 str(EXTRACT_BIN),
@@ -208,40 +312,67 @@ def extract_entsoe() -> int:
                 "--log-level",
                 "INFO",
             ],
-            env=env,
+            env={
+                **os.environ,
+                "ENTSOE_START_DATE": chunk.start_date.isoformat(),
+                "ENTSOE_END_DATE": chunk.end_date.isoformat(),
+            },
         )
         if rc == 2:
-            partial_months.append(f"{current.year}-{current.month:02d}")
+            partial.append(chunk.label)
         entsoe_files = sorted(EXTRACTED_DATA.glob("entsoe_*_etl.jsonl"))
+        for f in entsoe_files:
+            load_and_remove("entsoe", f)
         if entsoe_files:
-            for f in entsoe_files:
-                load_and_remove("entsoe", f)
-        elif current < today.replace(day=1):
-            # Same guard as the OCCTO branch: a fully-past month must produce
-            # output. An empty glob there means extraction went green but
-            # loaded nothing — latest_date never advances and the same month
-            # re-extracts forever, silently. Only the current month may be
-            # legitimately empty (publication lag / month just started).
+            mark_entsoe_loaded()
+        elif rc == 0 and chunk.end_date < today - timedelta(
+            days=ENTSOE_PUBLICATION_LAG_DAYS
+        ):
+            # Zero rows from all areas for days long published means the
+            # extractor's output changed, not the source. Loaded chunks stay.
             raise RuntimeError(
-                f"ENTSOE extraction for {current.year}-{current.month:02d} "
-                f"succeeded but produced no entsoe_*_etl.jsonl in "
-                f"{EXTRACTED_DATA} — output naming may have changed"
+                f"ENTSOE extraction for {chunk.label} succeeded but produced no "
+                f"entsoe_*_etl.jsonl in {EXTRACTED_DATA} — output naming may "
+                f"have changed"
             )
-        else:
+        elif rc == 0:
             logger.warning(
-                f"No ENTSOE output for {current.year}-{current.month:02d} "
-                f"(current month — likely publication lag)"
+                f"No ENTSOE output for {chunk.label} (recent days — likely "
+                f"publication lag)"
             )
         gh_endgroup()
         n += 1
-        current = add_months(current, 1)
-    if partial_months:
-        raise RuntimeError(
-            f"ENTSOE PARTIAL months (some country/PSR combos failed after "
-            f"retries): {partial_months} — good rows were loaded; the failed "
-            f"combos need a start_override backfill. See failures.json in the "
-            f"job artifacts."
+        if not chunk.is_lookback:
+            last_new_day = chunk.end_date
+        observed_minutes_per_day.append((_now() - chunk_started) / 60 / chunk.days)
+
+    logger.info(
+        f"ENTSOE STATUS: {n} chunks done; new days done through "
+        f"{last_new_day or 'none'}; first unfinished day "
+        f"{first_unfinished or 'none'}; lookback chunks skipped {lookback_skipped}"
+    )
+    if lookback_skipped:
+        logger.warning(
+            f"ENTSOE: {lookback_skipped} lookback chunks skipped for time; late "
+            f"corrections in those days are picked up by a later run"
         )
+    problems = []
+    if first_unfinished:
+        problems.append(
+            f"ENTSOE BEHIND: first unfinished day {first_unfinished}. Chunks before "
+            f"it are stored; the next run continues from the latest stored day "
+            f"(a repair with start_override must pass {first_unfinished} as "
+            f"start_override)."
+        )
+    if partial:
+        problems.append(
+            f"ENTSOE PARTIAL chunks (some country requests failed after "
+            f"retries): {partial} — good rows were loaded; see "
+            f"failures_<start>_<end>.json in the job artifacts and backfill "
+            f"those days with start_override/end_override."
+        )
+    if problems:
+        raise RuntimeError(" | ".join(problems))
     return n
 
 
