@@ -440,13 +440,16 @@ def es(name="As Pontes 1", minutes=60, mw=100, **kw):
     return record(name, minutes, mw, country_code="ES", **kw)
 
 
-def test_configured_scope_is_czech_and_the_nine_rebuilt_areas():
-    nine = {"BA", "BG", "DE_AMPRION", "GR", "HU", "IT", "PL", "RO", "XK"}
-    assert entsoe_coal.COUNTRIES == {"CZ"} | nine
-    assert entsoe_coal.REBUILT == nine
+def test_configured_scope_is_czech_and_the_rebuilt_areas():
+    rebuilt = {
+        "BA", "BG", "DE_AMPRION", "DE_TENNET", "FI", "GR", "HU", "IT", "PL",
+        "RO", "XK",
+    }  # fmt: skip
+    assert entsoe_coal.COUNTRIES == {"CZ"} | rebuilt
+    assert entsoe_coal.REBUILT == rebuilt
     # Reviewed identities may exist for countries not yet in scope (e.g. ES
     # renames); they take effect only once the country is scoped.
-    assert {"ES", "DE_TENNET"} <= {a["country_code"] for a in entsoe_coal.ALIASES}
+    assert "ES" in {a["country_code"] for a in entsoe_coal.ALIASES}
 
 
 def test_source_period_coal_outside_scope_is_rejected():

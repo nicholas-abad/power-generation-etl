@@ -257,7 +257,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: nicholas-abad/energy-extractors
-          ref: 50e0b8c3b9f8145e9fc2855eec858f9e7c1186f6 # day ranges for 3-day chunks (energy-extractors #27); per-Period coal: CZ + nine rebuilt areas (#26)
+          ref: 6d27aca7bc3b9783ae8818b72dbcf0a83275175b # per-Period coal: CZ + nine areas (#26) + DE_TENNET, FI (#28); day ranges (#27)
           path: extractors
           token: ${{ secrets.EXTRACTORS_REPO_TOKEN }}
 
