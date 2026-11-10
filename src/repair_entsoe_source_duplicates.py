@@ -11,9 +11,10 @@ range and the source evidence that both names are one unit.
 plan     Read-only. Lists every row of the removed name in a case's range with
          its kept twin (same country, psr_type and timestamp under the kept
          name), both as full row images, and binds them into plan_sha256.
-         Refuses if a row has no twin, or the twin differs in generation_mw,
-         resolution_minutes or fuel_type, or the two carry different unit
-         EICs. Writes a plan file.
+         Refuses if a row has no twin, if the twin differs in generation_mw,
+         resolution_minutes or fuel_type, if either row is an 'Actual
+         Consumption' row, or if either carries a unit EIC other than the
+         manifest's reviewed one. Writes a plan file.
 apply    Needs --expect-plan-sha256. Under a table lock it rebuilds the plan
          and refuses unless it has that hash, so a changed or missing row to
          delete or kept twin stops it. Records the repair in
@@ -22,7 +23,10 @@ apply    Needs --expect-plan-sha256. Under a table lock it rebuilds the plan
          rows, and verifies that exactly the kept row remains per interval.
 rollback Needs --expect-plan-sha256. Restores the archived rows of that applied
          plan with their original ids. Refuses if a kept twin changed or
-         disappeared since the apply, or a restored row would collide.
+         disappeared since the apply, or a restored row would collide. Rows
+         are compared as whole-row images, so a rollback needs the table's
+         columns unchanged since the apply: after a migration adds a column
+         it refuses, and the archive (kept in full) needs a reviewed restore.
 
 A refused command commits nothing. Run through run_in_environment.py with the
 owner role; production also needs --allow-production (for the plan too). Rows
