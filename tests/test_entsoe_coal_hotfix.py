@@ -197,7 +197,9 @@ def test_other_country_and_fuel_are_unaffected(pg):
     assert {r["resolution_minutes"] for r in rows(conn)} == {15}
 
 
-def test_bad_identity_and_raw_input_conflicts_fail():
+def test_bad_identity_and_raw_input_conflicts_fail(monkeypatch):
+    # Legacy CZ rows stand for a country in scope that is not yet rebuilt.
+    monkeypatch.setattr(entsoe_coal, "REBUILT", entsoe_coal.REBUILT - {"CZ"})
     with pytest.raises(ValueError, match="EIC"):
         check_coal_records([record(unit_eic="27W-GU-ECHVG2--8")])
     with pytest.raises(ValueError, match="Conflicting"):
@@ -440,16 +442,30 @@ def es(name="As Pontes 1", minutes=60, mw=100, **kw):
     return record(name, minutes, mw, country_code="ES", **kw)
 
 
-def test_configured_scope_is_czech_and_the_rebuilt_areas():
+def test_every_configured_country_is_rebuilt():
     rebuilt = {
-        "BA", "BG", "DE_AMPRION", "DE_TENNET", "FI", "GR", "HU", "IT", "PL",
-        "RO", "XK",
+        "BA", "BG", "CZ", "DE_AMPRION", "DE_TENNET", "FI", "GR", "HU", "IT",
+        "PL", "RO", "XK",
     }  # fmt: skip
-    assert entsoe_coal.COUNTRIES == {"CZ"} | rebuilt
+    assert entsoe_coal.COUNTRIES == rebuilt
     assert entsoe_coal.REBUILT == rebuilt
     # Reviewed identities may exist for countries not yet in scope (e.g. ES
     # renames); they take effect only once the country is scoped.
     assert "ES" in {a["country_code"] for a in entsoe_coal.ALIASES}
+
+
+def test_legacy_czech_coal_is_rejected_once_czech_history_is_rebuilt():
+    with pytest.raises(ValueError, match="rebuilt from source"):
+        check_coal_records([record()])
+    check_coal_records(
+        [
+            record(
+                "ECHV_G1____",
+                resolution_source="xml_period",
+                unit_eic="27W-GU-ECHVG1--C",
+            )
+        ]
+    )
 
 
 def test_source_period_coal_outside_scope_is_rejected():
