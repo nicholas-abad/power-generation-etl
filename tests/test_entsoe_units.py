@@ -11,6 +11,7 @@ from sqlalchemy import event
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+import entsoe_coal  # noqa: E402
 from entsoe_identity import prepare_record  # noqa: E402
 from validator import DataValidator  # noqa: E402
 from check_entsoe_staging import load_expected, preflight  # noqa: E402
@@ -36,7 +37,11 @@ def record(**changes):
 
 
 @pytest.fixture
-def entsoe_db(database):
+def entsoe_db(database, monkeypatch):
+    # These tests load CZ rows without source-period provenance, as the weekly
+    # job did before 018. CZ is now a rebuilt country, which rejects such rows,
+    # so it is treated here as an in-scope country that is not yet rebuilt.
+    monkeypatch.setattr(entsoe_coal, "REBUILT", entsoe_coal.REBUILT - {"CZ"})
     connection, db, dsn = database
     with connection.cursor() as cursor:
         cursor.execute((ROOT / "schema/entsoe_generation.sql").read_text())
