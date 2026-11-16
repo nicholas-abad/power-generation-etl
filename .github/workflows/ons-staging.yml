@@ -128,11 +128,12 @@ jobs:
               --baseline output/coal-before.json \
               --expected-jsonl "${files[0]}" --report output/verification.json
       - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: always()
         run: python3 src/redact_artifacts.py output extracted_data
 
       - name: Save verification evidence
-        if: always()
+        if: always() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: ons-staging-${{ matrix.year }}-${{ github.run_id }}

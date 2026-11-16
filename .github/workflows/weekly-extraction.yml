@@ -135,6 +135,7 @@ jobs:
             exit 1
           fi
       - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: failure()
         env:
           ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
@@ -143,7 +144,7 @@ jobs:
         run: python3 src/redact_artifacts.py extracted_data
 
       - name: Upload artifacts (on failure only)
-        if: failure()
+        if: failure() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: eia-extraction-${{ github.run_id }}
@@ -228,6 +229,7 @@ jobs:
             exit 1
           fi
       - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: failure()
         env:
           ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
@@ -236,7 +238,7 @@ jobs:
         run: python3 src/redact_artifacts.py extracted_data
 
       - name: Upload artifacts (on failure only)
-        if: failure()
+        if: failure() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: ons-extraction-${{ github.run_id }}
@@ -302,6 +304,7 @@ jobs:
         run: uv run python src/incremental_extract.py entsoe
 
       - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: failure()
         env:
           ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
@@ -310,7 +313,7 @@ jobs:
         run: python3 src/redact_artifacts.py extracted_data
 
       - name: Upload artifacts (on failure only)
-        if: failure()
+        if: failure() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: entsoe-extraction-${{ github.run_id }}
@@ -395,6 +398,7 @@ jobs:
             exit 1
           fi
       - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: failure()
         env:
           ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
@@ -403,7 +407,7 @@ jobs:
         run: python3 src/redact_artifacts.py extracted_data
 
       - name: Upload artifacts (on failure only)
-        if: failure()
+        if: failure() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: npp-extraction-${{ github.run_id }}
@@ -499,6 +503,7 @@ jobs:
           done
           [ "$failed" -eq 0 ]
       - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: failure()
         env:
           ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
@@ -507,7 +512,7 @@ jobs:
         run: python3 src/redact_artifacts.py extracted_data
 
       - name: Upload artifacts (on failure only)
-        if: failure()
+        if: failure() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: oe-extraction-${{ github.run_id }}
@@ -562,6 +567,7 @@ jobs:
         run: uv run python src/incremental_extract.py occto
 
       - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: failure()
         env:
           ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
@@ -570,7 +576,7 @@ jobs:
         run: python3 src/redact_artifacts.py extracted_data
 
       - name: Upload artifacts (on failure only)
-        if: failure()
+        if: failure() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: occto-extraction-${{ github.run_id }}
@@ -672,6 +678,7 @@ jobs:
             ${{ inputs.start_override != '' && '--report-only' || '' }}
 
       - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: failure()
         env:
           ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
@@ -680,7 +687,7 @@ jobs:
         run: python3 src/redact_artifacts.py extracted_data
 
       - name: Upload artifacts (on failure only)
-        if: failure()
+        if: failure() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: chile-extraction-${{ github.run_id }}
@@ -780,6 +787,7 @@ jobs:
             exit 1
           fi
       - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: failure()
         env:
           ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
@@ -788,7 +796,7 @@ jobs:
         run: python3 src/redact_artifacts.py extracted_data
 
       - name: Upload artifacts (on failure only)
-        if: failure()
+        if: failure() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: climatetrace-extraction-${{ github.run_id }}

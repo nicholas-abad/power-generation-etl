@@ -128,13 +128,14 @@ jobs:
               --require-audited --input "${files[0]}" --manifest extracted_data/entsoe_unit_manifest.json \
               --baseline output/coal-before.json --report output/verification.json
       - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: always()
         env:
           ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
         run: python3 src/redact_artifacts.py output extracted_data
 
       - name: Save reports and exact API responses
-        if: always()
+        if: always() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: entsoe-cz-${{ inputs.year }}-${{ github.run_id }}
