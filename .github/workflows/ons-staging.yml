@@ -127,6 +127,10 @@ jobs:
             uv run python src/check_ons_staging.py --year "$BENCHMARK_YEAR" \
               --baseline output/coal-before.json \
               --expected-jsonl "${files[0]}" --report output/verification.json
+      - name: Redact secrets from artifact files (public repository)
+        if: always()
+        run: python3 src/redact_artifacts.py output extracted_data
+
       - name: Save verification evidence
         if: always()
         uses: actions/upload-artifact@v4

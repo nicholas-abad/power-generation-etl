@@ -134,6 +134,14 @@ jobs:
             cat extracted_data/failures.json
             exit 1
           fi
+      - name: Redact secrets from artifact files (public repository)
+        if: failure()
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: python3 src/redact_artifacts.py extracted_data
+
       - name: Upload artifacts (on failure only)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -219,6 +227,14 @@ jobs:
             cat extracted_data/failures.json
             exit 1
           fi
+      - name: Redact secrets from artifact files (public repository)
+        if: failure()
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: python3 src/redact_artifacts.py extracted_data
+
       - name: Upload artifacts (on failure only)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -284,6 +300,14 @@ jobs:
           START_OVERRIDE: ${{ inputs.start_override }}
           END_OVERRIDE: ${{ inputs.end_override }}
         run: uv run python src/incremental_extract.py entsoe
+
+      - name: Redact secrets from artifact files (public repository)
+        if: failure()
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: python3 src/redact_artifacts.py extracted_data
 
       - name: Upload artifacts (on failure only)
         if: failure()
@@ -370,6 +394,14 @@ jobs:
             cat extracted_data/failures.json
             exit 1
           fi
+      - name: Redact secrets from artifact files (public repository)
+        if: failure()
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: python3 src/redact_artifacts.py extracted_data
+
       - name: Upload artifacts (on failure only)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -466,6 +498,14 @@ jobs:
             failed=1
           done
           [ "$failed" -eq 0 ]
+      - name: Redact secrets from artifact files (public repository)
+        if: failure()
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: python3 src/redact_artifacts.py extracted_data
+
       - name: Upload artifacts (on failure only)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -520,6 +560,14 @@ jobs:
           START_OVERRIDE: ${{ inputs.start_override }}
           END_OVERRIDE: ${{ inputs.end_override }}
         run: uv run python src/incremental_extract.py occto
+
+      - name: Redact secrets from artifact files (public repository)
+        if: failure()
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: python3 src/redact_artifacts.py extracted_data
 
       - name: Upload artifacts (on failure only)
         if: failure()
@@ -623,6 +671,14 @@ jobs:
             --end-date "${{ steps.latest.outputs.end_date }}" \
             ${{ inputs.start_override != '' && '--report-only' || '' }}
 
+      - name: Redact secrets from artifact files (public repository)
+        if: failure()
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: python3 src/redact_artifacts.py extracted_data
+
       - name: Upload artifacts (on failure only)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -723,6 +779,14 @@ jobs:
             cat extracted_data/failures.json
             exit 1
           fi
+      - name: Redact secrets from artifact files (public repository)
+        if: failure()
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: python3 src/redact_artifacts.py extracted_data
+
       - name: Upload artifacts (on failure only)
         if: failure()
         uses: actions/upload-artifact@v4
