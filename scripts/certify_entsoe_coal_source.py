@@ -356,6 +356,10 @@ def certify(archive, country, psrs, start, end, extractor, workers=8):
     entries, domain = load_inventory(archive, psrs, start, end)
     ok = [e for e in entries if e["status"] == "ok"]
     records = entsoe_fuel_exceptions.exceptions()
+    require(
+        country not in entsoe_fuel_exceptions.other_fuel_areas(records),
+        f"{country} has count_as_other_fuel records: the certified rebuild does not support them yet",
+    )
     with ProcessPoolExecutor(workers) as pool:
         jobs = [(str(archive), e, country, domain, records) for e in ok]
         rows, unnamed, counters, observation_count, skipped = summarize(

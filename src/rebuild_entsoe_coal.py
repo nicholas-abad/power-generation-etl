@@ -417,6 +417,14 @@ def plan(connection, manifest, manifest_sha, windows, target):
             # The weekly path must already write source-period rows with
             # canonical names and reject legacy rows for this country.
             "country_not_configured_as_rebuilt": [country] if not_rebuilt else [],
+            # The replacement scope is coal-only, and a count_as_other_fuel
+            # record moves rows to another fuel: rebuild support is its own
+            # reviewed step (plan: entsoe-relabel-treatment, phase 2).
+            "country_has_count_as_other_fuel_records": (
+                [country]
+                if country in entsoe_fuel_exceptions.other_fuel_areas()
+                else []
+            ),
             # The plan must name the exact released code it was made with.
             "etl_checkout_unknown_or_modified": [] if commit else ["src/ or config/"],
         },

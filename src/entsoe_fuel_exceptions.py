@@ -11,6 +11,13 @@ A record here overrides it for one unit and a range of UTC months, after review
   for 2019–2024 although it burned coal until 2024. The certified rebuild
   writes those months as B05; every load drops the unit's B04 rows in the
   window, so the months come only from the rebuild.
+- ``count_as_other_fuel``: coal rows that are the unit's real other fuel,
+  kept as that fuel instead of dropped (tracker #10: a converted unit's output
+  stays visible). Example: Studstrup 3 (DK_CA), labelled B05 hard coal by
+  ENTSO-E after its conversion to biomass, is loaded as B01 "Biomass". Every
+  load moves the row; rows already stored are moved by
+  src/repair_entsoe_fuel_moves.py. The certified rebuild refuses an area with
+  such a record (its replacement scope is coal-only).
 
 Matching is on the row's UTC month (YYYY-MM from timestamp_ms), never on today's
 date, so a historical reload is filtered exactly like the weekly load. A row
@@ -26,9 +33,13 @@ import json
 from pathlib import Path
 import re
 
+from entsoe_fuels import PSR_TO_FUEL_TYPE
+
 PATH = Path(__file__).resolve().parents[1] / "config/entsoe-fuel-exceptions.json"
 COAL = frozenset({"B02", "B03", "B05"})
-TREATMENTS = frozenset({"exclude", "count_as_coal"})
+TREATMENTS = frozenset({"exclude", "count_as_coal", "count_as_other_fuel"})
+# Treatments whose matching rows a load drops; count_as_other_fuel moves them.
+DROPPED_ON_LOAD = frozenset({"exclude", "count_as_coal"})
 _MONTH = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 # Bidding zones and control areas: DE_TENNET, DK_CA, IT_SACO_AC, DE_AT_LU.
 # A mistyped area or EIC matches nothing; certification and the payload then
@@ -111,6 +122,13 @@ def _check(entry: dict) -> FuelException:
         raise ValueError(
             f"Fuel exception {label}: count_as_coal needs a non-coal source_psr "
             "and a coal counted_psr"
+        )
+    if treatment == "count_as_other_fuel" and (
+        source not in COAL or counted in COAL or counted not in PSR_TO_FUEL_TYPE
+    ):
+        raise ValueError(
+            f"Fuel exception {label}: count_as_other_fuel needs a coal source_psr "
+            "and a non-coal generation counted_psr"
         )
     names = entry.get("reviewed_names", [])
     if not isinstance(names, list) or not all(isinstance(n, str) and n for n in names):
@@ -213,32 +231,54 @@ def overlapping(country: str, start: str, end: str, records=None):
     ]
 
 
-def exclude_areas(records=None) -> set[str]:
-    """Areas with an exclude record: their coal rows must carry a unit EIC."""
+def areas_requiring_unit_eic(records=None) -> set[str]:
+    """Areas with an exclude or count_as_other_fuel record: their coal rows must carry a unit EIC."""
     return {
         r.area
         for r in (exceptions() if records is None else records)
-        if r.treatment == "exclude"
+        if r.treatment in ("exclude", "count_as_other_fuel")
     }
 
 
-def filtered_on_load(record: dict, records=None) -> FuelException | None:
-    """The record that removes this row from an ENTSO-E load, or None.
+def other_fuel_areas(records=None) -> set[str]:
+    """Areas with a count_as_other_fuel record: the certified rebuild refuses them."""
+    return {
+        r.area
+        for r in (exceptions() if records is None else records)
+        if r.treatment == "count_as_other_fuel"
+    }
+
+
+def moved_record(record: dict, exception: FuelException) -> dict:
+    """The row as its real fuel: psr_type and fuel_type of the record's counted PSR."""
+    if exception.treatment != "count_as_other_fuel":
+        raise ValueError(f"Fuel exception {exception.id} does not move rows")
+    return {
+        **record,
+        "psr_type": exception.counted_psr,
+        "fuel_type": PSR_TO_FUEL_TYPE[exception.counted_psr],
+    }
+
+
+def exception_on_load(record: dict, records=None) -> FuelException | None:
+    """The record that applies to this row in an ENTSO-E load, or None.
 
     Every load path calls this (weekly, START_OVERRIDE replays, prepared
-    files), after timestamps are parsed and legacy names cleaned. Both
-    treatments drop the matching row: ``exclude`` drops coal that is not coal,
-    ``count_as_coal`` drops the source-PSR rows whose months come only from the
-    certified rebuild. A coal row without an EIC from an area with an exclude
-    record fails the load: it cannot be checked, which happens only with a stale
-    extractor pin or an area not on the source-period path.
+    files), after timestamps are parsed and legacy names cleaned. The caller
+    drops the row for a DROPPED_ON_LOAD treatment (``exclude``: coal that is
+    not coal; ``count_as_coal``: source-PSR rows whose months come only from
+    the certified rebuild) and moves it for ``count_as_other_fuel``
+    (moved_record). A coal row without an EIC from an area with an exclude or
+    count_as_other_fuel record fails the load: it cannot be checked, which
+    happens only with a stale extractor pin or an area not on the
+    source-period path.
     """
     country, psr, eic = (
         record.get("country_code"),
         record.get("psr_type"),
         record.get("unit_eic"),
     )
-    if eic is None and psr in COAL and country in exclude_areas(records):
+    if eic is None and psr in COAL and country in areas_requiring_unit_eic(records):
         raise ValueError(
             f"{country} coal row without a unit EIC cannot be checked against the "
             "fuel exceptions (config/entsoe-fuel-exceptions.json)"
