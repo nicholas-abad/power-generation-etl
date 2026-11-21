@@ -809,3 +809,59 @@ def test_a_stored_coal_copy_must_be_moved_before_a_reload(entsoe_db, tmp_path, m
     ok, _ = load_as_extracted(db, tmp_path, [moved()], batch_size=1)
     assert not ok and any("move the stored rows first" in line for line in loader_log)
     assert _stored(connection) == [(MOVED_UNIT, "Test Moved 1", "B02", "Fossil Brown coal/Lignite")]
+
+
+def test_a_stored_coal_copy_without_an_eic_also_blocks_the_move(entsoe_db, tmp_path, monkeypatch, loader_log):
+    # Rig review of #167: a pre-018 copy of the unit (no EIC, its reviewed name) must be found too.
+    connection, db, dsn = entsoe_db
+    migrate(dsn)
+    legacy = moved()
+    legacy.pop("unit_eic"), legacy.pop("production_unit_eic")
+    ok, _ = load_as_extracted(db, tmp_path, [legacy], batch_size=1)
+    assert ok
+    _move_to_biomass(monkeypatch)
+    ok, _ = load_as_extracted(db, tmp_path, [moved()], batch_size=1)
+    assert not ok and any("move the stored rows first" in line for line in loader_log)
+    assert _stored(connection) == [(None, "Test Moved 1", "B02", "Fossil Brown coal/Lignite")]
+
+
+def test_a_move_still_passes_the_coal_provenance_checks(entsoe_db, tmp_path, monkeypatch, loader_log):
+    # Rig review of #167: a legacy replay for a rebuilt country is refused before the move.
+    connection, db, dsn = entsoe_db
+    migrate(dsn)
+    monkeypatch.setattr(entsoe_coal, "REBUILT", entsoe_coal.REBUILT | {"CZ"})
+    _move_to_biomass(monkeypatch)
+    ok, _ = load_as_extracted(db, tmp_path, [moved()], batch_size=1)
+    assert not ok and any("Legacy coal rows are rejected for CZ" in line for line in loader_log)
+    assert _stored(connection) == []
+
+
+def test_a_rejected_move_writes_every_native_row_whatever_the_batch_size(entsoe_db, tmp_path, monkeypatch, loader_log):
+    connection, db, dsn = entsoe_db
+    migrate(dsn)
+    _move_to_biomass(monkeypatch)
+    other = record(unit_eic=OTHER_UNIT, production_unit_eic=None, plant_name="Test Other 2")
+    native = moved(psr_type="B01", fuel_type="Biomass")
+    ok, _ = load_as_extracted(db, tmp_path, [other, native, moved()], batch_size=1000)
+    assert not ok and any("reports the unit twice" in line for line in loader_log)
+    assert _stored(connection) == [
+        (MOVED_UNIT, "Test Moved 1", "B01", "Biomass"),
+        (OTHER_UNIT, "Test Other 2", "B02", "Fossil Brown coal/Lignite"),
+    ]
+
+
+def test_unnamed_moved_units_compare_by_unit_not_by_a_missing_name():
+    # Rig review of #167: two units without a name yet are two rows, not one.
+    import entsoe_fuel_exceptions as fx
+    from database import _FuelMoves, _HeldMove
+
+    (exception,) = fx.parse({"exceptions": [{
+        "id": "x", "area": "CZ", "unit_eic": MOVED_UNIT, "unit_name": "x", "from_month": "2019-01",
+        "to_month": None, "source_psr": "B02", "treatment": "count_as_other_fuel", "counted_psr": "B01",
+        "reason": "t", "decided_by": "t", "decided_on": "2026-11-21", "ref": "t",
+    }]})  # fmt: skip
+    moves = _FuelMoves([exception])
+    for eic in (MOVED_UNIT, OTHER_UNIT):
+        row = {"country_code": "CZ", "unit_eic": eic, "timestamp_ms": 1, "psr_type": "B01", "plant_name": None}
+        moves.held.append(_HeldMove(True, row, exception))
+    moves.check_in_file()

@@ -231,7 +231,7 @@ def overlapping(country: str, start: str, end: str, records=None):
     ]
 
 
-def exclude_areas(records=None) -> set[str]:
+def areas_requiring_unit_eic(records=None) -> set[str]:
     """Areas with an exclude or count_as_other_fuel record: their coal rows must carry a unit EIC."""
     return {
         r.area
@@ -278,7 +278,7 @@ def exception_on_load(record: dict, records=None) -> FuelException | None:
         record.get("psr_type"),
         record.get("unit_eic"),
     )
-    if eic is None and psr in COAL and country in exclude_areas(records):
+    if eic is None and psr in COAL and country in areas_requiring_unit_eic(records):
         raise ValueError(
             f"{country} coal row without a unit EIC cannot be checked against the "
             "fuel exceptions (config/entsoe-fuel-exceptions.json)"

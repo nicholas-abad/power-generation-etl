@@ -514,7 +514,7 @@ def test_a_moved_row_takes_the_counted_fuel_and_its_label():
 def test_areas_with_moves_need_eics_and_are_refused_by_the_rebuild():
     records = fx.parse({"exceptions": [OTHER_FUEL, NORD2 | {"area": "DE_TENNET"}]})
     assert fx.other_fuel_areas(records) == {"PL"}
-    assert "PL" in fx.exclude_areas(records)
+    assert "PL" in fx.areas_requiring_unit_eic(records)
     with pytest.raises(ValueError, match="does not move rows"):
         fx.moved_record({}, records[1])
 

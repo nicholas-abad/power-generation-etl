@@ -21,7 +21,7 @@ UNIT = "45W000000000036L"  # Studstrup 3
 TABLE = repair.TABLE
 RECORD = {
     "id": "DK_CA-studstrup-3-biomass", "area": "DK_CA", "unit_eic": UNIT, "unit_name": "Studstrupvaerket 3",
-    "reviewed_names": ["Studstrupvaerket 3"], "from_month": "2024-03", "to_month": "2024-03",
+    "reviewed_names": ["Studstrupvaerket 3", "Studstrup 3"], "from_month": "2024-03", "to_month": "2024-03",
     "source_psr": "B05", "treatment": "count_as_other_fuel", "counted_psr": "B01",
     "reason": "test", "decided_by": "test", "decided_on": "2026-11-21", "ref": "test",
 }  # fmt: skip
@@ -111,12 +111,37 @@ def test_apply_refuses_a_plan_whose_rows_changed(stored):
         run("apply", plan["plan_sha256"])
 
 
-def test_a_stored_row_where_a_moved_row_would_land_refuses_the_plan(stored):
+@pytest.mark.parametrize(
+    "landing",
+    [
+        # The same unit as biomass at hour 1, without an EIC, under the same name.
+        row(1, psr="B01", eic=None, name="Studstrupvaerket 3"),
+        # Without an EIC under another reviewed name (rig review of #167).
+        row(1, psr="B01", eic=None, name="Studstrup 3"),
+        # With the unit's EIC under another PSR: migration 018's unit key.
+        row(1, psr="B01", name="Studstrup 3 gas", eic=UNIT) | {"psr_type": "B04", "fuel_type": "Fossil Gas"},
+    ],
+)
+def test_a_stored_row_where_a_moved_row_would_land_refuses_the_plan(stored, landing):
     connection, run = stored
-    # ENTSO-E also reported the unit as biomass at hour 1, under another name.
-    insert(connection, [row(1, psr="B01", eic=None, name="Studstrupvaerket 3")])
+    if landing["unit_eic"] == UNIT:  # the unit key allows one row per unit and time: free hour 1 first
+        with connection.cursor() as cursor:
+            cursor.execute(f"DELETE FROM {TABLE} WHERE timestamp_ms = %s AND psr_type = 'B05'", (landing["timestamp_ms"],))
+        insert(connection, [landing, row(1, eic=None, name="Studstrupvaerket 3")])
+    else:
+        insert(connection, [landing])
     with pytest.raises(ValueError, match="already sit where moved rows would land"):
         run("plan")
+
+
+def test_rollback_refuses_after_a_moved_rows_fuel_label_changed(stored):
+    connection, run = stored
+    plan, _ = run("plan")
+    run("apply", plan["plan_sha256"])
+    with connection.cursor() as cursor:
+        cursor.execute(f"UPDATE {TABLE} SET fuel_type = 'Waste' WHERE psr_type = 'B01' AND timestamp_ms = {MARCH}")
+    with pytest.raises(ValueError, match="rollback requires a new review"):
+        run("rollback", plan["plan_sha256"])
 
 
 def test_rollback_refuses_after_a_moved_row_changed(stored):

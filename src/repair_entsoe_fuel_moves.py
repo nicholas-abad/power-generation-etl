@@ -13,17 +13,22 @@ plan     Read-only. Lists every stored row a record matches (area, source PSR,
          unit EIC, or one of the record's reviewed names for a row without an
          EIC, UTC month in the record's window) as full row images, with count
          and MWh per record and month, and binds them into plan_sha256.
-         Refuses if a row would land on a stored row (same natural key under
-         the counted PSR, or the same unit and time under another PSR).
+         Refuses if a row would land on a stored row: another row of the same
+         unit at a moved time (its EIC, or without an EIC a reviewed name of
+         the record or the row's own name), or the natural key under the
+         counted PSR.
 apply    Needs --expect-plan-sha256. Under a table lock it rebuilds the plan
          and refuses unless it has that hash. Records the repair in
          ingestion.entsoe_fuel_move_repairs, archives every row image in
          ingestion.entsoe_fuel_move_backup, sets psr_type and fuel_type, and
-         checks that coal fell and the counted fuels rose by the planned MWh
-         and that no stored row matches a record any more.
+         checks that every moved row's energy now sits under its counted PSR
+         (exact numeric MWh) and that no stored row matches a record any more.
 rollback Needs --expect-plan-sha256. Sets the archived rows of that applied plan
          back, refusing if a moved row changed since (e.g. a later load
-         rewrote it); such a rollback needs a new review.
+         rewrote it); such a rollback needs a new review. Remove the record
+         from config/entsoe-fuel-exceptions.json (or pause the weekly job)
+         first: while it is listed, a load that re-fetches those days refuses
+         to move rows whose coal copy is stored again.
 
 A refused command commits nothing. Run through run_in_environment.py with the
 owner role; production also needs --allow-production (for the plan too). Views
@@ -54,14 +59,18 @@ ROWS = f"""
         AND t.timestamp_ms >= %(start_ms)s AND t.timestamp_ms < %(end_ms)s
     ORDER BY t.timestamp_ms, t.id
 """
-# A moved row must not land on a stored row: the same natural key under the
-# counted PSR, or (migration 018) the same unit and time under another PSR.
+# A moved row must not land on a stored row. Any other stored row of the same
+# unit at a moved timestamp is one: under the unit's EIC, or without an EIC
+# under a reviewed name of the record or the moved row's own name (any PSR:
+# the counted PSR would be a second copy, another PSR a clash with migration
+# 018's unit key). And no row of another unit may hold the moved row's
+# natural key under the counted PSR.
 LANDINGS = f"""
-    SELECT count(*) FROM {TABLE} t WHERE t.country_code = %(area)s AND t.id <> ALL(%(ids)s) AND (
-        (t.psr_type = %(counted_psr)s AND (t.timestamp_ms, t.plant_name) IN (
-            SELECT * FROM unnest(%(stamps)s::bigint[], %(names_of_rows)s::text[])))
-        OR (t.unit_eic IS NOT NULL AND (t.unit_eic, t.timestamp_ms) IN (
-            SELECT * FROM unnest(%(eics)s::text[], %(stamps)s::bigint[]))))
+    SELECT count(*) FROM {TABLE} t WHERE t.country_code = %(area)s AND t.id <> ALL(%(ids)s)
+        AND t.timestamp_ms = ANY(%(stamps)s) AND (
+            (t.unit_eic = %(unit_eic)s OR (t.unit_eic IS NULL AND t.plant_name = ANY(%(names)s)))
+            OR (t.psr_type = %(counted_psr)s AND (t.timestamp_ms, t.plant_name) IN (
+                SELECT * FROM unnest(%(stamps)s::bigint[], %(names_of_rows)s::text[]))))
 """
 
 
@@ -124,10 +133,13 @@ def build_plan(cursor, records, records_sha256, target):
                 {
                     "area": record.area,
                     "counted_psr": record.counted_psr,
+                    "unit_eic": record.unit_eic,
+                    "names": sorted(
+                        {*record.reviewed_names, *(r["plant_name"] for r in rows)}
+                    ),
                     "ids": [r["id"] for r in rows],
                     "stamps": [r["timestamp_ms"] for r in rows],
                     "names_of_rows": [r["plant_name"] for r in rows],
-                    "eics": [r["unit_eic"] for r in rows],
                 },
             )
             landed = cursor.fetchone()[0]
@@ -174,7 +186,7 @@ def create_archive(cursor):
         f"CREATE TABLE IF NOT EXISTS {BACKUP} ("
         f"apply_id bigint NOT NULL REFERENCES {LEDGER}(apply_id), "
         "id bigint NOT NULL, exception_id text NOT NULL, counted_psr text NOT NULL, "
-        "original_row jsonb NOT NULL, PRIMARY KEY (apply_id, id))"
+        "moved_fuel_type text NOT NULL, original_row jsonb NOT NULL, PRIMARY KEY (apply_id, id))"
     )
     # The archive is the only record of the original labels: owner only.
     cursor.execute(f"REVOKE ALL ON {LEDGER}, {BACKUP} FROM PUBLIC")
@@ -196,19 +208,14 @@ def applied_entry(cursor, plan_sha256):
     return cursor.fetchone()
 
 
-def fuel_mwh(cursor, records):
-    """MWh per (area, psr) for the records' source and counted PSRs, whole table."""
-    pairs = sorted(
-        {(r.area, p) for r in records for p in (r.source_psr, r.counted_psr)}
-    )
+def moved_mwh(cursor, apply_id):
+    """Exact MWh of this apply's rows per (exception, current PSR), as numeric."""
     cursor.execute(
-        f"SELECT country_code, psr_type, COALESCE(sum(generation_mw * resolution_minutes / 60.0), 0) "
-        f"FROM {TABLE} WHERE (country_code, psr_type) IN (SELECT * FROM unnest(%s::text[], %s::text[])) "
-        "GROUP BY 1, 2",
-        ([a for a, _ in pairs], [p for _, p in pairs]),
+        f"SELECT b.exception_id, a.psr_type, sum(a.generation_mw::text::numeric * a.resolution_minutes / 60) "
+        f"FROM {BACKUP} b JOIN {TABLE} a ON a.id = b.id WHERE b.apply_id = %s GROUP BY 1, 2",
+        (apply_id,),
     )
-    found = {(a, p): float(v) for a, p, v in cursor.fetchall()}
-    return {pair: found.get(pair, 0.0) for pair in pairs}
+    return {(e, p): v for e, p, v in cursor.fetchall()}
 
 
 def apply(cursor, records, plan, moves):
@@ -219,7 +226,6 @@ def apply(cursor, records, plan, moves):
     create_archive(cursor)
     if applied_entry(cursor, plan["plan_sha256"]):
         raise ValueError("This plan is already applied")
-    before = fuel_mwh(cursor, records)
     cursor.execute(
         f"INSERT INTO {LEDGER} (plan_sha256, records_sha256, rows, state) "
         "VALUES (%s, %s, %s, 'applied') RETURNING apply_id",
@@ -229,38 +235,36 @@ def apply(cursor, records, plan, moves):
     counted = {r.id: r.counted_psr for r in records}
     execute_values(
         cursor,
-        f"INSERT INTO {BACKUP} (apply_id, id, exception_id, counted_psr, original_row) VALUES %s",
+        f"INSERT INTO {BACKUP} (apply_id, id, exception_id, counted_psr, moved_fuel_type, original_row) "
+        "VALUES %s",
         [
             (
                 apply_id,
                 m["row"]["id"],
                 m["exception"],
                 counted[m["exception"]],
+                PSR_TO_FUEL_TYPE[counted[m["exception"]]],
                 Json(m["row"]),
             )
             for m in moves
         ],
         page_size=5000,
     )
+    before = moved_mwh(cursor, apply_id)
     cursor.execute(
-        f"UPDATE {TABLE} a SET psr_type = b.counted_psr, fuel_type = f.fuel FROM {BACKUP} b "
-        "JOIN unnest(%s::text[], %s::text[]) AS f(psr, fuel) ON f.psr = b.counted_psr "
+        f"UPDATE {TABLE} a SET psr_type = b.counted_psr, fuel_type = b.moved_fuel_type FROM {BACKUP} b "
         "WHERE b.apply_id = %s AND a.id = b.id AND to_jsonb(a) = b.original_row",
-        (list(PSR_TO_FUEL_TYPE), list(PSR_TO_FUEL_TYPE.values()), apply_id),
+        (apply_id,),
     )
     if cursor.rowcount != len(moves):
         raise ValueError("Moved row count differs from the plan")
-    after = fuel_mwh(cursor, records)
-    expected = dict.fromkeys(before, 0.0)
-    for m in moves:
-        record = next(r for r in records if r.id == m["exception"])
-        expected[(record.area, record.source_psr)] -= mwh(m["row"])
-        expected[(record.area, record.counted_psr)] += mwh(m["row"])
-    for pair, change in expected.items():
-        if not math.isclose(after[pair] - before[pair], change, abs_tol=0.01):
-            raise ValueError(
-                f"{pair}: MWh changed by {after[pair] - before[pair]:.3f}, planned {change:.3f}"
-            )
+    # Every moved row's energy now sits under its counted PSR, to the MWh.
+    after = moved_mwh(cursor, apply_id)
+    expected = {(e, counted[e]): v for (e, _), v in before.items()}
+    if after != expected:
+        raise ValueError(
+            f"Moved energy per PSR {after} differs from the archived rows {expected}"
+        )
     remaining, _ = build_plan(cursor, records, plan["records_sha256"], plan["target"])
     if remaining["rows_to_move"]:
         raise ValueError(
@@ -279,6 +283,7 @@ def rollback(cursor, plan_sha256):
         f"UPDATE {TABLE} a SET psr_type = b.original_row->>'psr_type', "
         "fuel_type = b.original_row->>'fuel_type' "
         f"FROM {BACKUP} b WHERE b.apply_id = %s AND a.id = b.id AND a.psr_type = b.counted_psr "
+        "AND a.fuel_type = b.moved_fuel_type "
         "AND to_jsonb(a) - 'psr_type' - 'fuel_type' = b.original_row - 'psr_type' - 'fuel_type'",
         (apply_id,),
     )
