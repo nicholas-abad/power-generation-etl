@@ -155,3 +155,26 @@ def test_a_guard_query_error_fails_instead_of_skipping(guard_db, tmp_path):
     _, env_db = guard_db
     rc, out = _guard({**env_db, "POSTGRES_DB": "no_such_database"}, "", tmp_path)
     assert rc != 0 and "applied=false" not in out
+
+
+@pytest.mark.parametrize(
+    "job",
+    [
+        name
+        for name, job in JOBS.items()
+        if any("upload-artifact" in s.get("uses", "") for s in job.get("steps", []))
+    ],
+)
+def test_every_artifact_upload_waits_for_the_secret_redaction(job):
+    # The repository is public: artifact files must pass src/redact_artifacts.py
+    # first (the ENTSO-E key leaked through a failure artifact in November 2026).
+    steps = JOBS[job]["steps"]
+    redact = next((i for i, s in enumerate(steps) if s.get("id") == "redact"), None)
+    assert redact is not None, f"{job}: no redaction step"
+    assert "redact_artifacts.py" in steps[redact]["run"]
+    for i, step in enumerate(steps):
+        if "upload-artifact" in step.get("uses", ""):
+            assert i > redact, f"{job}: upload before the redaction"
+            assert "steps.redact.outcome == 'success'" in step["if"], (
+                f"{job}: upload not gated"
+            )

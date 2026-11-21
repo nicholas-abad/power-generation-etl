@@ -98,6 +98,12 @@ Backfill: one dispatch per calendar year, source `Chile all fuels (Coordinador)`
 first** (2026, 2025 … 2019), so the newest stored day is current after the first dispatch and a
 Sunday run in between fetches only its usual window.
 
+Dispatch the next year only after the previous one has finished, and not around the Sunday run
+(06:23 UTC). Both Chile jobs share the concurrency group, which keeps one running and one pending
+job: a third queued job cancels the pending one, and a cancelled job opens no failure issue. A
+Sunday coal job cancelled that way is recovered by the next Sunday's 14-day lookback; a cancelled
+backfill year has to be dispatched again.
+
 ## Open methodology questions (Christine)
 
 - Do the newly found coal units (Tarapacá, Mejillones CTM1/CTM2, Bocamina I) count as coal?

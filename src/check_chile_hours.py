@@ -50,12 +50,11 @@ HOUR_MS = 3_600_000
 
 
 class CheckedTable(NamedTuple):
-    """A table the check reads (--table) and how it names a series."""
+    """A table the check reads (--table): its name, and the SQL expression naming
+    one series in it (a plant, or a plant's unit technology)."""
 
     table_name: str
-    series_expression: (
-        str  # SQL naming one series: a plant, or a plant's unit technology
-    )
+    series_expression: str
 
 
 TABLES = {
@@ -97,17 +96,17 @@ def find_gaps(
     """
     mature: dict[str, list[int]] = {}
     pending: dict[str, list[int]] = {}
-    for plant, (first, last) in spans.items():
-        have = stored.get(plant, set())
+    for series, (first, last) in spans.items():
+        have = stored.get(series, set())
         hour = max(first, start_ms)
         hour += -hour % HOUR_MS
         while hour <= last and hour < end_ms:
             if hour not in have and not (
                 allow_fall_back_repeat and is_fall_back_repeat(hour)
             ):
-                (mature if hour < mature_end else pending).setdefault(plant, []).append(
-                    hour
-                )
+                (mature if hour < mature_end else pending).setdefault(
+                    series, []
+                ).append(hour)
             hour += HOUR_MS
     return mature, pending
 
@@ -119,8 +118,8 @@ def describe(gaps: dict[str, list[int]]) -> str:
         )
 
     return "; ".join(
-        f"{plant}: {len(hours)} h ({utc(hours[0])} .. {utc(hours[-1])} UTC)"
-        for plant, hours in sorted(gaps.items())
+        f"{series}: {len(hours)} h ({utc(hours[0])} .. {utc(hours[-1])} UTC)"
+        for series, hours in sorted(gaps.items())
     )
 
 
@@ -155,28 +154,31 @@ def main() -> int:
         if args.end_date
         else sys.maxsize
     )
-    table, series = TABLES[args.table].table_name, TABLES[args.table].series_expression
+    table, series_sql = (
+        TABLES[args.table].table_name,
+        TABLES[args.table].series_expression,
+    )
     try:
         with create_engine(get_connection_url()).connect() as conn:
             conn.execute(text("SET TRANSACTION READ ONLY"))
             spans = {
-                plant: (first, last)
-                for plant, first, last in conn.execute(
+                series: (first, last)
+                for series, first, last in conn.execute(
                     text(
-                        f"SELECT {series}, MIN(timestamp_ms), MAX(timestamp_ms) "
+                        f"SELECT {series_sql}, MIN(timestamp_ms), MAX(timestamp_ms) "
                         f"FROM {table} GROUP BY 1"
                     )
                 )
             }
             stored: dict[str, set[int]] = {}
-            for plant, ts in conn.execute(
+            for series, ts in conn.execute(
                 text(
-                    f"SELECT DISTINCT {series}, timestamp_ms FROM {table} "
+                    f"SELECT DISTINCT {series_sql}, timestamp_ms FROM {table} "
                     "WHERE timestamp_ms >= :s AND timestamp_ms < :e"
                 ),
                 {"s": start_ms, "e": end_ms},
             ):
-                stored.setdefault(plant, set()).add(ts)
+                stored.setdefault(series, set()).add(ts)
     except Exception as e:  # noqa: BLE001 - report and exit 2
         logger.error(f"Chile hour check could not run: {e}")
         return 2

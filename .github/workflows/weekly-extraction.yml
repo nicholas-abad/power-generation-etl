@@ -37,7 +37,7 @@ on:
           - 'Climate TRACE (global)'
           - 'GEM + crosswalk only'
       start_override:
-        description: 'Re-run window start (YYYY-MM-DD; ENTSO-E takes it to the day). Leave blank for default (latest in DB). An ENTSO-E repair that ends BEHIND continues with the reported first unfinished day here. Chile all fuels: one calendar year per dispatch (about 40 min), newest year first; a source=all dispatch with an older start runs it over the whole window.'
+        description: 'Re-run window start (YYYY-MM-DD; ENTSO-E takes it to the day). Leave blank for default (latest in DB). An ENTSO-E repair that ends BEHIND continues with the reported first unfinished day here. Chile all fuels: one calendar year per dispatch (about 40 min), newest year first, the next only after the previous has finished and not around the Sunday run (a third queued Chile job cancels the pending one without an alert); a source=all dispatch with an older start runs it over the whole window.'
         required: false
         default: ''
       end_override:
@@ -864,8 +864,17 @@ jobs:
             --end-date "${{ steps.latest.outputs.end_date }}" \
             ${{ inputs.start_override != '' && '--report-only' || '' }}
 
-      - name: Upload artifacts (on failure only)
+      - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: failure() && steps.guard.outputs.applied == 'true'
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: python3 src/redact_artifacts.py extracted_data
+
+      - name: Upload artifacts (on failure only)
+        if: failure() && steps.guard.outputs.applied == 'true' && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: chile-all-fuels-extraction-${{ github.run_id }}
