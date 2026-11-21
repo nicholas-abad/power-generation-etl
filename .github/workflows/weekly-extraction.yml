@@ -1146,6 +1146,17 @@ jobs:
           psql -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
                -v ON_ERROR_STOP=1 -f schema/checks/gem_coal_feeds.sql
 
+      - name: Check every ENTSO-E coal area still has recent coal rows
+        # Per area, not per source: Poland returned nothing after 10 Nov 2026
+        # while the freshness step above passed. Runs even when it failed.
+        if: ${{ !cancelled() && needs.extract-entsoe.result != 'skipped' }}
+        env:
+          PGPASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          PGSSLMODE: require
+        run: |
+          psql -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+               -v ON_ERROR_STOP=1 -f schema/checks/entsoe_coal_areas.sql
+
   # ─────────────────────────────────────────────
   # Totals drift tripwire — a mature month's total moving >15% week-over-week
   # means an upstream restatement or data loss; either way a human looks.
