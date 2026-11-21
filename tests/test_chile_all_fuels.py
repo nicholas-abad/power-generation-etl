@@ -368,11 +368,11 @@ def test_weekly_reconcile_passes_only_after_the_pilot_view_refresh(pg, tmp_path,
     # a newly loaded hour, then refresh_views --source chile_all_fuels, then
     # reconcile. Without the refresh the new hour leaves the view stale.
     conn, db = pg
-    url = db._engine.url
-    for key, value in (("USER", url.username), ("PASSWORD", url.password or ""), ("HOST", url.host),
-                       ("PORT", str(url.port)), ("DB", url.database)):
-        monkeypatch.setenv(f"POSTGRES_{key}", value)
-    monkeypatch.delenv("POSTGRES_SSLMODE", raising=False)
+    # The refresh uses the test database's own engine: built from
+    # POSTGRES_* it would miss CI's socket directory (and the fixture clears
+    # those variables anyway).
+    monkeypatch.setattr(refresh_views, "get_connection_url", lambda: "unused")
+    monkeypatch.setattr(refresh_views, "create_engine", lambda url: db._engine)
     db.insert_chile_all_fuels_jsonl_data(write(tmp_path, [rec()], "earlier.jsonl"))
     refresh_views.refresh_views(refresh_views.STAGING_VIEWS["chile_all_fuels"])
     db.insert_chile_all_fuels_jsonl_data(write(tmp_path, [rec(timestamp_ms=TS + 3_600_000)], "new.jsonl"))
