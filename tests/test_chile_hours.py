@@ -9,6 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from check_chile_hours import HOUR_MS, find_gaps, is_fall_back_repeat, mature_end_ms
+import get_latest_date
 from get_latest_date import FALLBACK_DATE, with_lookback
 
 
@@ -167,3 +168,83 @@ class TestFallBackHour:
             ms("2026-04-08 04:00"),
         )
         assert mature == {"TER IEM": [self.REPEAT + HOUR_MS]}
+
+
+class TestAllFuelSeries:
+    # The all-fuel table: one series per (plant_key, technology); the extractor
+    # keeps both copies of the repeated fall-back hour (5 April 2026, 03:00 UTC).
+    COAL, GAS = "386 Térmica/Carbón", "386 Térmica/Gas Natural"
+    REPEAT = ms("2026-04-05 03:00")
+    DAY = (ms("2026-04-04 03:00"), ms("2026-04-06 04:00"))  # local 4 and 5 April
+    SPAN = (ms("2019-01-01 03:00"), ms("2026-04-10 03:00"))
+
+    def check(self, stored: dict[str, set[int]]) -> dict[str, list[int]]:
+        mature, _ = find_gaps(
+            {self.COAL: self.SPAN, self.GAS: self.SPAN},
+            stored,
+            *self.DAY,
+            ms("2026-04-08 04:00"),
+            allow_fall_back_repeat=False,
+        )
+        return mature
+
+    def test_a_complete_day_with_the_repeated_hour_passes(self):
+        full = hours("2026-04-04 03:00", "2026-04-06 03:00")
+        assert self.REPEAT in full and len(full) == 49  # 24 + 25 local hours
+        assert self.check({self.COAL: full, self.GAS: full}) == {}
+
+    def test_a_series_missing_while_its_sibling_is_present_fails(self):
+        full = hours("2026-04-04 03:00", "2026-04-06 03:00")
+        late = full - {ms("2026-04-04 12:00")}
+        assert self.check({self.COAL: full, self.GAS: late}) == {
+            self.GAS: [ms("2026-04-04 12:00")]
+        }
+
+    def test_the_repeated_fall_back_hour_missing_fails(self):
+        full = hours("2026-04-04 03:00", "2026-04-06 03:00")
+        assert self.check({self.COAL: full, self.GAS: full - {self.REPEAT}}) == {
+            self.GAS: [self.REPEAT]
+        }
+
+    def test_a_sparse_series_fails(self):
+        # A unit the source omits in idle hours: decided case by case.
+        full = hours("2026-04-04 03:00", "2026-04-06 03:00")
+        sparse = {ms("2026-04-04 03:00"), ms("2026-04-06 03:00")}
+        assert len(self.check({self.COAL: full, self.GAS: sparse})[self.GAS]) == 47
+
+
+class TestLatestDateAllFuels:
+    def test_maps_to_the_all_fuel_table(self):
+        assert (
+            get_latest_date.SOURCE_CONFIG["chile_all_fuels"][0]
+            == "chile_generation_all_fuels"
+        )
+
+    def test_an_empty_table_still_returns_the_fallback(self, monkeypatch):
+        # The weekly job's guard fails on an empty table; this contract is
+        # why it must (1970 minus the lookback is still 1970).
+        class _Result:
+            def fetchone(self):
+                return (None,)
+
+        class _Conn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, statement):
+                assert "FROM chile_generation_all_fuels" in str(statement)
+                return _Result()
+
+        class _Engine:
+            def connect(self):
+                return _Conn()
+
+        monkeypatch.setattr(
+            get_latest_date, "get_connection_url", lambda: "postgresql://x"
+        )
+        monkeypatch.setattr(get_latest_date, "create_engine", lambda url: _Engine())
+        latest = get_latest_date.get_latest_date("chile_all_fuels")
+        assert with_lookback(latest, 14) == FALLBACK_DATE
