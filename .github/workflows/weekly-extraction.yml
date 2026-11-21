@@ -134,8 +134,17 @@ jobs:
             cat extracted_data/failures.json
             exit 1
           fi
-      - name: Upload artifacts (on failure only)
+      - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: failure()
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: python3 src/redact_artifacts.py extracted_data
+
+      - name: Upload artifacts (on failure only)
+        if: failure() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: eia-extraction-${{ github.run_id }}
@@ -219,8 +228,17 @@ jobs:
             cat extracted_data/failures.json
             exit 1
           fi
-      - name: Upload artifacts (on failure only)
+      - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: failure()
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: python3 src/redact_artifacts.py extracted_data
+
+      - name: Upload artifacts (on failure only)
+        if: failure() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: ons-extraction-${{ github.run_id }}
@@ -285,8 +303,17 @@ jobs:
           END_OVERRIDE: ${{ inputs.end_override }}
         run: uv run python src/incremental_extract.py entsoe
 
-      - name: Upload artifacts (on failure only)
+      - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: failure()
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: python3 src/redact_artifacts.py extracted_data
+
+      - name: Upload artifacts (on failure only)
+        if: failure() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: entsoe-extraction-${{ github.run_id }}
@@ -370,8 +397,17 @@ jobs:
             cat extracted_data/failures.json
             exit 1
           fi
-      - name: Upload artifacts (on failure only)
+      - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: failure()
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: python3 src/redact_artifacts.py extracted_data
+
+      - name: Upload artifacts (on failure only)
+        if: failure() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: npp-extraction-${{ github.run_id }}
@@ -466,8 +502,17 @@ jobs:
             failed=1
           done
           [ "$failed" -eq 0 ]
-      - name: Upload artifacts (on failure only)
+      - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: failure()
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: python3 src/redact_artifacts.py extracted_data
+
+      - name: Upload artifacts (on failure only)
+        if: failure() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: oe-extraction-${{ github.run_id }}
@@ -521,8 +566,17 @@ jobs:
           END_OVERRIDE: ${{ inputs.end_override }}
         run: uv run python src/incremental_extract.py occto
 
-      - name: Upload artifacts (on failure only)
+      - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: failure()
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: python3 src/redact_artifacts.py extracted_data
+
+      - name: Upload artifacts (on failure only)
+        if: failure() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: occto-extraction-${{ github.run_id }}
@@ -623,8 +677,17 @@ jobs:
             --end-date "${{ steps.latest.outputs.end_date }}" \
             ${{ inputs.start_override != '' && '--report-only' || '' }}
 
-      - name: Upload artifacts (on failure only)
+      - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: failure()
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: python3 src/redact_artifacts.py extracted_data
+
+      - name: Upload artifacts (on failure only)
+        if: failure() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: chile-extraction-${{ github.run_id }}
@@ -723,8 +786,17 @@ jobs:
             cat extracted_data/failures.json
             exit 1
           fi
-      - name: Upload artifacts (on failure only)
+      - name: Redact secrets from artifact files (public repository)
+        id: redact
         if: failure()
+        env:
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+          OPENELECTRICITY_API_KEY: ${{ secrets.OE_API_KEY }}
+          CL_API_KEY: ${{ secrets.CL_API_KEY }}
+        run: python3 src/redact_artifacts.py extracted_data
+
+      - name: Upload artifacts (on failure only)
+        if: failure() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: climatetrace-extraction-${{ github.run_id }}
