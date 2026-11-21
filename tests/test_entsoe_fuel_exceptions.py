@@ -147,25 +147,25 @@ def row(**changes):
 
 def test_a_historical_reload_drops_the_relabelled_months_and_keeps_later_gas():
     listed = records(NORD2)
-    assert fx.filtered_on_load(row(), listed).id == "PL-gas-unit-coal"
+    assert fx.exception_on_load(row(), listed).id == "PL-gas-unit-coal"
     after = row(timestamp_ms=1735689600000)  # 2025-01-01: gas after conversion
-    assert fx.filtered_on_load(after, listed) is None
+    assert fx.exception_on_load(after, listed) is None
 
 
 def test_an_excluded_coal_row_is_dropped_and_others_kept():
     listed = records(EXCLUDE)
     coal = row(psr_type="B02", unit_eic=UNIT, plant_name="Belchatow 2")
-    assert fx.filtered_on_load(coal, listed).id == "PL-belchatow-2-not-coal"
+    assert fx.exception_on_load(coal, listed).id == "PL-belchatow-2-not-coal"
     other = dict(coal, unit_eic="19W000000000OTHR")
-    assert fx.filtered_on_load(other, listed) is None
+    assert fx.exception_on_load(other, listed) is None
 
 
 def test_coal_without_an_eic_from_an_area_with_an_exclude_record_fails():
     listed = records(EXCLUDE)
     with pytest.raises(ValueError, match="without a unit EIC"):
-        fx.filtered_on_load(row(psr_type="B02", plant_name="Belchatow 2"), listed)
+        fx.exception_on_load(row(psr_type="B02", plant_name="Belchatow 2"), listed)
     # Gas rows without an EIC are fine: they are not coal.
-    assert fx.filtered_on_load(row(plant_name="Other gas"), listed) is None
+    assert fx.exception_on_load(row(plant_name="Other gas"), listed) is None
 
 
 # --- certification ----------------------------------------------------------
@@ -489,3 +489,42 @@ def test_an_unnamed_listed_series_left_out_is_not_counted_as_relabelled(
     month = build_with(tmp_path, root, listed(NORD2))["months"][0]
     assert month["relabelled"] == []
     assert [(x["unit_eic"], x["mwh"]) for x in month["excluded"]] == [(GAS_UNIT, "50")]
+
+
+# count_as_other_fuel (plan: entsoe-relabel-treatment, phase 1)
+OTHER_FUEL = {
+    **NORD2, "id": "PL-belchatow-2-biomass", "unit_eic": UNIT, "source_psr": "B05",
+    "treatment": "count_as_other_fuel", "counted_psr": "B01",
+}  # fmt: skip
+
+
+def test_count_as_other_fuel_needs_coal_in_and_another_fuel_out():
+    assert fx.parse({"exceptions": [OTHER_FUEL]})[0].counted_psr == "B01"
+    for bad in ({"source_psr": "B04"}, {"counted_psr": "B02"}, {"counted_psr": "B21"}, {"counted_psr": None}):
+        with pytest.raises(ValueError, match="count_as_other_fuel needs"):
+            fx.parse({"exceptions": [{**OTHER_FUEL, **bad}]})
+
+
+def test_a_moved_row_takes_the_counted_fuel_and_its_label():
+    (record,) = fx.parse({"exceptions": [OTHER_FUEL]})
+    moved = fx.moved_record({"psr_type": "B05", "fuel_type": "Fossil Hard coal", "generation_mw": 5.0}, record)
+    assert moved == {"psr_type": "B01", "fuel_type": "Biomass", "generation_mw": 5.0}
+
+
+def test_areas_with_moves_need_eics_and_are_refused_by_the_rebuild():
+    records = fx.parse({"exceptions": [OTHER_FUEL, NORD2 | {"area": "DE_TENNET"}]})
+    assert fx.other_fuel_areas(records) == {"PL"}
+    assert "PL" in fx.exclude_areas(records)
+    with pytest.raises(ValueError, match="does not move rows"):
+        fx.moved_record({}, records[1])
+
+
+def test_the_payload_builder_refuses_an_area_with_moves(monkeypatch, tmp_path):
+    import build_entsoe_coal_payload as payload
+
+    records = fx.parse({"exceptions": [OTHER_FUEL]})
+    monkeypatch.setattr(fx, "exceptions", lambda: records)
+    certified = tmp_path / "certified.json"
+    certified.write_text(json.dumps({"country": "PL"}))
+    with pytest.raises(ValueError, match="count_as_other_fuel records"):
+        payload.build(tmp_path, certified, tmp_path, "test", 0, tmp_path)

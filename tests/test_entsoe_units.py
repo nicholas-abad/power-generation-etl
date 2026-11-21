@@ -704,3 +704,108 @@ def test_an_identified_source_row_of_a_relabelled_unit_is_dropped_not_rejected(
         assert ok and report.written_count == 0
     finally:
         entsoe_names.units.cache_clear()
+
+
+# count_as_other_fuel (plan: entsoe-relabel-treatment, phase 1): a converted
+# unit ENTSO-E still labels coal is loaded as its real fuel, not dropped.
+# Made-up units: the reviewed identity table knows record()'s real one.
+MOVED_UNIT, OTHER_UNIT = "27W-GU-TSTMOVE-1", "27W-GU-TSTOTHR-2"
+
+
+def moved(**changes):
+    return record(unit_eic=MOVED_UNIT, production_unit_eic=None, plant_name="Test Moved 1", **changes)
+
+
+def _move_to_biomass(monkeypatch):
+    import entsoe_fuel_exceptions as fx
+
+    parsed = fx.parse(
+        {
+            "exceptions": [
+                {
+                    "id": "CZ-test-1-biomass", "area": "CZ", "unit_eic": MOVED_UNIT,
+                    "unit_name": "Test Moved 1", "from_month": "2019-01", "to_month": None,
+                    "source_psr": "B02", "treatment": "count_as_other_fuel", "counted_psr": "B01",
+                    "reason": "test", "decided_by": "test", "decided_on": "2026-11-21", "ref": "test",
+                }
+            ]
+        }
+    )  # fmt: skip
+    monkeypatch.setattr(fx, "exceptions", lambda: parsed)
+
+
+def _stored(connection):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT unit_eic, plant_name, psr_type, fuel_type FROM ingestion.entsoe_generation_data "
+            "ORDER BY unit_eic, timestamp_ms"
+        )
+        return cursor.fetchall()
+
+
+@pytest.fixture
+def loader_log():
+    from loguru import logger
+
+    lines: list[str] = []
+    sink = logger.add(lambda m: lines.append(str(m)), level="ERROR")
+    yield lines
+    logger.remove(sink)
+
+
+def test_a_converted_units_coal_rows_load_as_its_real_fuel(entsoe_db, tmp_path, monkeypatch):
+    connection, db, dsn = entsoe_db
+    migrate(dsn)
+    _move_to_biomass(monkeypatch)
+    other = record(unit_eic=OTHER_UNIT, production_unit_eic=None, plant_name="Test Other 2")
+    ok, report = load_as_extracted(db, tmp_path, [moved(), other], batch_size=1)
+    assert ok and report.written_count == 2
+    assert _stored(connection) == [
+        (MOVED_UNIT, "Test Moved 1", "B01", "Biomass"),
+        (OTHER_UNIT, "Test Other 2", "B02", "Fossil Brown coal/Lignite"),
+    ]
+
+
+def test_a_unit_reviewed_under_its_coal_label_is_checked_before_the_move(entsoe_db, tmp_path, monkeypatch):
+    # Aboño 2 is reviewed as B05 in entsoe-unit-names.json; its moved rows must
+    # pass the identity check under the source PSR and keep the canonical name.
+    import entsoe_names
+
+    names = tmp_path / "names.json"
+    names.write_text(json.dumps({"units": [{
+        "country_code": "CZ", "unit_eic": MOVED_UNIT, "psr_type": "B02", "plant_name": "Test Moved One",
+        "source_names": ["Test Moved 1"], "legacy_names": ["Test Moved One"],
+    }]}))  # fmt: skip
+    monkeypatch.setattr(entsoe_names, "PATH", names)
+    entsoe_names.units.cache_clear()
+    try:
+        connection, db, dsn = entsoe_db
+        migrate(dsn)
+        _move_to_biomass(monkeypatch)
+        ok, _ = load_as_extracted(db, tmp_path, [moved()], batch_size=1)
+        assert ok
+        assert _stored(connection) == [(MOVED_UNIT, "Test Moved One", "B01", "Biomass")]
+    finally:
+        entsoe_names.units.cache_clear()
+
+
+def test_a_file_reporting_the_unit_under_both_fuels_moves_nothing(entsoe_db, tmp_path, monkeypatch, loader_log):
+    connection, db, dsn = entsoe_db
+    migrate(dsn)
+    _move_to_biomass(monkeypatch)
+    native = moved(psr_type="B01", fuel_type="Biomass")
+    # The native row is written in its own batch; the moved one is held back and never written.
+    ok, _ = load_as_extracted(db, tmp_path, [native, moved()], batch_size=1)
+    assert not ok and any("reports the unit twice" in line for line in loader_log)
+    assert _stored(connection) == [(MOVED_UNIT, "Test Moved 1", "B01", "Biomass")]
+
+
+def test_a_stored_coal_copy_must_be_moved_before_a_reload(entsoe_db, tmp_path, monkeypatch, loader_log):
+    connection, db, dsn = entsoe_db
+    migrate(dsn)
+    ok, _ = load_as_extracted(db, tmp_path, [moved()], batch_size=1)  # before the record: stored as coal
+    assert ok
+    _move_to_biomass(monkeypatch)
+    ok, _ = load_as_extracted(db, tmp_path, [moved()], batch_size=1)
+    assert not ok and any("move the stored rows first" in line for line in loader_log)
+    assert _stored(connection) == [(MOVED_UNIT, "Test Moved 1", "B02", "Fossil Brown coal/Lignite")]

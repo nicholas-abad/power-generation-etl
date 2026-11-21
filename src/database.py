@@ -35,10 +35,118 @@ from entsoe_coal import (
     source_coal,
 )
 from entsoe_identity import prepare_record as prepare_entsoe_record
-from entsoe_fuel_exceptions import filtered_on_load as fuel_exception_on_load
+from entsoe_fuel_exceptions import exception_on_load as fuel_exception_on_load
+from entsoe_fuel_exceptions import DROPPED_ON_LOAD, moved_record
+import entsoe_fuel_exceptions
+from entsoe_fuels import PSR_TO_FUEL_TYPE
 
 # ONS natural key since migration 020 (uq_ons_plant_hour).
 ONS_PLANT_HOUR = "timestamp_ms, COALESCE(NULLIF(ons_plant_id, ''), 'name:' || plant)"
+
+
+class _FuelMoves:
+    """Rows a count_as_other_fuel record moves to another fuel, held for one file.
+
+    A moved row is checked before anything is written for it:
+
+    * in the file: no native row under its new fuel at the same unit and time
+      (same natural key, or same country, unit EIC and timestamp), and no two
+      source rows moved onto one output row;
+    * in the table: no stored row under its source PSR at the same unit and
+      time. That is the old coal copy; migration 018's unit key would refuse
+      the insert for identified rows, and a legacy row would be counted twice.
+      src/repair_entsoe_fuel_moves.py moves those first.
+    """
+
+    def __init__(self, records):
+        self.targets = {
+            (r.area, r.counted_psr)
+            for r in records
+            if r.treatment == "count_as_other_fuel"
+        }
+        self.held: list[tuple[bool, dict, object]] = []
+        self.native_keys: set[tuple] = set()
+        self.native_units: set[tuple] = set()
+        self.counts: dict[str, int] = {}
+
+    def note_native(self, record: dict) -> None:
+        if (record.get("country_code"), record.get("psr_type")) not in self.targets:
+            return
+        self.native_keys.add(_natural_key(record))
+        if record.get("unit_eic") is not None:
+            self.native_units.add(
+                (record["country_code"], record["unit_eic"], record["timestamp_ms"])
+            )
+
+    def hold(self, identified: bool, record: dict, exception) -> None:
+        self.held.append((identified, moved_record(record, exception), exception))
+        self.counts[exception.id] = self.counts.get(exception.id, 0) + 1
+
+    def check_in_file(self) -> None:
+        seen: set[tuple] = set()
+        for _, row, exception in self.held:
+            key = _natural_key(row)
+            unit = (row["country_code"], row.get("unit_eic"), row["timestamp_ms"])
+            if key in seen:
+                raise ValueError(
+                    f"Fuel exception {exception.id}: two source rows move onto one "
+                    f"row at {row['timestamp_ms']} ({row['plant_name']})"
+                )
+            seen.add(key)
+            if key in self.native_keys or (
+                row.get("unit_eic") is not None and unit in self.native_units
+            ):
+                raise ValueError(
+                    f"Fuel exception {exception.id}: the file also reports "
+                    f"{row['plant_name']} as {row['psr_type']} at {row['timestamp_ms']}; "
+                    "ENTSO-E reports the unit twice, review before loading"
+                )
+
+    def check_stored(self, conn) -> None:
+        from sqlalchemy import text as _text
+
+        by_unit = [(r, e) for _, r, e in self.held if r.get("unit_eic") is not None]
+        by_name = [(r, e) for _, r, e in self.held if r.get("unit_eic") is None]
+        stale = 0
+        for rows, column, value in (
+            (by_unit, "unit_eic", "unit_eic"),
+            (by_name, "plant_name", "plant_name"),
+        ):
+            if not rows:
+                continue
+            stale += conn.execute(
+                _text(
+                    "SELECT count(*) FROM entsoe_generation_data t JOIN unnest("
+                    "CAST(:c AS text[]), CAST(:k AS text[]), CAST(:ts AS bigint[]), CAST(:p AS text[])"
+                    ") AS m(country_code, k, timestamp_ms, psr_type) "
+                    f"ON t.country_code = m.country_code AND t.{column} = m.k "
+                    "AND t.timestamp_ms = m.timestamp_ms AND t.psr_type = m.psr_type"
+                ),
+                {
+                    "c": [r["country_code"] for r, _ in rows],
+                    "k": [r[value] for r, _ in rows],
+                    "ts": [r["timestamp_ms"] for r, _ in rows],
+                    "p": [e.source_psr for _, e in rows],
+                },
+            ).scalar()
+        if stale:
+            ids = sorted({e.id for _, _, e in self.held})
+            raise ValueError(
+                f"{stale} rows to move under {ids} still have their source-PSR copy stored; "
+                "move the stored rows first (src/repair_entsoe_fuel_moves.py)"
+            )
+
+    def rows(self):
+        return [(identified, row) for identified, row, _ in self.held]
+
+
+def _natural_key(record: dict) -> tuple:
+    return (
+        record["timestamp_ms"],
+        record["country_code"],
+        record["psr_type"],
+        record["plant_name"],
+    )
 
 
 def ons_plant_hour_conflict(jsonl_file_path: str) -> Optional[str]:
@@ -68,32 +176,10 @@ def ons_plant_hour_conflict(jsonl_file_path: str) -> Optional[str]:
     return None
 
 
-# ENTSO-E PSR type codes to human-readable fuel type names.
+# ENTSO-E PSR type codes to fuel names: src/entsoe_fuels.py (shared with the
+# fuel exceptions, so a moved row gets the same label as a weekly row).
 # Used to fix fuel_type during JSONL ingestion (records extracted before the
 # extractor fix may have fuel_type="Unknown" due to column-name parsing bugs).
-PSR_TO_FUEL_TYPE = {
-    "B01": "Biomass",
-    "B02": "Fossil Brown coal/Lignite",
-    "B03": "Fossil Coal-derived gas",
-    "B04": "Fossil Gas",
-    "B05": "Fossil Hard coal",
-    "B06": "Fossil Oil",
-    "B07": "Fossil Oil shale",
-    "B08": "Fossil Peat",
-    "B09": "Geothermal",
-    "B10": "Hydro Pumped Storage",
-    "B11": "Hydro Run-of-river and poundage",
-    "B12": "Hydro Water Reservoir",
-    "B13": "Marine",
-    "B14": "Nuclear",
-    "B15": "Other renewable",
-    "B16": "Solar",
-    "B17": "Waste",
-    "B18": "Wind Offshore",
-    "B19": "Wind Onshore",
-    "B20": "Other",
-    "B25": "Energy storage",
-}
 
 # Suffixes that leak into plant names from column flattening
 _FUEL_TYPE_SUFFIXES = sorted(PSR_TO_FUEL_TYPE.values(), key=len, reverse=True)
@@ -852,6 +938,9 @@ class PowerGenerationDatabase:
                 line_num = 0
                 consumption_skipped = 0
                 fuel_exception_drops: dict[str, int] = {}
+                # count_as_other_fuel: moved rows wait for the end of the file,
+                # after every native row under their new fuel has been seen.
+                moves = _FuelMoves(entsoe_fuel_exceptions.exceptions())
                 for line_num, line in enumerate(f, 1):
                     if not line.strip():
                         continue
@@ -948,12 +1037,18 @@ class PowerGenerationDatabase:
                         # a unit reviewed under its counted coal PSR would fail
                         # it, though the row is meant to be dropped.
                         exception = fuel_exception_on_load(record)
-                        if exception:
+                        if exception and exception.treatment in DROPPED_ON_LOAD:
                             fuel_exception_drops[exception.id] = (
                                 fuel_exception_drops.get(exception.id, 0) + 1
                             )
                             continue
+                        # The identity is reviewed under the source PSR (e.g.
+                        # Aboño 2 as B05): check it before a move.
                         record = prepare_entsoe_record(record)
+                        if exception:
+                            moves.hold(True, record, exception)
+                            continue
+                        moves.note_native(record)
                         batches[True].append(record)
                         if len(batches[True]) >= batch_size:
                             flush(True, line_num)
@@ -987,14 +1082,31 @@ class PowerGenerationDatabase:
 
                     # After name cleanup: legacy rows match a reviewed name.
                     exception = fuel_exception_on_load(record)
-                    if exception:
+                    if exception and exception.treatment in DROPPED_ON_LOAD:
                         fuel_exception_drops[exception.id] = (
                             fuel_exception_drops.get(exception.id, 0) + 1
                         )
                         continue
+                    if exception:
+                        moves.hold(False, record, exception)
+                        continue
+                    moves.note_native(record)
                     batches[False].append(record)
                     if len(batches[False]) >= batch_size:
                         flush(False, line_num)
+
+                # Moved rows last, after the checks, so a rejected move writes none of them.
+                if moves.held:
+                    moves.check_in_file()
+                    with self.engine.connect() as conn:
+                        moves.check_stored(conn)
+                    for kind, record in moves.rows():
+                        batches[kind].append(record)
+                    for exception_id, moved in sorted(moves.counts.items()):
+                        logger.info(
+                            f"Moved {moved:,} rows to another fuel under fuel exception "
+                            f"{exception_id} (config/entsoe-fuel-exceptions.json)"
+                        )
 
                 # Process remaining records
                 flush(False, line_num)

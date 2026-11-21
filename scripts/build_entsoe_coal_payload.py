@@ -265,6 +265,10 @@ def build(
     certified = json.loads(certified_path.read_text())
     country = certified["country"]
     records = entsoe_fuel_exceptions.exceptions()
+    require(
+        country not in entsoe_fuel_exceptions.other_fuel_areas(records),
+        f"{country} has count_as_other_fuel records: the certified rebuild does not support them yet",
+    )
     if any(r.area == country for r in records):
         require(
             certified.get("fuel_exceptions_sha256") == entsoe_fuel_exceptions.sha256(),
